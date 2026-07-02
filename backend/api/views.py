@@ -790,11 +790,15 @@ class OperatingExpenseViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = OperatingExpense.objects.select_related('property', 'unit', 'created_by').all()
+        user = self.request.user
+        if is_property_manager(user):
+            # Manager portal lists hand-entered costs only — not Excel P&L import rows.
+            qs = qs.filter(created_by=user).exclude(notes__startswith='excel-import-')
         qs = qs.filter(
             Q(property__isnull=True)
-            | Q(property__in=filter_properties_for_user(Property.objects.all(), self.request.user))
+            | Q(property__in=filter_properties_for_user(Property.objects.all(), user))
         )
-        if not is_admin_user(self.request.user):
+        if not is_admin_user(user):
             qs = qs.exclude(visibility='admin_only')
         year = self.request.query_params.get('year')
         if year:
@@ -805,11 +809,11 @@ class OperatingExpenseViewSet(viewsets.ModelViewSet):
         limit = self.request.query_params.get('limit')
         if limit:
             try:
-                qs = qs.order_by('-date', '-id')[: max(1, int(limit))]
+                qs = qs.order_by('-created_at', '-id')[: max(1, int(limit))]
             except (TypeError, ValueError):
                 pass
         else:
-            qs = qs.order_by('-date', '-id')
+            qs = qs.order_by('-created_at', '-id')
         return qs
 
     def perform_create(self, serializer):

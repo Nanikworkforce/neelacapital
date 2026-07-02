@@ -17,10 +17,33 @@ from django.db.models import Sum, Q
 from django.db.models.functions import ExtractMonth
 
 from .models import Payment, Property, Tenant, OperatingExpense, ShortStayBooking, PropertyUnit
-from .property_units_service import get_property_group_key, is_portfolio_parent, sync_units_for_property
+from .property_units_service import get_property_group_key, is_portfolio_parent, sync_units_for_property, unit_for_door_number
 from .permissions import is_admin_user, exclude_import_placeholder_tenants
 
+IMPORT_TAG_PREFIX = 'excel-import-'
 IMPORT_TAG = 'excel-import-2026'
+
+
+def import_tag_for_year(year):
+    return f'{IMPORT_TAG_PREFIX}{year}'
+
+
+def is_excel_import_reference(reference, year):
+    return (reference or '').startswith(f'{import_tag_for_year(year)}-')
+
+
+def is_excel_import_note(notes, year):
+    return (notes or '').startswith(import_tag_for_year(year))
+
+
+def is_door_detail_payment(reference):
+    """Per-door gross rent rows — unit breakdown only, not portfolio total."""
+    return bool(re.search(r'-door-\d+-rent$', reference or ''))
+
+
+def door_number_from_payment(reference):
+    m = re.search(r'-door-(\d+)-rent$', reference or '')
+    return int(m.group(1)) if m else None
 
 
 def normalize(text):
@@ -28,9 +51,9 @@ def normalize(text):
 
 
 def parse_import_property_id(reference):
-    """Parse property id from excel-import payment reference: excel-import-2026-{prop_id}-..."""
+    """Parse property id from excel-import payment reference: excel-import-{year}-{prop_id}-..."""
     ref = reference or ''
-    if not ref.startswith(IMPORT_TAG):
+    if not ref.startswith(IMPORT_TAG_PREFIX):
         return None
     parts = ref.split('-')
     if len(parts) >= 4:
@@ -76,7 +99,7 @@ def build_tenant_property_map(tenants, property_ids_set, property_aliases):
                 break
 
     # Back-fill from import payment references when tenant matching missed
-    for pay in Payment.objects.filter(reference__startswith=IMPORT_TAG).only('id', 'tenant_id', 'reference'):
+    for pay in Payment.objects.filter(reference__startswith=IMPORT_TAG_PREFIX).only('id', 'tenant_id', 'reference'):
         pid = parse_import_property_id(pay.reference)
         if pid and pid in property_ids_set:
             tenant_prop_map[pay.tenant_id] = pid
@@ -84,7 +107,7 @@ def build_tenant_property_map(tenants, property_ids_set, property_aliases):
     return tenant_prop_map
 
 
-def _aggregate_expenses(expenses_qs, *, admin_view):
+def _aggregate_expenses(expenses_qs, *, admin_view, year):
     """
     Excel imports store monthly __SUMMARY__ rows matching workbook totals.
     Line-item rows feed category breakdown only when a summary row exists.
@@ -96,7 +119,7 @@ def _aggregate_expenses(expenses_qs, *, admin_view):
     summary_keys = {
         (e.property_id, e.date.month)
         for e in expenses
-        if (e.notes or '').startswith(IMPORT_TAG) and '__SUMMARY__' in (e.notes or '')
+        if is_excel_import_note(e.notes, year) and '__SUMMARY__' in (e.notes or '')
     }
     properties_with_excel_summary = {pid for pid, _ in summary_keys}
 
@@ -107,13 +130,15 @@ def _aggregate_expenses(expenses_qs, *, admin_view):
     for exp in expenses:
         amount = exp.amount or Decimal('0')
         notes = exp.notes or ''
-        is_excel = notes.startswith(IMPORT_TAG)
+        is_excel = is_excel_import_note(notes, year)
         is_summary = is_excel and '__SUMMARY__' in notes
 
         if not is_summary:
             expenses_by_category[exp.category] += amount
 
         if is_excel and not is_summary and exp.property_id in properties_with_excel_summary:
+            if exp.unit_id:
+                expenses_by_unit[exp.unit_id] += amount
             continue
 
         if exp.unit_id:
@@ -126,7 +151,7 @@ def _aggregate_expenses(expenses_qs, *, admin_view):
     return expenses_by_property, expenses_by_category, expenses_by_unit
 
 
-def _monthly_expense_map(expenses_qs, *, admin_view, property_ids_set):
+def _monthly_expense_map(expenses_qs, *, admin_view, property_ids_set, year):
     expenses = list(expenses_qs.filter(
         Q(property_id__in=property_ids_set) | Q(property_id__isnull=True)
     ))
@@ -136,14 +161,14 @@ def _monthly_expense_map(expenses_qs, *, admin_view, property_ids_set):
     summary_keys = {
         (e.property_id, e.date.month)
         for e in expenses
-        if (e.notes or '').startswith(IMPORT_TAG) and '__SUMMARY__' in (e.notes or '')
+        if is_excel_import_note(e.notes, year) and '__SUMMARY__' in (e.notes or '')
     }
     properties_with_excel_summary = {pid for pid, _ in summary_keys}
 
     month_map = defaultdict(lambda: Decimal('0'))
     for exp in expenses:
         notes = exp.notes or ''
-        is_excel = notes.startswith(IMPORT_TAG)
+        is_excel = is_excel_import_note(notes, year)
         is_summary = is_excel and '__SUMMARY__' in notes
         if is_excel and not is_summary and exp.property_id in properties_with_excel_summary:
             continue
@@ -165,7 +190,7 @@ def excel_portfolio_property_ids(year):
     """Property IDs with Excel workbook P&L import for this year."""
     ids = set()
     for ref in Payment.objects.filter(
-        reference__startswith=f'{IMPORT_TAG}-',
+        reference__startswith=f'{import_tag_for_year(year)}-',
         date__year=year,
     ).values_list('reference', flat=True):
         pid = parse_import_property_id(ref)
@@ -227,16 +252,26 @@ def compute_property_pnl(
         if prop_id not in property_ids_set:
             continue
         if excel_property_ids and prop_id in excel_property_ids:
-            if not (pay.reference or '').startswith(IMPORT_TAG):
+            if not is_excel_import_reference(pay.reference, year):
                 continue
         amount = pay.amount or Decimal('0')
-        rent_income_by_property[prop_id] += amount
+        detail_only = is_door_detail_payment(pay.reference)
+        if not detail_only:
+            rent_income_by_property[prop_id] += amount
         if not summary_only:
-            unit_token = normalize(pay.tenant.property_unit if pay.tenant else '')
-            for unit in unit_rows_by_property.get(prop_id, []):
-                if normalize(unit.label) in unit_token or unit_token in normalize(unit.label):
+            door_n = door_number_from_payment(pay.reference)
+            matched = False
+            if door_n is not None:
+                unit = unit_for_door_number(unit_rows_by_property.get(prop_id, []), door_n)
+                if unit:
                     rent_income_by_unit[unit.id] += amount
-                    break
+                    matched = True
+            if not matched:
+                unit_token = normalize(pay.tenant.property_unit if pay.tenant else '')
+                for unit in unit_rows_by_property.get(prop_id, []):
+                    if normalize(unit.label) in unit_token or unit_token in normalize(unit.label):
+                        rent_income_by_unit[unit.id] += amount
+                        break
 
     short_stay_by_property = defaultdict(lambda: Decimal('0'))
     for row in ShortStayBooking.objects.filter(
@@ -259,7 +294,7 @@ def compute_property_pnl(
     )
 
     expenses_by_property, expenses_by_category, expenses_by_unit = _aggregate_expenses(
-        expenses_qs, admin_view=admin_view
+        expenses_qs, admin_view=admin_view, year=year
     )
 
     if summary_only:
@@ -399,8 +434,10 @@ def _monthly_cash_flow(*, year, property_ids, admin_view, tenant_prop_map):
         if prop_id not in property_ids_set:
             continue
         if excel_property_ids and prop_id in excel_property_ids:
-            if not (pay.reference or '').startswith(IMPORT_TAG):
+            if not is_excel_import_reference(pay.reference, year):
                 continue
+        if is_door_detail_payment(pay.reference):
+            continue
         month = pay.date.month
         month_rent_map[month] += pay.amount or Decimal('0')
 
@@ -420,7 +457,7 @@ def _monthly_cash_flow(*, year, property_ids, admin_view, tenant_prop_map):
     ).only('amount', 'date', 'property_id', 'visibility', 'notes')
 
     month_exp_map = _monthly_expense_map(
-        month_exp_qs, admin_view=admin_view, property_ids_set=property_ids_set
+        month_exp_qs, admin_view=admin_view, property_ids_set=property_ids_set, year=year
     )
 
     monthly = []

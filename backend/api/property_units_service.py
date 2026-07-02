@@ -55,6 +55,27 @@ def extract_unit_label(name, address=''):
     return (address or '').strip() or 'Unit'
 
 
+DOOR_UNIT_PATTERNS = {
+    1: ('unit a', 'unit 1', 'door 1'),
+    2: ('unit b', 'unit 2', 'door 2'),
+    3: ('unit c', 'unit 3', 'door 3'),
+    4: ('unit d', 'unit 4', 'door 4', 'eado studio'),
+}
+
+
+def unit_for_door_number(units, door_n):
+    """Map Excel Door 1–4 to PropertyUnit rows (Unit A/1, B, C/3, D/4)."""
+    patterns = DOOR_UNIT_PATTERNS.get(door_n, ())
+    for unit in units:
+        label = (unit.label or '').lower()
+        if any(p in label for p in patterns):
+            return unit
+    ordered = sorted(units, key=lambda u: (u.sort_order, u.id))
+    if 1 <= door_n <= len(ordered):
+        return ordered[door_n - 1]
+    return None
+
+
 def unit_sort_key(label):
     m = re.search(r'(\d+|[A-Za-z]+)', label or '')
     return m.group(1).rjust(4, '0') if m else label

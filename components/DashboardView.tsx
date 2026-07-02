@@ -264,11 +264,12 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { DollarSign, AlertCircle, CheckCircle2, Users, FileText, Building2, Home, Settings, TrendingUp, ChevronRight, ArrowUpRight, ArrowDownRight, Clock, Zap, X, MapPin, Bed, Bath, Maximize, BarChart3 } from 'lucide-react';
-import { Tenant, Payment, MaintenanceRequest, TenantStatus, Property, IncomeStatementSummary } from '../types';
+import { DollarSign, AlertCircle, CheckCircle2, Users, FileText, Building2, Home, Settings, TrendingUp, ChevronRight, ArrowUpRight, ArrowDownRight, Clock, Zap, X, MapPin, Bed, Bath, Maximize, BarChart3, Receipt } from 'lucide-react';
+import { Tenant, Payment, MaintenanceRequest, TenantStatus, Property, IncomeStatementSummary, OperatingExpense } from '../types';
 import Modal from './Modal';
 import { api } from '../services/api';
 import { formatDateMMDDYYYY, formatRelativeTimeAgo } from '../utils/date';
+import { CATEGORY_LABELS } from '../utils/propertyGrouping';
 
 interface DashboardProps {
   tenants: Tenant[];
@@ -336,6 +337,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
   const [dashboardPropertiesToShow, setDashboardPropertiesToShow] = useState(DASHBOARD_PROPERTIES_PAGE_SIZE);
   const [pnlSummary, setPnlSummary] = useState<IncomeStatementSummary | null>(null);
   const [pnlLoading, setPnlLoading] = useState(true);
+  const [managerExpenses, setManagerExpenses] = useState<OperatingExpense[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -349,6 +351,19 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
       })
       .finally(() => {
         if (!cancelled) setPnlLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const year = new Date().getFullYear();
+    api.getOperatingExpenses({ year, limit: 8 })
+      .then((rows) => {
+        if (!cancelled) setManagerExpenses(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setManagerExpenses([]);
       });
     return () => { cancelled = true; };
   }, []);
@@ -761,6 +776,46 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
           )}
         </div>
       </button>
+
+      {managerExpenses.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2">
+              <div className="dash-stat-icon dash-stat-icon--amber">
+                <Receipt className="w-4 h-4" />
+              </div>
+              <h3 className="font-bold text-slate-900 text-sm sm:text-base">Recent Expenses</h3>
+            </div>
+            {onNavigateToIncomeStatement && (
+              <button
+                type="button"
+                onClick={onNavigateToIncomeStatement}
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+              >
+                View all <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="space-y-2">
+            {managerExpenses.slice(0, 5).map((e) => (
+              <div key={e.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 px-3 py-2.5 hover:bg-slate-50">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 truncate">
+                    {e.propertyName || 'Property'}
+                    {e.unitLabel ? ` · ${e.unitLabel}` : ''}
+                    {' · '}{CATEGORY_LABELS[e.category] || e.category}
+                  </p>
+                  <p className="text-xs text-slate-500 truncate">
+                    {e.date}{e.notes ? ` · ${e.notes}` : ''}
+                    {e.createdByName ? ` · ${e.createdByName}` : ''}
+                  </p>
+                </div>
+                <p className="text-sm font-bold text-rose-700 flex-shrink-0">${(e.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Quick Actions */}
       <div className="grid grid-cols-2 md:grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
