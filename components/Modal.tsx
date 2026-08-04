@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -23,13 +24,14 @@ const Modal: React.FC<ModalProps> = ({
   cancelText = 'Cancel',
 }) => {
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
+    if (!isOpen) return;
+    const prevBody = document.body.style.overflow;
+    const prevHtml = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
     return () => {
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = prevBody;
+      document.documentElement.style.overflow = prevHtml;
     };
   }, [isOpen]);
 
@@ -107,46 +109,46 @@ const Modal: React.FC<ModalProps> = ({
     }
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
+      style={{ position: 'fixed', inset: 0 }}
       onClick={handleBackdropClick}
+      role="dialog"
+      aria-modal="true"
     >
       <div
-        className="bg-white rounded-xl shadow-2xl max-w-md sm:max-w-lg w-full max-h-[92vh] sm:max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col"
+        className="bg-white rounded-xl shadow-2xl max-w-md sm:max-w-lg w-full max-h-[min(92dvh,720px)] overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-slate-200">
-          <div className="flex items-center gap-3">
-            <div className={`${styles.iconBg} ${styles.iconColor} p-2 rounded-lg`}>
+        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-slate-200 flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`${styles.iconBg} ${styles.iconColor} p-2 rounded-lg flex-shrink-0`}>
               {getIcon()}
             </div>
-            <h3 className="text-lg sm:text-xl font-bold text-slate-800">{title}</h3>
+            <h3 className="text-lg sm:text-xl font-bold text-slate-800 truncate">{title}</h3>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-1.5 rounded-lg transition-colors"
+            className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-1.5 rounded-lg transition-colors flex-shrink-0"
             aria-label="Close modal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6">
           <p className="text-sm sm:text-base text-slate-600 leading-relaxed whitespace-pre-wrap">
             {message}
           </p>
         </div>
 
-        {/* Footer */}
-        <div className="flex flex-col sm:flex-row gap-3 p-4 sm:p-6 border-t border-slate-200 bg-slate-50">
+        <div className="flex flex-col sm:flex-row gap-3 p-4 sm:p-6 border-t border-slate-200 bg-slate-50 flex-shrink-0">
           {type === 'confirm' && onConfirm ? (
             <>
               <button
                 onClick={onClose}
-                className="flex-1 px-4 py-2.5 sm:py-3 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-medium transition-colors text-sm sm:text-base"
+                className="flex-1 px-4 py-2.5 sm:py-3 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-medium transition-colors text-sm sm:text-base min-h-[44px]"
               >
                 {cancelText}
               </button>
@@ -155,7 +157,7 @@ const Modal: React.FC<ModalProps> = ({
                   onConfirm();
                   onClose();
                 }}
-                className={`flex-1 px-4 py-2.5 sm:py-3 ${styles.buttonBg} text-white rounded-lg font-medium transition-colors text-sm sm:text-base`}
+                className={`flex-1 px-4 py-2.5 sm:py-3 ${styles.buttonBg} text-white rounded-lg font-medium transition-colors text-sm sm:text-base min-h-[44px]`}
               >
                 {confirmText}
               </button>
@@ -163,14 +165,15 @@ const Modal: React.FC<ModalProps> = ({
           ) : (
             <button
               onClick={onClose}
-              className={`w-full px-4 py-2.5 sm:py-3 ${styles.buttonBg} text-white rounded-lg font-medium transition-colors text-sm sm:text-base`}
+              className={`w-full px-4 py-2.5 sm:py-3 ${styles.buttonBg} text-white rounded-lg font-medium transition-colors text-sm sm:text-base min-h-[44px]`}
             >
               {confirmText}
             </button>
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 

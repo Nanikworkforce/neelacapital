@@ -5,6 +5,7 @@ import {
   MapPin, BedDouble, Bath, Maximize, Building2, Loader2, Clock, Minus, Plus, X
 } from 'lucide-react';
 import { FloatingPillSwitch } from './FloatingPillSwitch';
+import ViewportPortal from './ViewportPortal';
 
 const QUICK_LOCATIONS = ['Downtown Houston', 'Houston Airport', 'Galleria', 'University of Houston'];
 
@@ -504,8 +505,13 @@ export const Listings: React.FC<ListingsProps> = ({ setView, setLoginType, handl
       </div>
 
       {detailsListing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setDetailsListing(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50"
+          style={{ position: 'fixed', inset: 0 }}
+          onClick={() => setDetailsListing(null)}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[min(92dvh,90vh)] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex gap-4 p-5">
               <div className="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border border-slate-200">
                 {detailsListing.image ? (
@@ -547,6 +553,7 @@ export const Listings: React.FC<ListingsProps> = ({ setView, setLoginType, handl
             </div>
           </div>
         </div>
+        </ViewportPortal>
       )}
     </div>
   );

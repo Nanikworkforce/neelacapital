@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
+import ViewportPortal from './ViewportPortal';
 
 // const BASE_URL = (import.meta as any).env?.VITE_API_URL || 'https://neela-backend.onrender.com';
 const BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
@@ -143,8 +144,13 @@ const SigPad: React.FC<SigPadProps> = ({ label, required, value, onChange }) => 
 
       {/* Drawer / modal */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 no-print" onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}>
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 no-print"
+          style={{ position: 'fixed', inset: 0 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4 max-h-[min(92dvh,90vh)] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h4 className="font-bold text-slate-900">{label}</h4>
               <div className="flex gap-1">
@@ -196,6 +202,7 @@ const SigPad: React.FC<SigPadProps> = ({ label, required, value, onChange }) => 
             </div>
           </div>
         </div>
+        </ViewportPortal>
       )}
     </div>
   );

@@ -7,6 +7,7 @@ import {
 import { Tenant, Payment, Invoice } from '../types';
 import { api } from '../services/api';
 import Modal from './Modal';
+import ViewportPortal from './ViewportPortal';
 
 interface PaymentsViewProps {
   tenants: Tenant[];
@@ -788,8 +789,12 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
 
       {/* Create Invoice Modal */}
       {showCreateInvoice && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
-           <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md animate-in zoom-in-95">
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center backdrop-blur-sm"
+          style={{ position: 'fixed', inset: 0 }}
+        >
+           <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md max-h-[min(92dvh,90vh)] overflow-y-auto animate-in zoom-in-95">
               <h3 className="text-lg font-bold text-slate-800 mb-4">Create Manual Invoice</h3>
               <div className="space-y-4">
                  <div>
@@ -832,12 +837,17 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
               </div>
            </div>
         </div>
+        </ViewportPortal>
       )}
 
       {/* Record Payment Modal */}
       {showRecordPayment && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
-           <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md animate-in zoom-in-95">
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center backdrop-blur-sm"
+          style={{ position: 'fixed', inset: 0 }}
+        >
+           <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md max-h-[min(92dvh,90vh)] overflow-y-auto animate-in zoom-in-95">
               <h3 className="text-lg font-bold text-slate-800 mb-4">Record Manual Payment</h3>
               <p className="text-sm text-slate-500 mb-4">Log cash, check, or external payments manually.</p>
               <div className="space-y-4">
@@ -886,16 +896,19 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
               </div>
            </div>
         </div>
+        </ViewportPortal>
       )}
 
       {/* Adjustment Modal */}
       {showAdjustment && (
+         <ViewportPortal>
          <div 
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm"
+            className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center backdrop-blur-sm"
+            style={{ position: 'fixed', inset: 0 }}
             onClick={closeAdjustmentModal}
          >
             <div 
-               className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto animate-in zoom-in-95"
+               className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md max-h-[min(92dvh,90vh)] overflow-y-auto animate-in zoom-in-95"
                onClick={(e) => e.stopPropagation()}
             >
                <div className="flex items-center justify-between mb-4">
@@ -986,12 +999,17 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                </div>
             </div>
          </div>
+         </ViewportPortal>
       )}
 
       {/* Send Notice Modal */}
       {showSendNotice && selectedTenantId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
-           <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md animate-in zoom-in-95">
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center backdrop-blur-sm"
+          style={{ position: 'fixed', inset: 0 }}
+        >
+           <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md max-h-[min(92dvh,90vh)] overflow-y-auto animate-in zoom-in-95">
               <h3 className="text-xl font-bold text-slate-800 mb-4">Send Legal Notice</h3>
               <p className="text-sm text-slate-600 mb-4">
                 Send a legal notice to <strong>{tenantsMap[selectedTenantId]?.name}</strong> regarding their outstanding balance of <strong className="text-rose-600">${tenantsMap[selectedTenantId]?.balance}</strong>.
@@ -1036,6 +1054,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                </div>
             </div>
          </div>
+         </ViewportPortal>
       )}
 
       {/* Modal */}

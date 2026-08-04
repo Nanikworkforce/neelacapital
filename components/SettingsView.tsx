@@ -6,6 +6,7 @@ import {
 import { api } from '../services/api';
 import { Property } from '../types';
 import Modal from './Modal';
+import ViewportPortal from './ViewportPortal';
 import PropertyManagersPanel from './PropertyManagersPanel';
 
 const PROPERTY_AREAS = [
@@ -738,8 +739,12 @@ ________________________ Tenant`);
 
       {/* Edit Property Modal */}
       {isEditModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-md w-full max-h-[90vh] flex flex-col">
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"
+          style={{ position: 'fixed', inset: 0 }}
+        >
+          <div className="bg-white rounded-xl shadow-lg max-w-md w-full max-h-[min(92dvh,90vh)] overflow-hidden flex flex-col">
             {/* Fixed Header */}
             <div className="flex-shrink-0 flex items-center justify-between p-6 pb-4 border-b border-slate-200">
               <h3 className="text-lg font-bold text-slate-800">Edit Property</h3>
@@ -986,12 +991,17 @@ ________________________ Tenant`);
             </div>
           </div>
         </div>
+        </ViewportPortal>
       )}
 
       {/* Add Property Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-md w-full max-h-[90vh] flex flex-col">
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"
+          style={{ position: 'fixed', inset: 0 }}
+        >
+          <div className="bg-white rounded-xl shadow-lg max-w-md w-full max-h-[min(92dvh,90vh)] overflow-hidden flex flex-col">
             {/* Fixed Header */}
             <div className="flex-shrink-0 flex items-center justify-between p-6 pb-4 border-b border-slate-200">
               <h3 className="text-lg font-bold text-slate-800">Add New Property</h3>
@@ -1238,6 +1248,7 @@ ________________________ Tenant`);
             </div>
           </div>
         </div>
+        </ViewportPortal>
       )}
 
       {/* Confirmation Modal */}

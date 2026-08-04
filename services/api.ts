@@ -1,4 +1,4 @@
-import { Tenant, Payment, MaintenanceRequest, Listing, Property, LeaseSigningMetadata, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, IncomeStatementSummary, PropertyManagerProfile, CreatePropertyManagerInput } from '../types';
+import { Tenant, Payment, MaintenanceRequest, Listing, Property, LeaseSigningMetadata, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, IncomeStatementSummary, PropertyManagerProfile, CreatePropertyManagerInput, PropertyUnit } from '../types';
 import { getAuthHeader, clearInvalidTokens, refreshAccessToken, refreshTokenIfNeeded } from './auth';
 
 // In dev, use Vite proxy (/api → backend) unless VITE_API_URL is set explicitly.
@@ -384,6 +384,58 @@ export const api = {
     }
     const data = await response.json();
     return api.mapOperatingExpense(data);
+  },
+
+  updateOperatingExpense: async (
+    id: string,
+    payload: {
+      property?: string | null;
+      unit?: string | null;
+      amount?: number;
+      category?: OperatingExpense['category'];
+      date?: string;
+      notes?: string;
+      visibility?: OperatingExpense['visibility'];
+    },
+  ): Promise<OperatingExpense> => {
+    const body: Record<string, unknown> = {};
+    if (payload.property !== undefined) body.property = payload.property || null;
+    if (payload.unit !== undefined) body.unit = payload.unit || null;
+    if (payload.amount !== undefined) body.amount = payload.amount;
+    if (payload.category !== undefined) body.category = payload.category;
+    if (payload.date !== undefined) body.date = payload.date;
+    if (payload.notes !== undefined) body.notes = payload.notes;
+    if (payload.visibility !== undefined) body.visibility = payload.visibility;
+    const response = await fetchWithAuth(`${API_URL}/operating-expenses/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(parseApiErrorBody(err, 'Failed to update expense'));
+    }
+    const data = await response.json();
+    return api.mapOperatingExpense(data);
+  },
+
+  getPropertyUnits: async (propertyId: string): Promise<PropertyUnit[]> => {
+    const params = new URLSearchParams({ property: propertyId });
+    const response = await fetchWithAuth(`${API_URL}/property-units/?${params}`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) throw new Error('Failed to fetch property units');
+    const data = await response.json();
+    const rows = Array.isArray(data) ? data : (data.results || []);
+    return rows.map((item: any) => ({
+      id: String(item.id),
+      property: String(item.property),
+      propertyName: item.property_name || '',
+      label: item.label,
+      monthlyRent: parseFloat(item.monthly_rent || 0),
+      status: item.status || 'vacant',
+      sortOrder: item.sort_order ?? 0,
+    }));
   },
 
   sendPaymentReceipt: async (paymentId: string): Promise<{ status: string; message: string; receipt_email_sent?: boolean }> => {

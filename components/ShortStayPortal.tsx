@@ -8,6 +8,7 @@ import {
   Minus, Plus, Filter, ArrowUpDown
 } from 'lucide-react';
 import { FloatingPillSwitch } from './FloatingPillSwitch';
+import ViewportPortal from './ViewportPortal';
 import { shortStayArea, shortStayDescription, shortStayLocation, shortStayTitle } from '../utils/shortStayListings';
 import { SEO_PAGES, setPageMeta, shortStayListingMeta } from '../utils/seo';
 
@@ -313,8 +314,12 @@ const FloatingHomeButton: React.FC<{ onClick: () => void }> = ({ onClick }) => {
 };
 
 export const ShortStayPromoPopup: React.FC<{ onExplore: () => void; onDismiss: () => void }> = ({ onExplore, onDismiss }) => (
-  <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 sm:p-8 relative animate-in zoom-in-95">
+  <ViewportPortal>
+  <div
+    className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+    style={{ position: 'fixed', inset: 0 }}
+  >
+    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 sm:p-8 relative animate-in zoom-in-95 max-h-[min(92dvh,90vh)] overflow-y-auto">
       <button onClick={onDismiss} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 rounded-lg" aria-label="Close">
         <X className="w-5 h-5" />
       </button>
@@ -333,6 +338,7 @@ export const ShortStayPromoPopup: React.FC<{ onExplore: () => void; onDismiss: (
       </div>
     </div>
   </div>
+  </ViewportPortal>
 );
 
 const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialPropertyId, onPropertyChange }) => {
@@ -915,8 +921,12 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
         </div>
 
         {showContactModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+          <ViewportPortal>
+          <div
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50"
+            style={{ position: 'fixed', inset: 0 }}
+          >
+            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[min(92dvh,90vh)] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-lg text-slate-900">Contact Host</h3>
                 <button onClick={() => setShowContactModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
@@ -939,6 +949,7 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
               </button>
             </div>
           </div>
+          </ViewportPortal>
         )}
       </div>
       <FloatingHomeButton onClick={onBack} />

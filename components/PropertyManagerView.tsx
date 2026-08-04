@@ -8,14 +8,14 @@ import {
 } from 'lucide-react';
 import NeelaLogo from './NeelaLogo';
 import MaintenanceView from './MaintenanceView';
+import AddExpenseModal from './AddExpenseModal';
+import ViewportPortal from './ViewportPortal';
 import { isAuthenticated, getCurrentUser, logout } from '../services/auth';
 import { api } from '../services/api';
 import { Property, Tenant, Payment, OperatingExpense, MaintenanceRequest, TenantStatus } from '../types';
 import {
   CATEGORY_LABELS,
   groupPropertiesForSelect,
-  MANAGER_EXPENSE_CATEGORIES,
-  resolvePropertyIdForExpense,
 } from '../utils/propertyGrouping';
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
 
@@ -67,8 +67,8 @@ function ManagerStatCard({
           </span>
         )}
       </div>
-      <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">{value}</p>
-      <p className="text-xs sm:text-sm text-slate-500 font-semibold mt-1">{label}</p>
+      <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight break-words tabular-nums leading-tight">{value}</p>
+      <p className="text-xs sm:text-sm text-slate-500 font-semibold mt-1 truncate">{label}</p>
       {footer && (
         <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-600 font-medium">
           {footer}
@@ -195,15 +195,7 @@ const PropertyManagerView: React.FC = () => {
   const [markPaidMethod, setMarkPaidMethod] = useState<'Cash' | 'Zelle' | 'Check' | 'Money Order'>('Cash');
   const [markPaidReference, setMarkPaidReference] = useState('');
   const [managedIds, setManagedIds] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [expenseForm, setExpenseForm] = useState({
-    groupKey: '',
-    unitLabel: '',
-    amount: '',
-    category: 'maintenance' as OperatingExpense['category'],
-    date: new Date().toISOString().slice(0, 10),
-    notes: '',
-  });
+  const [showAddExpense, setShowAddExpense] = useState(false);
 
   const user = getCurrentUser();
 
@@ -415,11 +407,6 @@ const PropertyManagerView: React.FC = () => {
 
   const propertyGroups = useMemo(() => groupPropertiesForSelect(properties), [properties]);
 
-  const selectedGroup = useMemo(
-    () => propertyGroups.find((g) => g.groupKey === expenseForm.groupKey),
-    [propertyGroups, expenseForm.groupKey],
-  );
-
   /** Manager-entered costs only — hide Excel P&L import rows from this portal. */
   const managerRecordedExpenses = useMemo(
     () => expenses.filter((e) => !e.notes?.startsWith('excel-import-')),
@@ -463,49 +450,6 @@ const PropertyManagerView: React.FC = () => {
   const handleLogout = () => {
     logout();
     navigate('/manager/login', { replace: true });
-  };
-
-  const addExpense = async () => {
-    if (!expenseForm.amount || !expenseForm.groupKey) {
-      showActionFeedback('error', 'Select a property and enter an amount.');
-      return;
-    }
-    const propertyId = resolvePropertyIdForExpense(
-      propertyGroups,
-      expenseForm.groupKey,
-      expenseForm.unitLabel,
-    );
-    if (!propertyId) {
-      showActionFeedback('error', 'Could not match that property. Pick a unit if the building has several.');
-      return;
-    }
-    setSaving(true);
-    setNoticeFeedback(null);
-    try {
-      const created = await api.createOperatingExpense({
-        property: propertyId,
-        amount: Number(expenseForm.amount),
-        category: expenseForm.category,
-        date: expenseForm.date,
-        notes: expenseForm.notes,
-        visibility: 'operating',
-      });
-      setExpenses((prev) => {
-        const withoutDup = prev.filter((e) => e.id !== created.id);
-        return [created, ...withoutDup];
-      });
-      setExpenseForm((f) => ({ ...f, amount: '', notes: '' }));
-      setExpenseSuccessPopup(created);
-      showActionFeedback(
-        'success',
-        `Expense recorded — ${formatMoney(created.amount)} for ${created.propertyName || 'property'}${created.unitLabel ? ` · ${created.unitLabel}` : ''}.`,
-      );
-      await refreshExpenses();
-    } catch (e: unknown) {
-      showActionFeedback('error', e instanceof Error ? e.message : 'Could not record expense.');
-    } finally {
-      setSaving(false);
-    }
   };
 
   const navItems: { id: Tab; label: string; icon: React.ElementType }[] = [
@@ -597,8 +541,8 @@ const PropertyManagerView: React.FC = () => {
             />
 
             <div className="grid grid-cols-2 gap-3 sm:gap-4">
-              <ManagerStatCard label="Applications" value={applicants.length} icon={FileText} accent="from-amber-500 to-orange-500" onClick={() => {}} />
-              <ManagerStatCard label="Residents" value={residents.length} icon={Users} accent="from-emerald-500 to-teal-600" onClick={() => {}} />
+              <ManagerStatCard label="Applications" value={applicants.length} icon={FileText} variant="tickets" onClick={() => {}} />
+              <ManagerStatCard label="Residents" value={residents.length} icon={Users} variant="revenue" onClick={() => {}} />
             </div>
 
             <SectionCard
@@ -766,9 +710,9 @@ const PropertyManagerView: React.FC = () => {
             />
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-              <ManagerStatCard label="Overdue" value={delinquentResidents.length} icon={AlertCircle} accent="from-rose-500 to-pink-600" onClick={() => {}} />
-              <ManagerStatCard label="Payments" value={myPayments.length} icon={CreditCard} accent="from-emerald-500 to-teal-600" onClick={() => {}} />
-              <ManagerStatCard label="Collected" value={myPayments.filter((p) => p.status === 'Paid').length} icon={TrendingUp} accent="from-violet-500 to-indigo-600" onClick={() => {}} />
+              <ManagerStatCard label="Overdue" value={delinquentResidents.length} icon={AlertCircle} variant="overdue" onClick={() => {}} />
+              <ManagerStatCard label="Payments" value={myPayments.length} icon={CreditCard} variant="revenue" onClick={() => {}} />
+              <ManagerStatCard label="Collected" value={myPayments.filter((p) => p.status === 'Paid').length} icon={TrendingUp} variant="pnl" onClick={() => {}} />
             </div>
 
             {noticeFeedback && (
@@ -952,159 +896,55 @@ const PropertyManagerView: React.FC = () => {
               </div>
             )}
 
-            <div className="rounded-2xl sm:rounded-3xl bg-white/90 backdrop-blur-sm border border-slate-200/70 shadow-sm overflow-hidden">
-              <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 px-5 sm:px-6 py-5 text-white relative overflow-hidden">
-                <div className="absolute -top-8 -right-8 w-32 h-32 bg-white/10 rounded-full blur-2xl" aria-hidden />
-                <div className="relative flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-white/15 ring-1 ring-white/20">
-                    <Receipt className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-lg">New expense</h3>
-                    <p className="text-emerald-100 text-sm mt-0.5">Choose property, category, and amount</p>
-                  </div>
+            <button
+              type="button"
+              onClick={() => setShowAddExpense(true)}
+              className="w-full rounded-2xl sm:rounded-3xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white p-4 sm:p-6 text-left shadow-lg shadow-emerald-600/20 hover:shadow-xl hover:shadow-emerald-600/25 transition-all group touch-manipulation"
+            >
+              <div className="flex items-center gap-3 sm:gap-4">
+                <div className="p-2.5 sm:p-3 rounded-2xl bg-white/15 ring-1 ring-white/20 group-hover:scale-105 transition-transform flex-shrink-0">
+                  <Plus className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-base sm:text-lg">Add expense</h3>
+                  <p className="text-emerald-100 text-xs sm:text-sm mt-0.5 line-clamp-2">
+                    Property → unit → type → amount. Add multiple in one go.
+                  </p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-white/80 flex-shrink-0" />
               </div>
-
-              <div className="p-5 sm:p-6 space-y-5">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
-                    <Building2 className="w-3.5 h-3.5" /> Property
-                  </label>
-                  <select
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-colors"
-                    value={expenseForm.groupKey}
-                    onChange={(e) => setExpenseForm((f) => ({
-                      ...f,
-                      groupKey: e.target.value,
-                      unitLabel: '',
-                    }))}
-                  >
-                    <option value="">Select property</option>
-                    {propertyGroups.map((g) => (
-                      <option key={g.groupKey} value={g.groupKey}>{g.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {selectedGroup && selectedGroup.units.length > 1 && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
-                      <Home className="w-3.5 h-3.5" /> Unit
-                    </label>
-                    <select
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                      value={expenseForm.unitLabel}
-                      onChange={(e) => setExpenseForm((f) => ({ ...f, unitLabel: e.target.value }))}
-                    >
-                      <option value="">All units / building-wide</option>
-                      {selectedGroup.units.map((u) => (
-                        <option key={u.propertyId} value={u.label}>{u.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
-                    <Tag className="w-3.5 h-3.5" /> Expense type
-                  </label>
-                  <select
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                    value={expenseForm.category}
-                    onChange={(e) => setExpenseForm((f) => ({ ...f, category: e.target.value as OperatingExpense['category'] }))}
-                  >
-                    {MANAGER_EXPENSE_CATEGORIES.map((c) => (
-                      <option key={c.value} value={c.value}>{c.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
-                      <Wallet className="w-3.5 h-3.5" /> Amount
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold">$</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="0.00"
-                        className="w-full border border-slate-200 rounded-xl pl-7 pr-3 py-2.5 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                        value={expenseForm.amount}
-                        onChange={(e) => setExpenseForm((f) => ({ ...f, amount: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5" /> Date
-                    </label>
-                    <input
-                      type="date"
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                      value={expenseForm.date}
-                      onChange={(e) => setExpenseForm((f) => ({ ...f, date: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5" /> Notes <span className="font-normal normal-case text-slate-400">(optional)</span>
-                  </label>
-                  <input
-                    placeholder="Vendor, invoice #, description…"
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                    value={expenseForm.notes}
-                    onChange={(e) => setExpenseForm((f) => ({ ...f, notes: e.target.value }))}
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  disabled={saving || !expenseForm.amount || !expenseForm.groupKey}
-                  onClick={addExpense}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl font-semibold shadow-lg shadow-emerald-600/25 disabled:opacity-50 disabled:shadow-none transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                  {saving ? 'Recording…' : 'Record Expense'}
-                </button>
-              </div>
-            </div>
+            </button>
 
             <SectionCard title="Recent expenses" subtitle="Your latest operating cost entries">
               {managerRecordedExpenses.length === 0 ? (
-                <EmptyState icon={Receipt} message="No expenses recorded yet. Log your first one above." />
+                <EmptyState icon={Receipt} message="No expenses recorded yet. Tap Add expense to log your first one." />
               ) : (
                 <div className="space-y-2 -m-1">
                   {managerRecordedExpenses.slice(0, 15).map((e) => (
                     <div
                       key={e.id}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-gradient-to-r from-white to-violet-50/20 p-4 hover:border-violet-200/60 hover:shadow-sm transition-all"
+                      className="flex items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-2xl border border-slate-100 bg-gradient-to-r from-white to-violet-50/20 p-3 sm:p-4 hover:border-violet-200/60 hover:shadow-sm transition-all min-w-0"
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
                         <div className="p-2 rounded-xl bg-violet-100 text-violet-700 flex-shrink-0">
                           <Tag className="w-4 h-4" />
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="font-semibold text-sm text-slate-800 truncate">
                             {e.propertyName || 'Property'}
                             {e.unitLabel ? ` · ${e.unitLabel}` : ''}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-slate-500 line-clamp-2 break-words">
                             {CATEGORY_LABELS[e.category] || e.category}
                             {e.notes ? ` · ${e.notes}` : ''}
                           </p>
                           <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
+                            <Calendar className="w-3 h-3 flex-shrink-0" />
                             {e.date}
                           </p>
                         </div>
                       </div>
-                      <p className="font-bold text-base text-rose-700 ml-3 flex-shrink-0 tabular-nums">{formatMoney(e.amount)}</p>
+                      <p className="font-bold text-sm sm:text-base text-rose-700 flex-shrink-0 tabular-nums pt-0.5">{formatMoney(e.amount)}</p>
                     </div>
                   ))}
                 </div>
@@ -1146,7 +986,7 @@ const PropertyManagerView: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2.5 sm:gap-4">
               <ManagerStatCard
                 label="Properties"
                 value={properties.length}
@@ -1215,7 +1055,7 @@ const PropertyManagerView: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setActiveTab('expenses')}
+                onClick={() => setShowAddExpense(true)}
                 className="dash-action text-left group"
               >
                 <div className="flex items-center gap-3">
@@ -1489,7 +1329,7 @@ const PropertyManagerView: React.FC = () => {
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-[max(1rem,env(safe-area-inset-bottom))] max-w-7xl w-full mx-auto min-w-0 overflow-x-hidden">
           {noticeFeedback && activeTab !== 'expenses' && activeTab !== 'payments' && (
             <div
               className={`mb-4 rounded-xl border px-4 py-3 text-sm font-medium flex items-center gap-2 ${
@@ -1510,9 +1350,13 @@ const PropertyManagerView: React.FC = () => {
         </main>
       </div>
 
-      {messageTenant && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-slate-200 p-5">
+        {messageTenant && (
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center sm:p-4 bg-slate-900/50 backdrop-blur-sm"
+          style={{ position: 'fixed', inset: 0 }}
+        >
+          <div className="w-full max-w-md rounded-t-2xl sm:rounded-2xl bg-white shadow-xl border border-slate-200 p-4 sm:p-5 max-h-[min(92dvh,90vh)] overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <h3 className="font-bold text-slate-900">Message {messageTenant.name}</h3>
             <p className="text-xs text-slate-500 mt-1">Sent by email to {messageTenant.email}</p>
             <textarea
@@ -1537,11 +1381,16 @@ const PropertyManagerView: React.FC = () => {
             </div>
           </div>
         </div>
+        </ViewportPortal>
       )}
 
       {markPaidTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-slate-200 p-5">
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center sm:p-4 bg-slate-900/50 backdrop-blur-sm"
+          style={{ position: 'fixed', inset: 0 }}
+        >
+          <div className="w-full max-w-md rounded-t-2xl sm:rounded-2xl bg-white shadow-xl border border-slate-200 p-4 sm:p-5 max-h-[min(92dvh,90vh)] overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <h3 className="font-bold text-slate-900">Mark rent received</h3>
             <p className="text-sm text-slate-500 mt-1">{markPaidTarget.tenant.name}</p>
             <label className="block mt-4 text-xs font-semibold text-slate-600">Payment method</label>
@@ -1577,11 +1426,16 @@ const PropertyManagerView: React.FC = () => {
             </div>
           </div>
         </div>
+        </ViewportPortal>
       )}
 
       {expenseSuccessPopup && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl border border-emerald-100 p-6 text-center animate-fade-in">
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+          style={{ position: 'fixed', inset: 0 }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl border border-emerald-100 p-6 text-center animate-fade-in max-h-[min(92dvh,90vh)] overflow-y-auto">
             <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center">
               <TrendingUp className="w-7 h-7 text-emerald-600" />
             </div>
@@ -1603,7 +1457,26 @@ const PropertyManagerView: React.FC = () => {
             </button>
           </div>
         </div>
+        </ViewportPortal>
       )}
+
+      <AddExpenseModal
+        open={showAddExpense}
+        onClose={() => {
+          setShowAddExpense(false);
+          refreshExpenses();
+        }}
+        properties={properties}
+        role="manager"
+        onCreated={(created) => {
+          setExpenses((prev) => [created, ...prev.filter((e) => e.id !== created.id)]);
+          setExpenseSuccessPopup(created);
+          showActionFeedback(
+            'success',
+            `Expense recorded — ${formatMoney(created.amount)} for ${created.propertyName || 'property'}${created.unitLabel ? ` · ${created.unitLabel}` : ''}.`,
+          );
+        }}
+      />
     </div>
   );
 };

@@ -53,7 +53,8 @@ from .permissions import (
     MANAGER_PAYMENT_METHODS,
     MANAGER_EDITABLE_PAYMENT_FIELDS,
 )
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from django.db import IntegrityError
 
 def download_cloudinary_file(resource_path, resource_types=None, formats=None):
     """
@@ -818,26 +819,40 @@ class OperatingExpenseViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = self.request.user
-        if is_admin_user(user):
-            raise PermissionDenied('Admins view expenses only. Property managers record operating costs.')
-        if not is_property_manager(user):
-            raise PermissionDenied('Only property managers can record operating expenses.')
+        if not (is_admin_user(user) or is_property_manager(user)):
+            raise PermissionDenied('Only admins and property managers can record expenses.')
         prop = serializer.validated_data.get('property')
         if prop:
             allowed = filter_properties_for_user(Property.objects.filter(id=prop.id), user)
             if not allowed.exists():
                 raise PermissionDenied('You cannot record expenses for this property.')
-        serializer.save(created_by=user)
+        unit = serializer.validated_data.get('unit')
+        if unit and prop and unit.property_id != prop.id:
+            raise PermissionDenied('Selected unit does not belong to that property.')
+        # Re-resolve unit by label if the row was recreated since the client loaded it.
+        if unit and prop and not PropertyUnit.objects.filter(id=unit.id).exists():
+            match = PropertyUnit.objects.filter(property_id=prop.id, label=unit.label).first()
+            if match:
+                serializer.validated_data['unit'] = match
+            else:
+                serializer.validated_data['unit'] = None
+        try:
+            serializer.save(created_by=user)
+        except IntegrityError:
+            raise ValidationError({
+                'unit': 'That unit is no longer valid. Go back and pick the unit again.',
+            })
 
     def perform_update(self, serializer):
-        if is_admin_user(self.request.user):
-            raise PermissionDenied('Admins view expenses only. Property managers record operating costs.')
-        if is_property_manager(self.request.user):
+        user = self.request.user
+        if is_property_manager(user):
             prop = serializer.validated_data.get('property', serializer.instance.property)
             if prop:
-                allowed = filter_properties_for_user(Property.objects.filter(id=prop.id), self.request.user)
+                allowed = filter_properties_for_user(Property.objects.filter(id=prop.id), user)
                 if not allowed.exists():
                     raise PermissionDenied('You cannot edit expenses for this property.')
+        elif not is_admin_user(user):
+            raise PermissionDenied('Only admins and property managers can edit expenses.')
         serializer.save()
 
     def perform_destroy(self, instance):
@@ -856,8 +871,24 @@ class PropertyUnitViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        from .property_units_service import sync_units_for_property
+
         property_ids = filter_properties_for_user(Property.objects.all(), self.request.user)
-        return PropertyUnit.objects.select_related('property').filter(property__in=property_ids)
+        qs = PropertyUnit.objects.select_related('property').filter(property__in=property_ids)
+        property_id = self.request.query_params.get('property')
+        if property_id:
+            try:
+                prop = Property.objects.get(id=int(property_id))
+            except (Property.DoesNotExist, TypeError, ValueError):
+                return PropertyUnit.objects.none()
+            allowed = filter_properties_for_user(Property.objects.filter(id=prop.id), self.request.user)
+            if not allowed.exists() and not is_admin_user(self.request.user):
+                return PropertyUnit.objects.none()
+            # Sync only when this property has no units yet — avoid slow DB work on every modal open.
+            if not PropertyUnit.objects.filter(property_id=prop.id).exists():
+                sync_units_for_property(prop)
+            qs = qs.filter(property_id=prop.id)
+        return qs.order_by('sort_order', 'id')
 
     def perform_create(self, serializer):
         prop = serializer.validated_data['property']

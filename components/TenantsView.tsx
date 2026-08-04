@@ -9,6 +9,7 @@ import {
   Check, Sparkles, Send, PenTool, Printer, Edit, Trash2, Save, RefreshCw, Eye
 } from 'lucide-react';
 import Modal from './Modal';
+import ViewportPortal from './ViewportPortal';
 import { formatDateMMDDYYYY } from '../utils/date';
 
 interface TenantsProps {
@@ -793,8 +794,12 @@ Landlord                            Tenant
 
       {/* APPLICATION REVIEW MODAL */}
       {selectedApplicant && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-2 sm:p-4">
-          <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-5xl h-[96vh] sm:h-[92vh] lg:h-[88vh] flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-2 sm:p-4"
+          style={{ position: 'fixed', inset: 0 }}
+        >
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-5xl max-h-[min(92dvh,90vh)] h-[min(96dvh,96vh)] sm:h-[min(92dvh,92vh)] lg:h-[min(88dvh,88vh)] flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
             {/* Modal Header */}
             <div className="p-4 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0 bg-slate-50">
               <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
@@ -1725,12 +1730,17 @@ Landlord                            Tenant
             </div>
           </div>
         </div>
+        </ViewportPortal>
       )}
 
       {/* ADD/EDIT RESIDENT MODAL */}
       {isResidentModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          style={{ position: 'fixed', inset: 0 }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[min(92dvh,90vh)] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
               <h3 className="text-xl font-bold text-slate-800">
@@ -1984,6 +1994,7 @@ Landlord                            Tenant
             </div>
           </div>
         </div>
+        </ViewportPortal>
       )}
 
       {/* MAIN TABLE CONTENT */}
@@ -2148,15 +2159,17 @@ Landlord                            Tenant
 
       {/* Document Preview Modal (Screening & ID) */}
       {documentPreview && (
+        <ViewportPortal>
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          style={{ position: 'fixed', inset: 0 }}
           onClick={() => setDocumentPreview(null)}
           role="dialog"
           aria-modal="true"
           aria-label="Document preview"
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-hidden flex flex-col border border-slate-200"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[min(92dvh,95vh)] overflow-hidden flex flex-col border border-slate-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3 p-4 border-b border-slate-200 shrink-0 bg-slate-50">
@@ -2232,6 +2245,7 @@ Landlord                            Tenant
             </div>
           </div>
         </div>
+        </ViewportPortal>
       )}
     </div>
   );

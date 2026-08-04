@@ -1,4 +1,4 @@
-import { IncomeStatementRow, Property } from '../types';
+import { IncomeStatementRow, OperatingExpense, Property } from '../types';
 
 export const PROPERTY_GROUPS: { key: string; patterns: string[] }[] = [
   { key: 'Avenue Q', patterns: ['avenue q', 'ave q'] },
@@ -192,12 +192,35 @@ export type PropertyGroupOption = {
   units: PropertyGroupUnit[];
 };
 
+/** Prefer portfolio parent (building roll-up) as the expense property target. */
+function isLikelyPortfolioParent(prop: Property, groupKey: string): boolean {
+  const name = normalizeName(prop.name);
+  const area = normalizeName(prop.area);
+  const key = normalizeName(groupKey);
+  if (name === key || area === key) return true;
+  const short: Record<string, string> = {
+    aveq: 'avenueq',
+    sherman: 'shermanst',
+    '70th': '70thstreet',
+    aveh: 'avenueh',
+    wooden: 'woodingst',
+    wooding: 'woodingst',
+    avef: 'avenuef',
+    tomabll: 'tomball',
+    tomball: 'tomball',
+    bellajess: 'bellajess',
+    conroe: 'conroe',
+  };
+  return short[name] === key || name === key.replace(/st$/, '') || name === key.replace(/street$/, '');
+}
+
 /** Group managed Property records by building for expense dropdowns. */
 export function groupPropertiesForSelect(properties: Property[]): PropertyGroupOption[] {
   const map = new Map<string, PropertyGroupOption>();
 
   for (const prop of properties) {
     const groupKey = getPropertyGroupKeyFromProperty(prop);
+    const parentPreferred = isLikelyPortfolioParent(prop, groupKey);
     const unitLabel = extractUnitLabel(prop.name, prop.address);
     const existing = map.get(groupKey);
 
@@ -208,16 +231,25 @@ export function groupPropertiesForSelect(properties: Property[]): PropertyGroupO
         label: groupKey,
         address: prop.address,
         image: prop.image,
-        units: [{ label: unitLabel, propertyId: prop.id }],
+        units: parentPreferred ? [] : [{ label: unitLabel, propertyId: prop.id }],
       });
       continue;
     }
 
-    const hasUnit = existing.units.some((u) => u.propertyId === prop.id);
-    if (!hasUnit) {
-      existing.units.push({ label: unitLabel, propertyId: prop.id });
-      existing.units.sort((a, b) => unitSortKey(a.label).localeCompare(unitSortKey(b.label)));
+    if (parentPreferred) {
+      existing.propertyId = prop.id;
+      if (prop.address) existing.address = prop.address;
+      if (prop.image) existing.image = prop.image;
+      // Remove self from units if it was added earlier as a pseudo-unit.
+      existing.units = existing.units.filter((u) => u.propertyId !== prop.id);
+    } else {
+      const hasUnit = existing.units.some((u) => u.propertyId === prop.id);
+      if (!hasUnit) {
+        existing.units.push({ label: unitLabel, propertyId: prop.id });
+        existing.units.sort((a, b) => unitSortKey(a.label).localeCompare(unitSortKey(b.label)));
+      }
     }
+
     if (!existing.image && prop.image) existing.image = prop.image;
     if (!existing.address && prop.address) existing.address = prop.address;
   }
@@ -225,28 +257,68 @@ export function groupPropertiesForSelect(properties: Property[]): PropertyGroupO
   return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
 }
 
+/**
+ * Resolve building property id for expense posting.
+ * Always posts to the portfolio parent so P&amp;L rollups stay correct.
+ * Unit selection is handled via PropertyUnit FK separately.
+ */
 export function resolvePropertyIdForExpense(
   groups: PropertyGroupOption[],
   groupKey: string,
-  unitLabel: string,
+  _unitLabel?: string,
 ): string {
   const group = groups.find((g) => g.groupKey === groupKey);
-  if (!group) return '';
-  if (!unitLabel) return group.propertyId;
-  return group.units.find((u) => u.label === unitLabel)?.propertyId || group.propertyId;
+  return group?.propertyId || '';
 }
 
-export const MANAGER_EXPENSE_CATEGORIES: { value: string; label: string }[] = [
-  { value: 'maintenance', label: 'Repairs & Maintenance' },
-  { value: 'utilities', label: 'Utilities (landlord paid)' },
-  { value: 'cleaning', label: 'Cleaning' },
-  { value: 'advertising', label: 'Advertising / Leasing' },
-  { value: 'legal', label: 'Legal & Professional' },
-  { value: 'supplies', label: 'Supplies & Materials' },
-  { value: 'transportation', label: 'Transportation / Mileage' },
-  { value: 'hoa', label: 'HOA Fees' },
-  { value: 'other', label: 'Other' },
+export type ExpenseLineItem = {
+  id: string;
+  label: string;
+  category: OperatingExpense['category'];
+  visibility: 'operating' | 'admin_only';
+  group: 'general' | 'unit' | 'financing';
+  managerAllowed: boolean;
+};
+
+/** Full Excel-style expense lines. Managers only see managerAllowed entries. */
+export const EXPENSE_LINE_ITEMS: ExpenseLineItem[] = [
+  // General operating
+  { id: 'insurance', label: 'Insurance', category: 'insurance', visibility: 'operating', group: 'general', managerAllowed: false },
+  { id: 'taxes', label: 'Taxes', category: 'taxes', visibility: 'operating', group: 'general', managerAllowed: false },
+  { id: 'inspection', label: 'Inspection', category: 'maintenance', visibility: 'operating', group: 'general', managerAllowed: true },
+  { id: 'appraisal', label: 'Appraisal', category: 'maintenance', visibility: 'operating', group: 'general', managerAllowed: true },
+  { id: 'hoa', label: 'HOA Fees', category: 'hoa', visibility: 'operating', group: 'general', managerAllowed: true },
+  { id: 'bank_charges', label: 'Bank Charges', category: 'bank_charges', visibility: 'operating', group: 'general', managerAllowed: false },
+  { id: 'legal', label: 'Legal & Professional Fees', category: 'legal', visibility: 'operating', group: 'general', managerAllowed: true },
+  // Unit / day-to-day
+  { id: 'management', label: 'Property Management Fees', category: 'management', visibility: 'operating', group: 'unit', managerAllowed: false },
+  { id: 'maintenance', label: 'Repairs & Maintenance', category: 'maintenance', visibility: 'operating', group: 'unit', managerAllowed: true },
+  { id: 'advertising', label: 'Advertising / Leasing', category: 'advertising', visibility: 'operating', group: 'unit', managerAllowed: true },
+  { id: 'cleaning', label: 'Cleaning Fees', category: 'cleaning', visibility: 'operating', group: 'unit', managerAllowed: true },
+  { id: 'survey', label: 'Survey', category: 'legal', visibility: 'operating', group: 'unit', managerAllowed: true },
+  { id: 'supplies', label: 'Supplies & Materials', category: 'supplies', visibility: 'operating', group: 'unit', managerAllowed: true },
+  { id: 'kitchen_bath', label: 'Kitchen & Bathroom Supplies', category: 'supplies', visibility: 'operating', group: 'unit', managerAllowed: true },
+  { id: 'electricity', label: 'Electricity', category: 'utilities', visibility: 'operating', group: 'unit', managerAllowed: true },
+  { id: 'water', label: 'Water Bill', category: 'utilities', visibility: 'operating', group: 'unit', managerAllowed: true },
+  { id: 'internet', label: 'Internet', category: 'utilities', visibility: 'operating', group: 'unit', managerAllowed: true },
+  { id: 'gas', label: 'Gas', category: 'utilities', visibility: 'operating', group: 'unit', managerAllowed: true },
+  { id: 'transportation', label: 'Transportation / Mileage', category: 'transportation', visibility: 'operating', group: 'unit', managerAllowed: true },
+  { id: 'other', label: 'Other', category: 'other', visibility: 'operating', group: 'unit', managerAllowed: true },
+  // Financing (admin only — below NOI)
+  { id: 'mortgage_interest', label: 'Mortgage Interest', category: 'mortgage_interest', visibility: 'admin_only', group: 'financing', managerAllowed: false },
+  { id: 'mortgage_principal', label: 'Principal Repayment (non-expense)', category: 'mortgage_principal', visibility: 'admin_only', group: 'financing', managerAllowed: false },
+  { id: 'depreciation', label: 'Depreciation (Non-cash)', category: 'depreciation', visibility: 'admin_only', group: 'financing', managerAllowed: false },
 ];
+
+export function expenseLinesForRole(role: 'admin' | 'manager'): ExpenseLineItem[] {
+  if (role === 'admin') return EXPENSE_LINE_ITEMS;
+  return EXPENSE_LINE_ITEMS.filter((l) => l.managerAllowed);
+}
+
+export const MANAGER_EXPENSE_CATEGORIES: { value: string; label: string }[] = expenseLinesForRole('manager').map((l) => ({
+  value: l.category,
+  label: l.label,
+}));
 
 export const CATEGORY_LABELS: Record<string, string> = {
   utilities: 'Utilities',

@@ -344,18 +344,46 @@ class OperatingExpenseSerializer(serializers.ModelSerializer):
     def validate(self, data):
         visibility = data.get('visibility', getattr(self.instance, 'visibility', 'operating'))
         category = data.get('category', getattr(self.instance, 'category', 'utilities'))
-        if category in ADMIN_ONLY_EXPENSE_CATEGORIES:
+        # Financing / ownership lines stay admin-only and below NOI.
+        if category in ('mortgage_interest', 'mortgage_principal', 'depreciation'):
+            data['visibility'] = 'admin_only'
+        elif category in ADMIN_ONLY_EXPENSE_CATEGORIES and visibility != 'operating':
             data['visibility'] = 'admin_only'
         request = self.context.get('request')
         if request and request.user:
             if is_admin_user(request.user):
-                return data
-            if is_property_manager(request.user):
-                if visibility == 'admin_only' or category not in MANAGER_EXPENSE_CATEGORIES:
+                # Admin may force operating for insurance/taxes/management so NOI matches Excel.
+                if data.get('visibility') not in ('operating', 'admin_only'):
+                    data['visibility'] = (
+                        'admin_only'
+                        if category in ('mortgage_interest', 'mortgage_principal', 'depreciation')
+                        else 'operating'
+                    )
+            elif is_property_manager(request.user):
+                if (
+                    data.get('visibility') == 'admin_only'
+                    or visibility == 'admin_only'
+                    or category not in MANAGER_EXPENSE_CATEGORIES
+                    or category in ('mortgage_interest', 'mortgage_principal', 'depreciation')
+                ):
                     raise serializers.ValidationError(
                         'Property managers can only record operating expenses (utilities, maintenance, cleaning, etc.).'
                     )
                 data['visibility'] = 'operating'
+
+        prop = data.get('property', getattr(self.instance, 'property', None))
+        unit = data.get('unit', getattr(self.instance, 'unit', None) if self.instance else None)
+        if 'unit' in data and data['unit'] is None:
+            unit = None
+        if unit is not None:
+            if not PropertyUnit.objects.filter(id=unit.id).exists():
+                raise serializers.ValidationError({
+                    'unit': 'That unit no longer exists. Go back and pick the unit again.',
+                })
+            if prop and unit.property_id != prop.id:
+                raise serializers.ValidationError({
+                    'unit': 'Selected unit does not belong to that property.',
+                })
         return data
 
 

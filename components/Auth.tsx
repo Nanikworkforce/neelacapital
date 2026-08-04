@@ -6,6 +6,7 @@ import {
   Loader2, X, AlertCircle, Mail, Phone, Lock, Key, Building2, UserCheck, Eye, EyeOff, ArrowLeft
 } from 'lucide-react';
 import NeelaLogo from './NeelaLogo';
+import ViewportPortal from './ViewportPortal';
 
 type LoginType = 'admin' | 'tenant' | null;
 
@@ -32,13 +33,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fadeIn" role="dialog" aria-modal="true" aria-labelledby="login-modal-title">
+    <ViewportPortal>
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fadeIn"
+      style={{ position: 'fixed', inset: 0 }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="login-modal-title"
+    >
       <div 
         className="absolute inset-0 bg-black/70 backdrop-blur-md" 
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative bg-white rounded-2xl sm:rounded-3xl shadow-2xl shadow-indigo-500/10 w-full max-w-md overflow-hidden animate-slideInUp border border-slate-200/60">
+      <div className="relative bg-white rounded-2xl sm:rounded-3xl shadow-2xl shadow-indigo-500/10 w-full max-w-md max-h-[min(92dvh,90vh)] overflow-y-auto animate-slideInUp border border-slate-200/60">
         <div className="relative p-6 sm:p-8 border-b border-slate-100 bg-gradient-to-b from-slate-50/90 to-white">
           <button 
             onClick={onClose}
@@ -183,6 +191,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         </form>
       </div>
     </div>
+    </ViewportPortal>
   );
 };
 

@@ -267,6 +267,7 @@ import {
 import { DollarSign, AlertCircle, CheckCircle2, Users, FileText, Building2, Home, Settings, TrendingUp, ChevronRight, ArrowUpRight, ArrowDownRight, Clock, Zap, X, MapPin, Bed, Bath, Maximize, BarChart3, Receipt } from 'lucide-react';
 import { Tenant, Payment, MaintenanceRequest, TenantStatus, Property, IncomeStatementSummary, OperatingExpense } from '../types';
 import Modal from './Modal';
+import ViewportPortal from './ViewportPortal';
 import { api } from '../services/api';
 import { formatDateMMDDYYYY, formatRelativeTimeAgo } from '../utils/date';
 import { CATEGORY_LABELS } from '../utils/propertyGrouping';
@@ -557,24 +558,65 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
 
   const recentActivity = getRecentActivity();
 
-  // Calculate occupancy for a property
+  // Occupancy = occupied doors / capacity, capped at 100%.
+  // Never match on a bare shared street alone for single-unit cards — multi-door
+  // buildings reuse the same address (e.g. "6835 Avenue Q"), which used to yield 300%.
   const calculatePropertyOccupancy = (property: Property): number => {
-    if (!property.units || property.units === 0) return 0;
-    
-    // Match tenants to this property by checking if propertyUnit contains property name or address
-    const propertyNameLower = property.name.toLowerCase();
-    const propertyAddressLower = property.address.toLowerCase();
-    
-    const activeTenantsForProperty = tenants.filter(t => {
-      if (t.status !== TenantStatus.ACTIVE) return false;
-      
-      const unitLower = t.propertyUnit.toLowerCase();
-      // Check if propertyUnit contains property name or address
-      return unitLower.includes(propertyNameLower) || unitLower.includes(propertyAddressLower);
-    });
-    
-    const occupancy = Math.round((activeTenantsForProperty.length / property.units) * 100);
-    return occupancy;
+    const capacity = Math.max(Number(property.units) || 0, 1);
+    const name = (property.name || '').toLowerCase().trim();
+    const addr = (property.address || '').toLowerCase().trim();
+    const streetOnly = addr.split(',')[0].trim();
+    const nameExpanded = name.replace(/\bave\b/g, 'avenue');
+
+    const addressShared = properties.some(
+      (p) =>
+        p.id !== property.id &&
+        (p.address || '').toLowerCase().trim() === addr,
+    );
+
+    const unitLabelMatch = name.match(/\bunit\s*([a-z0-9]+)\b/i);
+    const unitLabel = unitLabelMatch?.[1]?.toLowerCase() || null;
+
+    const tenantMatches = (unit: string): boolean => {
+      if (!unit) return false;
+
+      // Strongest: tenant string is / contains this property's name
+      if (name && (unit === name || unit.includes(name))) return true;
+      if (nameExpanded !== name && unit.includes(nameExpanded)) return true;
+
+      // Unit letter/number from property name (Unit A / Unit 1)
+      if (unitLabel) {
+        const unitToken = new RegExp(`\\bunit\\s*${unitLabel}\\b`, 'i');
+        if (unitToken.test(unit) || unit === unitLabel) return true;
+      }
+
+      // Multi-unit parent rollup: count anyone on this street / full address
+      if (capacity > 1) {
+        if (addr && (unit === addr || unit.includes(addr))) return true;
+        if (streetOnly && unit.includes(streetOnly)) return true;
+        return false;
+      }
+
+      // Single-door: address only when unique to this record (not shared with siblings)
+      if (addr && !addressShared) {
+        if (unit === addr || unit.includes(addr) || (streetOnly && unit.includes(streetOnly))) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    const matched = tenants.filter(
+      (t) => t.status === TenantStatus.ACTIVE && tenantMatches((t.propertyUnit || '').toLowerCase().trim()),
+    );
+
+    // Single-door listing: occupied or vacant
+    if (capacity === 1) {
+      return matched.length > 0 ? 100 : 0;
+    }
+
+    return Math.min(100, Math.round((matched.length / capacity) * 100));
   };
 
   // Handle Send Notice
@@ -918,7 +960,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
             <div className="flex-1 bg-slate-200 rounded-full h-2 overflow-hidden shadow-inner">
               <div 
                 className="bg-gradient-to-r from-blue-500 to-blue-600 h-full rounded-full transition-all duration-700 shadow-sm"
-                style={{ width: `${occupancyRate}%` }}
+                style={{ width: `${Math.min(100, Math.max(0, occupancyRate))}%` }}
               ></div>
             </div>
             <span className="text-xs text-slate-600 font-bold whitespace-nowrap">{tenants.filter(t => t.status === TenantStatus.ACTIVE).length} active</span>
@@ -1116,7 +1158,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
         </div>
 
         {properties.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
+          <div className="dash-filter-bar flex flex-wrap items-center gap-2 sm:gap-3 mb-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
             <span className="text-xs font-semibold text-slate-500 uppercase w-full sm:w-auto">Filter</span>
             <select
               value={filterBedrooms === '' ? '' : String(filterBedrooms)}
@@ -1231,7 +1273,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
                     <p className="text-sm text-slate-600 mb-3 sm:mb-4 line-clamp-2">
                       {prop.address}, {prop.city}, {prop.state}
                     </p>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-3 sm:pt-4 border-t border-slate-100">
+                    <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between pt-3 sm:pt-4 border-t border-slate-100">
                       <div className="flex items-center gap-2 flex-wrap min-w-0">
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${prop.status === 'occupied' ? 'bg-rose-100 text-rose-700' : prop.status === 'coming_soon' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
                           {prop.status === 'occupied' ? 'Occupied' : prop.status === 'coming_soon' ? 'Coming Soon' : 'Vacant'}
@@ -1245,7 +1287,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
                           setSelectedProperty(prop);
                           setShowPropertyModal(true);
                         }}
-                        className="text-sm font-medium text-indigo-600 hover:text-indigo-700 flex items-center gap-1 transition-colors self-start sm:self-auto flex-shrink-0"
+                        className="text-sm font-medium text-indigo-600 hover:text-indigo-700 flex items-center gap-1 transition-colors self-start sm:self-auto flex-shrink-0 min-h-[40px] sm:min-h-0"
                       >
                         View Details
                         <ArrowUpRight className="w-3 h-3" />
@@ -1399,12 +1441,14 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
 
       {/* Property Details Modal */}
       {showPropertyModal && selectedProperty && (
+        <ViewportPortal>
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
+          style={{ position: 'fixed', inset: 0 }}
           onClick={() => setShowPropertyModal(false)}
         >
           <div
-            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col"
+            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[min(92dvh,90vh)] overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -1582,12 +1626,17 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
             </div>
           </div>
         </div>
+        </ViewportPortal>
       )}
 
       {/* Send Reminders Modal */}
       {showSendRemindersModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
-          <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md animate-in zoom-in-95">
+        <ViewportPortal>
+        <div
+          className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center backdrop-blur-sm"
+          style={{ position: 'fixed', inset: 0 }}
+        >
+          <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md max-h-[min(92dvh,90vh)] overflow-y-auto animate-in zoom-in-95">
             <h3 className="text-xl font-bold text-slate-800 mb-4">
               {selectedTenantId ? 'Send Legal Notice' : 'Send Reminder Notice'}
             </h3>
@@ -1662,6 +1711,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
             </div>
           </div>
         </div>
+        </ViewportPortal>
       )}
 
       {/* Alert Modal */}

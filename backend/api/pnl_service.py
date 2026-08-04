@@ -23,6 +23,13 @@ from .permissions import is_admin_user, exclude_import_placeholder_tenants
 IMPORT_TAG_PREFIX = 'excel-import-'
 IMPORT_TAG = 'excel-import-2026'
 
+# Excel: below-the-line / financing — excluded from NOI (Income − Operating Expenses).
+FINANCING_CATEGORIES = frozenset({
+    'mortgage_interest',
+    'mortgage_principal',
+    'depreciation',
+})
+
 
 def import_tag_for_year(year):
     return f'{IMPORT_TAG_PREFIX}{year}'
@@ -107,10 +114,19 @@ def build_tenant_property_map(tenants, property_ids_set, property_aliases):
     return tenant_prop_map
 
 
+def _is_financing_expense(exp):
+    """Mortgage / depreciation sit below NOI in the Excel workbook."""
+    if (exp.category or '') in FINANCING_CATEGORIES:
+        return True
+    notes = (exp.notes or '').lower()
+    return 'mortgage interest' in notes or 'depreciation' in notes or 'principal repayment' in notes
+
+
 def _aggregate_expenses(expenses_qs, *, admin_view, year):
     """
     Excel imports store monthly __SUMMARY__ rows matching workbook totals.
     Line-item rows feed category breakdown only when a summary row exists.
+    NOI uses operating expenses only — financing (mortgage, depreciation) excluded.
     """
     expenses = list(expenses_qs)
     if not admin_view:
@@ -132,9 +148,14 @@ def _aggregate_expenses(expenses_qs, *, admin_view, year):
         notes = exp.notes or ''
         is_excel = is_excel_import_note(notes, year)
         is_summary = is_excel and '__SUMMARY__' in notes
+        is_financing = _is_financing_expense(exp)
 
         if not is_summary:
             expenses_by_category[exp.category] += amount
+
+        # Financing never rolls into NOI operating totals.
+        if is_financing:
+            continue
 
         if is_excel and not is_summary and exp.property_id in properties_with_excel_summary:
             if exp.unit_id:
@@ -170,6 +191,8 @@ def _monthly_expense_map(expenses_qs, *, admin_view, property_ids_set, year):
         notes = exp.notes or ''
         is_excel = is_excel_import_note(notes, year)
         is_summary = is_excel and '__SUMMARY__' in notes
+        if _is_financing_expense(exp):
+            continue
         if is_excel and not is_summary and exp.property_id in properties_with_excel_summary:
             continue
         month_map[exp.date.month] += exp.amount or Decimal('0')

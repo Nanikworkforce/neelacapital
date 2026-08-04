@@ -19,7 +19,7 @@ import { adminTabMeta, SEO_PAGES, usePageMeta } from './utils/seo';
 import { Tenant, Payment, MaintenanceRequest, Property } from './types';
 
 const App: React.FC = () => {
-  const adminPagePadding = 'px-3 py-4 sm:px-4 sm:py-5 md:px-4 md:py-5 lg:px-6 lg:py-6 xl:px-8 xl:py-8';
+  const adminPagePadding = 'px-3 py-4 sm:px-4 sm:py-5 md:px-4 md:py-5 lg:px-6 lg:py-6 xl:px-8 xl:py-8 pb-[max(1rem,env(safe-area-inset-bottom))]';
   const location = useLocation();
   const navigate = useNavigate();
   // Check if we're on a password reset page - Vercel deployment trigger
@@ -433,7 +433,7 @@ const App: React.FC = () => {
               onMaintenanceCreated={refreshMaintenance}
             />
           ) : (
-            <div className={adminPagePadding}>
+            <div className={adminPagePadding + ' admin-content-wrap'}>
               <div className="max-w-7xl mx-auto w-full min-w-0">
                 {renderAdminContent()}
               </div>

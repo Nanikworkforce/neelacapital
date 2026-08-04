@@ -506,3 +506,46 @@
 .safe-area-top {
   padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
 }
+
+.safe-area-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+
+/* Touch-friendly buttons / inputs on small screens */
+@media (max-width: 639px) {
+  .dash-stat {
+    min-width: 0;
+  }
+
+  .dash-stat .tabular-nums,
+  .dash-stat p:nth-of-type(1) {
+    word-break: break-word;
+  }
+
+  .dash-pnl-banner {
+    padding: 0.85rem 1rem;
+  }
+}
+
+/* Large desktop breathing room for admin mesh */
+@media (min-width: 1536px) {
+  .admin-content-wrap {
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+  }
+}
+
+/* Avoid iOS input zoom when a form control is under 16px */
+@media (max-width: 639px) {
+  input[type='text'],
+  input[type='number'],
+  input[type='email'],
+  input[type='password'],
+  input[type='date'],
+  input[type='search'],
+  input[type='tel'],
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   DollarSign, TrendingUp, Building2, Wallet, ChevronDown, ChevronUp,
-  MapPin, Home, BarChart3, Sparkles, PieChart,
+  MapPin, Home, BarChart3, Sparkles, PieChart, Plus,
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -13,6 +13,7 @@ import {
   groupIncomeStatementProperties,
   GroupedPropertyRow,
 } from '../utils/propertyGrouping';
+import AddExpenseModal from './AddExpenseModal';
 
 interface Props {
   properties: Property[];
@@ -100,6 +101,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
   const [expandedProperty, setExpandedProperty] = useState<string | null>(null);
   /** Per property group: 'all' = combined totals, otherwise a unitId */
   const [selectedUnitByGroup, setSelectedUnitByGroup] = useState<Record<string, string>>({});
+  const [showAddExpense, setShowAddExpense] = useState(false);
 
   const load = async (selectedYear: number) => {
     setLoading(true);
@@ -235,28 +237,38 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
 
   return (
     <div className="space-y-8 animate-fade-in pb-8">
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-700 via-purple-700 to-fuchsia-700 text-white p-6 sm:p-8 shadow-2xl shadow-indigo-500/20">
+      <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-br from-indigo-700 via-purple-700 to-fuchsia-700 text-white p-4 sm:p-6 lg:p-8 shadow-2xl shadow-indigo-500/20">
         <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1600&q=80')] opacity-15 bg-cover bg-center" />
-        <div className="relative flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
-          <div>
+        <div className="relative flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 sm:gap-6">
+          <div className="min-w-0">
             <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider mb-3">
               <Sparkles className="w-3.5 h-3.5" />
               Portfolio P&amp;L · {year}
             </div>
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Income Statement</h2>
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight">Income Statement</h2>
             <p className="text-indigo-100 mt-2 max-w-xl text-sm sm:text-base">
               Profit &amp; loss across every property — income, operating expenses, and net operating income (NOI).
             </p>
           </div>
-          <select
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-            className="border-0 rounded-xl px-4 py-2.5 bg-white/15 backdrop-blur text-white font-semibold shadow-lg focus:ring-2 focus:ring-white/40"
-          >
-            {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((y) => (
-              <option key={y} value={y} className="text-slate-900">{y}</option>
-            ))}
-          </select>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full lg:w-auto">
+            <button
+              type="button"
+              onClick={() => setShowAddExpense(true)}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white text-indigo-700 font-bold text-sm shadow-lg hover:bg-indigo-50 transition-colors min-h-[44px] w-full sm:w-auto"
+            >
+              <Plus className="w-4 h-4" />
+              Add expense
+            </button>
+            <select
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              className="border-0 rounded-xl px-4 py-2.5 bg-white/15 backdrop-blur text-white font-semibold shadow-lg focus:ring-2 focus:ring-white/40 min-h-[44px] w-full sm:w-auto"
+            >
+              {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((y) => (
+                <option key={y} value={y} className="text-slate-900">{y}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -507,23 +519,23 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                   </div>
 
                   {/* Right: income / expenses / NOI */}
-                  <div className="flex flex-col justify-center gap-2 md:w-52 lg:w-56 flex-shrink-0">
+                  <div className="grid grid-cols-3 md:flex md:flex-col justify-center gap-2 md:w-52 lg:w-56 flex-shrink-0 min-w-0">
                     {display.unitLabel && (
-                      <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-600 px-1">
+                      <p className="col-span-3 md:col-span-1 text-[10px] font-bold uppercase tracking-wide text-indigo-600 px-1">
                         {display.unitLabel}
                       </p>
                     )}
-                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-2 sm:px-3 py-2 sm:py-2.5 min-w-0">
                       <p className="text-[10px] uppercase tracking-wide text-emerald-600 font-bold">Income</p>
-                      <p className="font-bold text-emerald-800 text-base sm:text-lg">{formatMoney(display.income)}</p>
+                      <p className="font-bold text-emerald-800 text-sm sm:text-base lg:text-lg tabular-nums truncate">{formatMoney(display.income)}</p>
                     </div>
-                    <div className="rounded-xl bg-rose-50 border border-rose-100 px-3 py-2.5">
+                    <div className="rounded-xl bg-rose-50 border border-rose-100 px-2 sm:px-3 py-2 sm:py-2.5 min-w-0">
                       <p className="text-[10px] uppercase tracking-wide text-rose-600 font-bold">Expenses</p>
-                      <p className="font-bold text-rose-800 text-base sm:text-lg">{formatMoney(display.expenses)}</p>
+                      <p className="font-bold text-rose-800 text-sm sm:text-base lg:text-lg tabular-nums truncate">{formatMoney(display.expenses)}</p>
                     </div>
-                    <div className="rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-2.5">
+                    <div className="rounded-xl bg-indigo-50 border border-indigo-100 px-2 sm:px-3 py-2 sm:py-2.5 min-w-0">
                       <p className="text-[10px] uppercase tracking-wide text-indigo-600 font-bold">NOI</p>
-                      <p className={`font-bold text-base sm:text-lg ${display.noi >= 0 ? 'text-indigo-800' : 'text-rose-700'}`}>
+                      <p className={`font-bold text-sm sm:text-base lg:text-lg tabular-nums truncate ${display.noi >= 0 ? 'text-indigo-800' : 'text-rose-700'}`}>
                         {formatMoney(display.noi)}
                       </p>
                     </div>
@@ -560,7 +572,17 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       )}
 
       <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm max-w-4xl">
-        <h3 className="font-bold text-slate-800 text-lg mb-4">Recent Expenses ({year})</h3>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <h3 className="font-bold text-slate-800 text-lg">Recent Expenses ({year})</h3>
+          <button
+            type="button"
+            onClick={() => setShowAddExpense(true)}
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Add expense
+          </button>
+        </div>
         <div className="space-y-2 max-h-80 overflow-y-auto">
           {expensesLoading ? (
             <p className="text-sm text-slate-400 text-center py-6">Loading recent expenses…</p>
@@ -586,6 +608,19 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
           )}
         </div>
       </div>
+
+      <AddExpenseModal
+        open={showAddExpense}
+        onClose={() => {
+          setShowAddExpense(false);
+          load(year);
+        }}
+        properties={properties}
+        role="admin"
+        onCreated={(created) => {
+          setExpenses((prev) => [created, ...prev.filter((e) => e.id !== created.id)]);
+        }}
+      />
     </div>
   );
 };

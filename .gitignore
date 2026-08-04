@@ -34,15 +34,19 @@ env/
 venv/
 .env
 .env.local
-# Markdown docs (keep only README.md in git)
-*.md
-!README.md
-# Local spreadsheets (not for version control)
-*.xlsx
-*.xls
 .env.development.local
 .env.test.local
-.env.production.local   
+.env.production.local
+
+# Docs / notes — keep only README.md in git
+*.md
+!README.md
+
+# Spreadsheets — local only, never commit
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
 
 sqlite3.db
 sqlite3.db-journal

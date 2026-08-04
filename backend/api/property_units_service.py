@@ -192,7 +192,8 @@ def sync_units_for_property(prop, all_properties=None, *, persist=True):
             )
         kept_ids.append(unit.id)
 
-    PropertyUnit.objects.filter(property_id=prop.id).exclude(id__in=kept_ids).delete()
+    # Never hard-delete units — stale IDs break in-flight expense creates (FK errors).
+    # Extra/orphan labels stay; sync only creates/updates the target set.
     return list(PropertyUnit.objects.filter(property_id=prop.id).order_by('sort_order', 'id'))
 
 

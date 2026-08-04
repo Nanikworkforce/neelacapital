@@ -5,6 +5,7 @@ import {
   ArrowLeft, X, CreditCard, Smartphone, DollarSign, Building2, Info, Download, History, Loader2, Upload
 } from 'lucide-react';
 import Modal from './Modal';
+import ViewportPortal from './ViewportPortal';
 
 export type PaymentSubTab = 'history' | 'payment-options';
 export type PaymentMethod = 'zelle' | 'cashapp' | 'venmo' | 'applepay' | 'ach' | 'card' | 'cash' | null;
@@ -65,8 +66,12 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   if (!showPaymentModal) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+    <ViewportPortal>
+    <div
+      className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm"
+      style={{ position: 'fixed', inset: 0 }}
+    >
+      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[min(92dvh,90vh)] overflow-y-auto animate-in fade-in zoom-in duration-200">
         <div className="sticky top-0 bg-white z-10 p-6 border-b border-slate-100 flex justify-between items-center">
           <div className="flex items-center">
              {modalMethod && (
@@ -306,6 +311,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         </div>
       </div>
     </div>
+    </ViewportPortal>
   );
 };
 
