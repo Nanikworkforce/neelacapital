@@ -133,6 +133,8 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
   const [lineGroup, setLineGroup] = useState<ExpenseLineItem['group'] | null>(null);
   const [groupKey, setGroupKey] = useState('');
   const [unitId, setUnitId] = useState('');
+  /** none until user explicitly taps Building-wide or a unit (avoids auto-picking building-wide). */
+  const [unitChoice, setUnitChoice] = useState<'none' | 'building' | 'unit'>('none');
   const [lineId, setLineId] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -176,6 +178,7 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
     setLineGroup(null);
     setGroupKey('');
     setUnitId('');
+    setUnitChoice('none');
     setLineId('');
     setAmount('');
     setDate(new Date().toISOString().slice(0, 10));
@@ -200,18 +203,22 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
     if (!selectedGroup?.propertyId) {
       setUnits([]);
       setUnitId('');
+      setUnitChoice('none');
       return;
     }
     let cancelled = false;
     setUnitsLoading(true);
+    setUnitChoice('none');
+    setUnitId('');
     api.getPropertyUnits(selectedGroup.propertyId)
       .then((rows) => {
         if (cancelled) return;
         const next = dedupeUnits(rows);
         setUnits(next);
-        setUnitId('');
-        // If we landed on unit step but there's nothing to pick, skip ahead.
+        // Single-door properties: no choice to make — skip unit step.
         if (step === 'unit' && next.length <= 1) {
+          setUnitChoice(next[0]?.id ? 'unit' : 'building');
+          setUnitId(next[0]?.id || '');
           setStep('line');
         }
       })
@@ -228,8 +235,9 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
             sortOrder: i,
           })));
         setUnits(fallback);
-        setUnitId('');
         if (step === 'unit' && fallback.length <= 1) {
+          setUnitChoice(fallback[0]?.id ? 'unit' : 'building');
+          setUnitId(fallback[0]?.id || '');
           setStep('line');
         }
       })
@@ -280,6 +288,7 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
       return;
     }
     if (step === 'unit') {
+      if (unitChoice === 'none' || unitsLoading) return;
       setStep('line');
       return;
     }
@@ -290,7 +299,7 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
 
   const canGoForward =
     (step === 'property' && !!groupKey) ||
-    (step === 'unit') ||
+    (step === 'unit' && unitChoice !== 'none' && !unitsLoading) ||
     (step === 'line' && !!lineId);
 
   const resetForAnother = () => {
@@ -395,7 +404,7 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
 
   const stepHint =
     step === 'property' ? 'Tap a building card to continue'
-    : step === 'unit' ? 'Building-wide or a specific unit'
+    : step === 'unit' ? 'Tap building-wide or a unit, then Next'
     : step === 'line' ? (lineGroup ? 'Tap the exact line item' : 'Pick a category, then the line')
     : 'Enter amount, then save or add another';
 
@@ -456,7 +465,7 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
                   {selectedUnit.label}
                 </span>
               )}
-              {unitId === '' && showUnitStep && step !== 'property' && step !== 'unit' && (
+              {unitChoice === 'building' && showUnitStep && step !== 'property' && step !== 'unit' && (
                 <span className="text-[11px] font-semibold bg-white/15 px-2.5 py-1 rounded-full">
                   Building-wide
                 </span>
@@ -581,14 +590,17 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
                   onClick={() => {
                     setGroupKey(g.groupKey);
                     setUnitId('');
+                    setUnitChoice('none');
                     setLineId('');
                     setLineGroup(null);
-                    // Advance on click after state settles via timeout
+                    // Go to unit step when the group has multiple doors; otherwise skip.
                     setTimeout(() => {
-                      // unit step decided after units load; go to unit if siblings exist in group
                       if (g.units.length > 1) setStep('unit');
-                      else setStep('line');
-                    }, 80);
+                      else {
+                        setUnitChoice('building');
+                        setStep('line');
+                      }
+                    }, 120);
                   }}
                 />
               ))}
@@ -606,14 +618,17 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
                 </div>
               ) : (
                 <>
+                  <p className="sm:col-span-2 text-xs text-slate-500 font-medium px-0.5">
+                    Choose one option, then tap <span className="font-bold text-slate-700">Next</span>.
+                  </p>
                   <ChoiceCard
                     icon={Building2}
                     title="Building-wide"
                     subtitle="Applies to the whole property"
-                    selected={unitId === ''}
+                    selected={unitChoice === 'building'}
                     onClick={() => {
                       setUnitId('');
-                      setTimeout(() => setStep('line'), 80);
+                      setUnitChoice('building');
                     }}
                   />
                   {units.map((u) => (
@@ -622,11 +637,11 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
                       icon={Home}
                       title={u.label}
                       subtitle={u.status}
-                      selected={unitId === u.id}
+                      selected={unitChoice === 'unit' && unitId === u.id}
                       onClick={() => {
                         if (!u.id) return;
                         setUnitId(u.id);
-                        setTimeout(() => setStep('line'), 80);
+                        setUnitChoice('unit');
                       }}
                       tone="from-teal-50 to-white border-teal-100 hover:border-teal-300"
                     />
@@ -676,7 +691,7 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
                 <p className="font-bold text-indigo-900 break-words">{selectedLine?.label}</p>
                 <p className="text-indigo-700 text-xs mt-1 break-words">
                   {selectedGroup?.label}
-                  {selectedUnit ? ` · ${selectedUnit.label}` : showUnitStep ? ' · Building-wide' : ''}
+                  {selectedUnit ? ` · ${selectedUnit.label}` : (unitChoice === 'building' && showUnitStep ? ' · Building-wide' : '')}
                 </p>
               </div>
 
