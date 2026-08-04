@@ -88,6 +88,73 @@ function formatExpenseNote(notes?: string): string {
   return notes;
 }
 
+const FINANCING_CATEGORIES = new Set(['mortgage_interest', 'mortgage_principal', 'depreciation']);
+
+/** Patch P&L totals in-place so saving an expense does not blank the whole page. */
+function applyExpenseDelta(
+  summary: IncomeStatementSummary,
+  expense: OperatingExpense,
+  delta: number,
+): IncomeStatementSummary {
+  if (!delta) return summary;
+  const d = new Date(`${expense.date}T12:00:00`);
+  if (Number.isNaN(d.getTime()) || d.getFullYear() !== summary.year) return summary;
+
+  const month = d.getMonth() + 1;
+  const affectsNoi = !FINANCING_CATEGORIES.has(expense.category);
+  const propertyId = expense.property || '';
+  const unitId = expense.unit || '';
+
+  const expensesByCategory = { ...summary.expensesByCategory };
+  expensesByCategory[expense.category] = (expensesByCategory[expense.category] || 0) + delta;
+
+  const portfolio = { ...summary.portfolio };
+  let byProperty = summary.byProperty;
+  let monthly = summary.monthly;
+
+  if (affectsNoi) {
+    portfolio.totalExpenses = (portfolio.totalExpenses || 0) + delta;
+    portfolio.netIncome = (portfolio.netIncome || 0) - delta;
+
+    if (propertyId) {
+      byProperty = summary.byProperty.map((row) => {
+        if (row.propertyId !== propertyId) return row;
+        const units = row.units?.map((u) => {
+          if (!unitId || u.unitId !== unitId) return u;
+          return {
+            ...u,
+            totalExpenses: (u.totalExpenses || 0) + delta,
+            netIncome: (u.netIncome || 0) - delta,
+          };
+        });
+        return {
+          ...row,
+          totalExpenses: (row.totalExpenses || 0) + delta,
+          netIncome: (row.netIncome || 0) - delta,
+          units,
+        };
+      });
+    }
+
+    monthly = summary.monthly.map((m) => {
+      if (m.month !== month) return m;
+      return {
+        ...m,
+        expenses: (m.expenses || 0) + delta,
+        net: (m.net || 0) - delta,
+      };
+    });
+  }
+
+  return {
+    ...summary,
+    portfolio,
+    byProperty,
+    monthly,
+    expensesByCategory,
+  };
+}
+
 const IncomeStatementView: React.FC<Props> = ({ properties }) => {
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
@@ -611,14 +678,21 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
 
       <AddExpenseModal
         open={showAddExpense}
-        onClose={() => {
-          setShowAddExpense(false);
-          load(year);
-        }}
+        onClose={() => setShowAddExpense(false)}
         properties={properties}
         role="admin"
         onCreated={(created) => {
-          setExpenses((prev) => [created, ...prev.filter((e) => e.id !== created.id)]);
+          let existing: OperatingExpense | undefined;
+          setExpenses((prev) => {
+            existing = prev.find((e) => e.id === created.id);
+            return [created, ...prev.filter((e) => e.id !== created.id)].slice(0, 20);
+          });
+          setSummary((s) => {
+            if (!s) return s;
+            if (!existing) return applyExpenseDelta(s, created, created.amount);
+            let next = applyExpenseDelta(s, existing, -existing.amount);
+            return applyExpenseDelta(next, created, created.amount);
+          });
         }}
       />
     </div>

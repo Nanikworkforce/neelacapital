@@ -255,11 +255,18 @@ def compute_property_pnl(
 
     unit_rows_by_property = defaultdict(list)
     if not summary_only:
-        all_props = list(properties) if len(properties) < 50 else list(Property.objects.all())
-        for prop in properties:
-            sync_units_for_property(prop, all_props)
-            for unit in PropertyUnit.objects.filter(property_id=prop.id):
-                unit_rows_by_property[prop.id].append(unit)
+        # Read existing units only — do not sync every property on each P&L load
+        # (that was O(properties) DB writes and made the statement feel like a full reload).
+        existing_units = PropertyUnit.objects.filter(property_id__in=property_ids).order_by(
+            'sort_order', 'id'
+        )
+        for unit in existing_units:
+            unit_rows_by_property[unit.property_id].append(unit)
+        missing = [p for p in properties if not unit_rows_by_property.get(p.id)]
+        if missing:
+            all_props = list(properties) if len(properties) < 50 else list(Property.objects.all())
+            for prop in missing:
+                unit_rows_by_property[prop.id] = sync_units_for_property(prop, all_props)
 
     rent_income_by_property = defaultdict(lambda: Decimal('0'))
     rent_income_by_unit = defaultdict(lambda: Decimal('0'))
