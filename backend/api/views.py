@@ -1927,10 +1927,17 @@ class ListingViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]  # Public access for listings
 
 def _clean_property_name_and_address(name, address, city, state):
-    """Put unit from address into name and strip unit + duplicate city/state from address."""
+    """Strip unit + duplicate city/state from address. Keep catalog unit names as-is."""
     unit_label, address_no_unit = extract_unit_from_address(address)
     address_clean = strip_city_state_from_address(address_no_unit, city, state)
     if unit_label:
+        # Name already is / contains this unit (e.g. "Unit A", "Unit 2 (Urban Nesting)") — don't double.
+        unit_token = re.search(r'unit\s*([A-Za-z0-9]+)', unit_label, re.I)
+        name_token = re.search(r'unit\s*([A-Za-z0-9]+)', name or '', re.I)
+        if unit_token and name_token and unit_token.group(1).upper() == name_token.group(1).upper():
+            return name, address_clean
+        if re.match(r'^\s*unit\s+', name or '', re.I):
+            return name, address_clean
         base = re.sub(r"\s*-\s*Unit\s+[A-Za-z0-9]+\s*$", "", name, flags=re.IGNORECASE).strip() or name
         name = f"{base} - {unit_label}"
     return name, address_clean
