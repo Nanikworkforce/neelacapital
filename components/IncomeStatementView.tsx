@@ -502,7 +502,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
               FALLBACK_PROPERTY_IMAGE;
             const expanded = expandedProperty === row.groupKey;
             const unitCount = row.units?.length || 0;
-            const multiUnit = unitCount > 1 || (row.unitsCount ?? 0) > 1;
+            const multiUnit = unitCount > 1;
             const selectedUnit = selectedUnitByGroup[row.groupKey] ?? 'all';
             const display = getPropertyDisplay(row);
 

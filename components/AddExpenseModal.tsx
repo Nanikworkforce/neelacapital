@@ -9,6 +9,7 @@ import { OperatingExpense, Property, PropertyUnit } from '../types';
 import {
   expenseLinesForRole,
   ExpenseLineItem,
+  groupNeedsUnitStep,
   groupPropertiesForSelect,
   resolvePropertyIdForExpense,
 } from '../utils/propertyGrouping';
@@ -152,7 +153,8 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
 
   const selectedGroup = groups.find((g) => g.groupKey === groupKey);
   const selectedLine = lineItems.find((l) => l.id === lineId);
-  const showUnitStep = units.length > 1;
+  // Catalog drives multi-door vs single-door — never infer from a half-loaded API list.
+  const showUnitStep = groupKey ? groupNeedsUnitStep(groupKey, units.length) : false;
   const selectedUnit = units.find((u) => u.id === unitId);
 
   const availableLineGroups = useMemo(() => {
@@ -213,33 +215,20 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
     api.getPropertyUnits(selectedGroup.propertyId)
       .then((rows) => {
         if (cancelled) return;
-        const next = dedupeUnits(rows);
-        setUnits(next);
-        // Single-door properties: no choice to make — skip unit step.
-        if (step === 'unit' && next.length <= 1) {
-          setUnitChoice(next[0]?.id ? 'unit' : 'building');
-          setUnitId(next[0]?.id || '');
-          setStep('line');
-        }
+        setUnits(dedupeUnits(rows));
       })
       .catch(() => {
         if (cancelled) return;
-        const fallback = dedupeUnits((selectedGroup.units || [])
-          .filter((u) => u.propertyId !== selectedGroup.propertyId)
-          .map((u, i) => ({
-            id: '',
-            property: selectedGroup.propertyId,
-            label: u.label,
-            monthlyRent: 0,
-            status: 'vacant' as const,
-            sortOrder: i,
-          })));
+        // Fallback labels from the building group (no ids — user must pick after API recovers).
+        const fallback = dedupeUnits((selectedGroup.units || []).map((u, i) => ({
+          id: '',
+          property: selectedGroup.propertyId,
+          label: u.label,
+          monthlyRent: 0,
+          status: 'vacant' as const,
+          sortOrder: i,
+        })));
         setUnits(fallback);
-        if (step === 'unit' && fallback.length <= 1) {
-          setUnitChoice(fallback[0]?.id ? 'unit' : 'building');
-          setUnitId(fallback[0]?.id || '');
-          setStep('line');
-        }
       })
       .finally(() => {
         if (!cancelled) setUnitsLoading(false);
@@ -259,8 +248,16 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
 
   const goNextFromProperty = () => {
     if (!groupKey) return;
-    if (showUnitStep) setStep('unit');
-    else setStep('line');
+    if (groupNeedsUnitStep(groupKey, units.length)) {
+      setUnitChoice('none');
+      setUnitId('');
+      setStep('unit');
+    } else {
+      // Single-door — no Building-wide choice needed.
+      setUnitChoice('none');
+      setUnitId('');
+      setStep('line');
+    }
   };
 
   const goBack = () => {
@@ -585,7 +582,12 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
                   key={g.groupKey}
                   icon={Building2}
                   title={g.label}
-                  subtitle={g.address || (g.units.length > 1 ? `${g.units.length} units` : 'Property')}
+                  subtitle={
+                    g.address
+                      || (groupNeedsUnitStep(g.groupKey, g.units.length)
+                        ? `${Math.max(g.units.length, 2)} units`
+                        : 'Single property')
+                  }
                   selected={groupKey === g.groupKey}
                   onClick={() => {
                     setGroupKey(g.groupKey);
@@ -593,14 +595,15 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
                     setUnitChoice('none');
                     setLineId('');
                     setLineGroup(null);
-                    // Go to unit step when the group has multiple doors; otherwise skip.
-                    setTimeout(() => {
-                      if (g.units.length > 1) setStep('unit');
-                      else {
-                        setUnitChoice('building');
+                    setUnits([]);
+                    // Multi-door → unit step with nothing pre-selected. Single-door → skip unit step.
+                    window.setTimeout(() => {
+                      if (groupNeedsUnitStep(g.groupKey, g.units.length)) {
+                        setStep('unit');
+                      } else {
                         setStep('line');
                       }
-                    }, 120);
+                    }, 180);
                   }}
                 />
               ))}

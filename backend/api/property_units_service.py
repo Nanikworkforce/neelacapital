@@ -17,9 +17,45 @@ PROPERTY_GROUPS = [
     ('Westlock Dr', ['westlock']),
 ]
 
+# Canonical doors per building. Empty list = single-door (no unit picker).
+# Keep in sync with utils/propertyGrouping.ts PORTFOLIO_UNIT_CATALOG.
+PORTFOLIO_UNIT_CATALOG = {
+    'Avenue Q': [
+        'Unit A',
+        'Unit B (Eado Escape)',
+        'Unit C',
+        'Unit D (Eado Studio)',
+    ],
+    'Bella Jess': [],
+    'Tomball': [],
+    'Conroe': [],
+    'Sherman St': [
+        'Unit 1',
+        'Unit 2 (Urban Nesting)',
+        'Unit 3',
+        'Unit 4',
+        'Unit 5',
+        'Unit 6',
+    ],
+    '70th Street': ['Unit 1', 'Unit 2', 'Unit 3', 'Unit 4'],
+    'Avenue H': [
+        'Unit 1 (The Hideaway) 7425',
+        'Unit 2 (Little H House) 7427',
+        'Unit 3 (Sweet Home) 7429',
+        'Unit 4 - Erica',
+    ],
+    'Wooding St': ['Unit 1', 'Unit 2 (Cozy Suite)', 'Unit 3'],
+    'Avenue F': ['Unit 1', 'Unit 2', 'Unit 3', 'Unit 4'],
+}
+
 
 def normalize(text):
     return re.sub(r'[^a-z0-9]+', '', (text or '').lower())
+
+
+def unit_base_key(label):
+    m = re.search(r'unit\s*([a-z0-9]+)', label or '', re.I)
+    return m.group(1).upper() if m else normalize(label)
 
 
 def property_search_text(prop):
@@ -57,14 +93,16 @@ def extract_unit_label(name, address=''):
 
 DOOR_UNIT_PATTERNS = {
     1: ('unit a', 'unit 1', 'door 1'),
-    2: ('unit b', 'unit 2', 'door 2'),
-    3: ('unit c', 'unit 3', 'door 3'),
-    4: ('unit d', 'unit 4', 'door 4', 'eado studio'),
+    2: ('unit b', 'unit 2', 'door 2', 'eado escape', 'urban nesting', 'hideaway', 'cozy suite'),
+    3: ('unit c', 'unit 3', 'door 3', 'little h', 'sweet home'),
+    4: ('unit d', 'unit 4', 'door 4', 'eado studio', 'erica'),
+    5: ('unit 5', 'door 5'),
+    6: ('unit 6', 'door 6'),
 }
 
 
 def unit_for_door_number(units, door_n):
-    """Map Excel Door 1–4 to PropertyUnit rows (Unit A/1, B, C/3, D/4)."""
+    """Map Excel Door 1–N to PropertyUnit rows."""
     patterns = DOOR_UNIT_PATTERNS.get(door_n, ())
     for unit in units:
         label = (unit.label or '').lower()
@@ -94,8 +132,10 @@ def is_portfolio_parent(prop, group_key):
         '70th': '70th Street',
         'aveh': 'Avenue H',
         'wooden': 'Wooding St',
+        'wooding': 'Wooding St',
         'avef': 'Avenue F',
         'tomabll': 'Tomball',
+        'tomball': 'Tomball',
         'bellajess': 'Bella Jess',
         'conroe': 'Conroe',
     }
@@ -114,50 +154,106 @@ def find_group_siblings(prop, all_properties=None):
     return []
 
 
+def catalog_units_for_property(prop):
+    """Return canonical labels for this building, or None if unknown."""
+    group_key = get_property_group_key(prop)
+    if group_key in PORTFOLIO_UNIT_CATALOG:
+        return PORTFOLIO_UNIT_CATALOG[group_key]
+    return None
+
+
+def display_units_for_property(prop, units=None):
+    """Units shown in UI / P&L — catalog when known (empty = single-door)."""
+    catalog = catalog_units_for_property(prop)
+    rows = list(units) if units is not None else list(
+        PropertyUnit.objects.filter(property_id=prop.id).order_by('sort_order', 'id')
+    )
+    if catalog is None:
+        return rows
+    if not catalog:
+        return []
+    by_label = {u.label: u for u in rows}
+    by_base = {}
+    for u in rows:
+        key = unit_base_key(u.label)
+        if key not in by_base:
+            by_base[key] = u
+    out = []
+    for label in catalog:
+        unit = by_label.get(label) or by_base.get(unit_base_key(label))
+        if unit:
+            out.append(unit)
+    return out
+
+
 def sync_units_for_property(prop, all_properties=None, *, persist=True):
     """
     Ensure PropertyUnit rows exist for a portfolio property.
-    Uses unit-level Property records in the same building group, or Unit A/B/C from prop.units.
+    Prefer PORTFOLIO_UNIT_CATALOG when the building is known.
     """
     existing = list(PropertyUnit.objects.filter(property_id=prop.id).order_by('sort_order', 'id'))
-    siblings = find_group_siblings(prop, all_properties)
+    catalog = catalog_units_for_property(prop)
     target = []
 
-    if siblings:
-        for i, sib in enumerate(siblings):
-            target.append({
-                'label': extract_unit_label(sib.name, sib.address),
-                'monthly_rent': sib.price or 0,
-                'status': sib.status or 'vacant',
-                'sort_order': i,
-            })
-    expected = int(prop.units or 1)
-    if expected > 1 and len(target) < expected:
-        used = {t['label'] for t in target}
-        for i in range(expected):
-            label = f'Unit {chr(ord("A") + i)}'
-            if label in used:
-                continue
-            target.append({
-                'label': label,
-                'monthly_rent': 0,
-                'status': 'vacant',
-                'sort_order': len(target),
-            })
-            if len(target) >= expected:
-                break
-    elif not siblings and expected > 1:
-        count = int(prop.units)
-        labels = [f'Unit {chr(ord("A") + i)}' for i in range(min(count, 26))]
-        if count > 26:
-            labels = [f'Unit {i + 1}' for i in range(count)]
-        for i, label in enumerate(labels):
+    if catalog is not None:
+        # Empty catalog = single-door building — no unit picker rows needed.
+        for i, label in enumerate(catalog):
             target.append({
                 'label': label,
                 'monthly_rent': 0,
                 'status': 'vacant',
                 'sort_order': i,
             })
+        # Overlay rent/status from sibling Property records when base unit matches.
+        siblings = find_group_siblings(prop, all_properties)
+        sib_by_base = {
+            unit_base_key(extract_unit_label(s.name, s.address)): s for s in siblings
+        }
+        for spec in target:
+            sib = sib_by_base.get(unit_base_key(spec['label']))
+            if sib:
+                spec['monthly_rent'] = sib.price or 0
+                spec['status'] = sib.status or 'vacant'
+    else:
+        siblings = find_group_siblings(prop, all_properties)
+        if siblings:
+            for i, sib in enumerate(siblings):
+                target.append({
+                    'label': extract_unit_label(sib.name, sib.address),
+                    'monthly_rent': sib.price or 0,
+                    'status': sib.status or 'vacant',
+                    'sort_order': i,
+                })
+        expected = int(prop.units or 1)
+        if expected > 1 and len(target) < expected:
+            used = {t['label'] for t in target}
+            for i in range(expected):
+                label = f'Unit {chr(ord("A") + i)}'
+                if label in used:
+                    continue
+                target.append({
+                    'label': label,
+                    'monthly_rent': 0,
+                    'status': 'vacant',
+                    'sort_order': len(target),
+                })
+                if len(target) >= expected:
+                    break
+        elif not siblings and expected > 1:
+            count = int(prop.units)
+            labels = [f'Unit {chr(ord("A") + i)}' for i in range(min(count, 26))]
+            if count > 26:
+                labels = [f'Unit {i + 1}' for i in range(count)]
+            for i, label in enumerate(labels):
+                target.append({
+                    'label': label,
+                    'monthly_rent': 0,
+                    'status': 'vacant',
+                    'sort_order': i,
+                })
+
+    if catalog is not None and not catalog:
+        return []
 
     if not target:
         return existing
@@ -166,11 +262,20 @@ def sync_units_for_property(prop, all_properties=None, *, persist=True):
         return target
 
     by_label = {u.label: u for u in existing}
+    by_base = {}
+    for u in existing:
+        key = unit_base_key(u.label)
+        if key not in by_base:
+            by_base[key] = u
+
     kept_ids = []
     for spec in target:
-        unit = by_label.get(spec['label'])
+        unit = by_label.get(spec['label']) or by_base.get(unit_base_key(spec['label']))
         if unit:
             changed = []
+            if unit.label != spec['label']:
+                unit.label = spec['label']
+                changed.append('label')
             if unit.monthly_rent != spec['monthly_rent']:
                 unit.monthly_rent = spec['monthly_rent']
                 changed.append('monthly_rent')
@@ -193,8 +298,8 @@ def sync_units_for_property(prop, all_properties=None, *, persist=True):
         kept_ids.append(unit.id)
 
     # Never hard-delete units — stale IDs break in-flight expense creates (FK errors).
-    # Extra/orphan labels stay; sync only creates/updates the target set.
-    return list(PropertyUnit.objects.filter(property_id=prop.id).order_by('sort_order', 'id'))
+    # Return only catalog / target rows for callers that display units.
+    return list(PropertyUnit.objects.filter(id__in=kept_ids).order_by('sort_order', 'id'))
 
 
 def sync_all_property_units():
@@ -203,7 +308,11 @@ def sync_all_property_units():
     synced = 0
     for prop in all_props:
         group_key = get_property_group_key(prop)
-        if is_portfolio_parent(prop, group_key) or (prop.units or 1) > 1:
+        if (
+            group_key in PORTFOLIO_UNIT_CATALOG
+            or is_portfolio_parent(prop, group_key)
+            or (prop.units or 1) > 1
+        ):
             sync_units_for_property(prop, all_props)
             synced += 1
     return synced

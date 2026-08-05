@@ -14,6 +14,58 @@ export const PROPERTY_GROUPS: { key: string; patterns: string[] }[] = [
   { key: 'Westlock Dr', patterns: ['westlock'] },
 ];
 
+/**
+ * Canonical doors per building. Empty array = single-door (no unit step / no unit breakdown).
+ * Keep in sync with backend/api/property_units_service.py PORTFOLIO_UNIT_CATALOG.
+ */
+export const PORTFOLIO_UNIT_CATALOG: Record<string, string[]> = {
+  'Avenue Q': [
+    'Unit A',
+    'Unit B (Eado Escape)',
+    'Unit C',
+    'Unit D (Eado Studio)',
+  ],
+  'Bella Jess': [],
+  Tomball: [],
+  Conroe: [],
+  'Sherman St': [
+    'Unit 1',
+    'Unit 2 (Urban Nesting)',
+    'Unit 3',
+    'Unit 4',
+    'Unit 5',
+    'Unit 6',
+  ],
+  '70th Street': ['Unit 1', 'Unit 2', 'Unit 3', 'Unit 4'],
+  'Avenue H': [
+    'Unit 1 (The Hideaway) 7425',
+    'Unit 2 (Little H House) 7427',
+    'Unit 3 (Sweet Home) 7429',
+    'Unit 4 - Erica',
+  ],
+  'Wooding St': ['Unit 1', 'Unit 2 (Cozy Suite)', 'Unit 3'],
+  'Avenue F': ['Unit 1', 'Unit 2', 'Unit 3', 'Unit 4'],
+};
+
+export function portfolioUnitLabels(groupKey: string): string[] | null {
+  if (Object.prototype.hasOwnProperty.call(PORTFOLIO_UNIT_CATALOG, groupKey)) {
+    return PORTFOLIO_UNIT_CATALOG[groupKey];
+  }
+  return null;
+}
+
+/** Multi-door buildings need unit (or building-wide) choice; single-door catalog skips that step. */
+export function groupNeedsUnitStep(groupKey: string, fallbackUnitCount = 0): boolean {
+  const labels = portfolioUnitLabels(groupKey);
+  if (labels !== null) return labels.length > 1;
+  return fallbackUnitCount > 1;
+}
+
+export function unitBaseKey(label: string): string {
+  const m = (label || '').match(/unit\s*([a-z0-9]+)/i);
+  return m ? m[1].toUpperCase() : (label || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
 export function propertySearchText(parts: {
   area?: string;
   address?: string;
@@ -145,35 +197,70 @@ export function groupIncomeStatementProperties(
   }
 
   return Array.from(map.values()).map((g) => {
-    // Enrich units from all Property records in the same building group (e.g. Unit A, B on Avenue Q)
-    for (const prop of propertyList) {
-      const propGroup = getPropertyGroupKeyFromProperty(prop);
-      if (propGroup !== g.groupKey) continue;
-      const unitLabel = extractUnitLabel(prop.name, prop.address);
-      const isParentOnly =
-        normalizeName(prop.name) === normalizeName(g.groupKey) ||
-        (prop.area?.trim() && normalizeName(prop.name) === normalizeName(prop.area));
-      if (isParentOnly) continue;
+    const catalog = portfolioUnitLabels(g.groupKey);
 
-      const pseudoId = `prop-${prop.id}`;
-      if (!g.units!.some((u) => u.unitId === pseudoId || u.label === unitLabel)) {
-        g.units!.push({
-          unitId: pseudoId,
-          propertyId: prop.id,
-          label: unitLabel,
-          monthlyRent: prop.price ?? 0,
-          status: prop.status || 'vacant',
-          rentIncome: 0,
-          totalExpenses: 0,
-          netIncome: 0,
+    // Enrich units from all Property records in the same building group (e.g. Unit A, B on Avenue Q)
+    // Skip when we have a canonical catalog — sibling Property names are often wrong/mixed.
+    if (catalog === null) {
+      for (const prop of propertyList) {
+        const propGroup = getPropertyGroupKeyFromProperty(prop);
+        if (propGroup !== g.groupKey) continue;
+        const unitLabel = extractUnitLabel(prop.name, prop.address);
+        const isParentOnly =
+          normalizeName(prop.name) === normalizeName(g.groupKey) ||
+          (prop.area?.trim() && normalizeName(prop.name) === normalizeName(prop.area));
+        if (isParentOnly) continue;
+
+        const pseudoId = `prop-${prop.id}`;
+        if (!g.units!.some((u) => u.unitId === pseudoId || u.label === unitLabel)) {
+          g.units!.push({
+            unitId: pseudoId,
+            propertyId: prop.id,
+            label: unitLabel,
+            monthlyRent: prop.price ?? 0,
+            status: prop.status || 'vacant',
+            rentIncome: 0,
+            totalExpenses: 0,
+            netIncome: 0,
+          });
+        }
+      }
+    }
+
+    let sortedUnits = [...(g.units || [])].sort((a, b) =>
+      unitSortKey(a.label).localeCompare(unitSortKey(b.label)),
+    );
+
+    if (catalog !== null) {
+      if (catalog.length === 0) {
+        sortedUnits = [];
+      } else {
+        // Keep real P&L unit rows; rename/filter to catalog; drop orphans.
+        const byBase = new Map<string, (typeof sortedUnits)[0]>();
+        for (const u of sortedUnits) {
+          const key = unitBaseKey(u.label);
+          if (!byBase.has(key)) byBase.set(key, u);
+        }
+        sortedUnits = catalog.map((label, i) => {
+          const match = byBase.get(unitBaseKey(label));
+          if (match) return { ...match, label };
+          return {
+            unitId: `catalog-${g.groupKey}-${i}`,
+            propertyId: g.propertyId,
+            label,
+            monthlyRent: 0,
+            status: 'vacant',
+            rentIncome: 0,
+            totalExpenses: 0,
+            netIncome: 0,
+          };
         });
       }
     }
 
-    const sortedUnits = [...(g.units || [])].sort((a, b) =>
-      unitSortKey(a.label).localeCompare(unitSortKey(b.label)),
-    );
-    const unitsCount = Math.max(g.unitsCount || 0, sortedUnits.length);
+    const unitsCount = catalog !== null
+      ? catalog.length
+      : Math.max(g.unitsCount || 0, sortedUnits.length);
     return { ...g, units: sortedUnits, unitsCount };
   });
 }
@@ -223,6 +310,7 @@ export function groupPropertiesForSelect(properties: Property[]): PropertyGroupO
     const parentPreferred = isLikelyPortfolioParent(prop, groupKey);
     const unitLabel = extractUnitLabel(prop.name, prop.address);
     const existing = map.get(groupKey);
+    const catalog = portfolioUnitLabels(groupKey);
 
     if (!existing) {
       map.set(groupKey, {
@@ -231,7 +319,10 @@ export function groupPropertiesForSelect(properties: Property[]): PropertyGroupO
         label: groupKey,
         address: prop.address,
         image: prop.image,
-        units: parentPreferred ? [] : [{ label: unitLabel, propertyId: prop.id }],
+        // Prefer catalog; empty catalog = single-door (no unit cards).
+        units: catalog !== null
+          ? catalog.map((label) => ({ label, propertyId: prop.id }))
+          : (parentPreferred ? [] : [{ label: unitLabel, propertyId: prop.id }]),
       });
       continue;
     }
@@ -240,9 +331,12 @@ export function groupPropertiesForSelect(properties: Property[]): PropertyGroupO
       existing.propertyId = prop.id;
       if (prop.address) existing.address = prop.address;
       if (prop.image) existing.image = prop.image;
-      // Remove self from units if it was added earlier as a pseudo-unit.
-      existing.units = existing.units.filter((u) => u.propertyId !== prop.id);
-    } else {
+      if (catalog !== null) {
+        existing.units = catalog.map((label) => ({ label, propertyId: prop.id }));
+      } else {
+        existing.units = existing.units.filter((u) => u.propertyId !== prop.id);
+      }
+    } else if (catalog === null) {
       const hasUnit = existing.units.some((u) => u.propertyId === prop.id);
       if (!hasUnit) {
         existing.units.push({ label: unitLabel, propertyId: prop.id });

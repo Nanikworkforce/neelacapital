@@ -871,7 +871,11 @@ class PropertyUnitViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        from .property_units_service import sync_units_for_property
+        from .property_units_service import (
+            catalog_units_for_property,
+            display_units_for_property,
+            sync_units_for_property,
+        )
 
         property_ids = filter_properties_for_user(Property.objects.all(), self.request.user)
         qs = PropertyUnit.objects.select_related('property').filter(property__in=property_ids)
@@ -884,7 +888,15 @@ class PropertyUnitViewSet(viewsets.ModelViewSet):
             allowed = filter_properties_for_user(Property.objects.filter(id=prop.id), self.request.user)
             if not allowed.exists() and not is_admin_user(self.request.user):
                 return PropertyUnit.objects.none()
-            # Sync only when this property has no units yet — avoid slow DB work on every modal open.
+            catalog = catalog_units_for_property(prop)
+            # Known buildings: always re-sync labels to the canonical catalog.
+            # Unknown: only sync when empty (avoid slow work on every open).
+            if catalog is not None:
+                sync_units_for_property(prop)
+                if not catalog:
+                    return PropertyUnit.objects.none()
+                kept = display_units_for_property(prop)
+                return PropertyUnit.objects.filter(id__in=[u.id for u in kept]).order_by('sort_order', 'id')
             if not PropertyUnit.objects.filter(property_id=prop.id).exists():
                 sync_units_for_property(prop)
             qs = qs.filter(property_id=prop.id)

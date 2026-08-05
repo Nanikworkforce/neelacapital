@@ -17,7 +17,14 @@ from django.db.models import Sum, Q
 from django.db.models.functions import ExtractMonth
 
 from .models import Payment, Property, Tenant, OperatingExpense, ShortStayBooking, PropertyUnit
-from .property_units_service import get_property_group_key, is_portfolio_parent, sync_units_for_property, unit_for_door_number
+from .property_units_service import (
+    catalog_units_for_property,
+    display_units_for_property,
+    get_property_group_key,
+    is_portfolio_parent,
+    sync_units_for_property,
+    unit_for_door_number,
+)
 from .permissions import is_admin_user, exclude_import_placeholder_tenants
 
 IMPORT_TAG_PREFIX = 'excel-import-'
@@ -255,17 +262,28 @@ def compute_property_pnl(
 
     unit_rows_by_property = defaultdict(list)
     if not summary_only:
-        # Read existing units only — do not sync every property on each P&L load
-        # (that was O(properties) DB writes and made the statement feel like a full reload).
         existing_units = PropertyUnit.objects.filter(property_id__in=property_ids).order_by(
             'sort_order', 'id'
         )
         for unit in existing_units:
             unit_rows_by_property[unit.property_id].append(unit)
-        missing = [p for p in properties if not unit_rows_by_property.get(p.id)]
-        if missing:
-            all_props = list(properties) if len(properties) < 50 else list(Property.objects.all())
-            for prop in missing:
+
+        all_props = None
+        for prop in properties:
+            catalog = catalog_units_for_property(prop)
+            rows = unit_rows_by_property.get(prop.id, [])
+            if catalog is not None:
+                display = display_units_for_property(prop, rows)
+                labels_ok = [u.label for u in display] == list(catalog)
+                if catalog and not labels_ok:
+                    if all_props is None:
+                        all_props = list(properties) if len(properties) < 50 else list(Property.objects.all())
+                    unit_rows_by_property[prop.id] = sync_units_for_property(prop, all_props)
+                else:
+                    unit_rows_by_property[prop.id] = display
+            elif not rows:
+                if all_props is None:
+                    all_props = list(properties) if len(properties) < 50 else list(Property.objects.all())
                 unit_rows_by_property[prop.id] = sync_units_for_property(prop, all_props)
 
     rent_income_by_property = defaultdict(lambda: Decimal('0'))
