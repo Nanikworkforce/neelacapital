@@ -1,4 +1,4 @@
-import { IncomeStatementRow, OperatingExpense, Property } from '../types';
+import { IncomeStatementRow, OperatingExpense, Property, PropertyUnit } from '../types';
 
 export const PROPERTY_GROUPS: { key: string; patterns: string[] }[] = [
   { key: 'Avenue Q', patterns: ['avenue q', 'ave q'] },
@@ -59,6 +59,59 @@ export function groupNeedsUnitStep(groupKey: string, fallbackUnitCount = 0): boo
   const labels = portfolioUnitLabels(groupKey);
   if (labels !== null) return labels.length > 1;
   return fallbackUnitCount > 1;
+}
+
+/**
+ * Align expense unit picker rows to the same catalog as Income Statement
+ * "Properties & Units" (drops orphans / duplicate Door vs Unit leftovers).
+ */
+export function unitsForExpensePicker(
+  apiUnits: PropertyUnit[],
+  groupKey: string,
+  propertyId: string,
+): PropertyUnit[] {
+  const seen = new Set<string>();
+  const deduped: PropertyUnit[] = [];
+  for (const u of apiUnits) {
+    const key = (u.label || '').toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(u);
+  }
+
+  const catalog = portfolioUnitLabels(groupKey);
+  if (catalog === null) {
+    return deduped;
+  }
+  if (catalog.length === 0) {
+    return [];
+  }
+
+  const byLabel = new Map<string, PropertyUnit>();
+  const byBase = new Map<string, PropertyUnit>();
+  for (const u of deduped) {
+    if (!byLabel.has(u.label)) byLabel.set(u.label, u);
+    const key = unitBaseKey(u.label);
+    // Prefer rows that already use a catalog label when base keys collide.
+    if (!byBase.has(key) || catalog.includes(u.label)) {
+      byBase.set(key, u);
+    }
+  }
+
+  return catalog.map((label, i) => {
+    const match = byLabel.get(label) || byBase.get(unitBaseKey(label));
+    if (match) {
+      return { ...match, label, sortOrder: i };
+    }
+    return {
+      id: '',
+      property: propertyId,
+      label,
+      monthlyRent: 0,
+      status: 'vacant' as const,
+      sortOrder: i,
+    };
+  });
 }
 
 export function unitBaseKey(label: string): string {

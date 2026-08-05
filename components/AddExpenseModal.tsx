@@ -12,6 +12,7 @@ import {
   groupNeedsUnitStep,
   groupPropertiesForSelect,
   resolvePropertyIdForExpense,
+  unitsForExpensePicker,
 } from '../utils/propertyGrouping';
 
 type Role = 'admin' | 'manager';
@@ -27,18 +28,6 @@ interface Props {
 
 const formatMoney = (v: number) =>
   `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-function dedupeUnits(rows: PropertyUnit[]): PropertyUnit[] {
-  const seen = new Set<string>();
-  const out: PropertyUnit[] = [];
-  for (const u of rows) {
-    const key = (u.label || '').toLowerCase();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(u);
-  }
-  return out;
-}
 
 function expenseTitle(e: OperatingExpense) {
   const first = (e.notes || '').split(' · ')[0]?.trim();
@@ -212,29 +201,30 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
     setUnitsLoading(true);
     setUnitChoice('none');
     setUnitId('');
+    // Same catalog clamp as Income Statement → Properties & Units (e.g. 70th = Unit 1–4).
     api.getPropertyUnits(selectedGroup.propertyId)
       .then((rows) => {
         if (cancelled) return;
-        setUnits(dedupeUnits(rows));
+        setUnits(unitsForExpensePicker(rows, selectedGroup.groupKey, selectedGroup.propertyId));
       })
       .catch(() => {
         if (cancelled) return;
         // Fallback labels from the building group (no ids — user must pick after API recovers).
-        const fallback = dedupeUnits((selectedGroup.units || []).map((u, i) => ({
+        const fallbackRows = (selectedGroup.units || []).map((u, i) => ({
           id: '',
           property: selectedGroup.propertyId,
           label: u.label,
           monthlyRent: 0,
           status: 'vacant' as const,
           sortOrder: i,
-        })));
-        setUnits(fallback);
+        }));
+        setUnits(unitsForExpensePicker(fallbackRows, selectedGroup.groupKey, selectedGroup.propertyId));
       })
       .finally(() => {
         if (!cancelled) setUnitsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [selectedGroup?.propertyId]);
+  }, [selectedGroup?.propertyId, selectedGroup?.groupKey]);
 
   if (!open) return null;
 
@@ -639,8 +629,8 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
                       key={u.id || u.label}
                       icon={Home}
                       title={u.label}
-                      subtitle={u.status}
-                      selected={unitChoice === 'unit' && unitId === u.id}
+                      subtitle={u.id ? u.status : 'Syncing — try again in a moment'}
+                      selected={unitChoice === 'unit' && !!u.id && unitId === u.id}
                       onClick={() => {
                         if (!u.id) return;
                         setUnitId(u.id);
