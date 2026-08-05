@@ -319,6 +319,12 @@ export const api = {
           annualDepreciationYears: row.financials.annual_depreciation_years || 27.5,
           escrowNotes: row.financials.escrow_notes || '',
         } : null,
+        monthly: (row.monthly || []).map((m: any) => ({
+          month: m.month,
+          income: parseFloat(m.income || 0),
+          expenses: parseFloat(m.expenses || 0),
+          net: parseFloat(m.net || 0),
+        })),
       })),
       byUnit: (data.by_unit || []).map((u: any) => ({
         unitId: String(u.unit_id),

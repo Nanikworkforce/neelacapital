@@ -68,9 +68,42 @@ def get_property_group_key(prop):
     text = property_search_text(prop)
     if prop.area and prop.area.strip():
         area = prop.area.strip().lower()
+        area_aliases = {
+            'tomabll': 'Tomball',
+            'tomball': 'Tomball',
+            'ave q': 'Avenue Q',
+            'aveq': 'Avenue Q',
+            'ave h': 'Avenue H',
+            'aveh': 'Avenue H',
+            'ave f': 'Avenue F',
+            'avef': 'Avenue F',
+            'wooden': 'Wooding St',
+            'wooding': 'Wooding St',
+            '70th': '70th Street',
+            'sherman': 'Sherman St',
+        }
+        if area in area_aliases:
+            return area_aliases[area]
         for key, _ in PROPERTY_GROUPS:
             if key.lower() == area:
                 return key
+    # Name-first for known roll-ups (avoid address contamination like Tomball on Avenue F)
+    name_norm = normalize(prop.name)
+    name_aliases = {
+        'tomball': 'Tomball',
+        'tomabll': 'Tomball',
+        'conroe': 'Conroe',
+        'bellajess': 'Bella Jess',
+        'aveq': 'Avenue Q',
+        'aveh': 'Avenue H',
+        'avef': 'Avenue F',
+        'sherman': 'Sherman St',
+        '70th': '70th Street',
+        'wooden': 'Wooding St',
+        'wooding': 'Wooding St',
+    }
+    if name_norm in name_aliases:
+        return name_aliases[name_norm]
     for key, patterns in sorted(PROPERTY_GROUPS, key=lambda x: -len(x[0])):
         if any(p in text for p in patterns):
             return key

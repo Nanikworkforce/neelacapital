@@ -582,44 +582,109 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                           )}
                         </>
                       )}
+                      {!multiUnit && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedProperty(expanded ? null : row.groupKey)}
+                          className="inline-flex items-center gap-2 text-xs font-semibold text-indigo-700 hover:text-indigo-900"
+                        >
+                          {expanded ? 'Hide' : 'Open'} monthly P&amp;L
+                          {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   {/* Right: income / expenses / NOI */}
                   <div className="grid grid-cols-3 md:flex md:flex-col justify-center gap-2 md:w-52 lg:w-56 flex-shrink-0 min-w-0">
-                    {display.unitLabel && (
-                      <p className="col-span-3 md:col-span-1 text-[10px] font-bold uppercase tracking-wide text-indigo-600 px-1">
-                        {display.unitLabel}
-                      </p>
-                    )}
-                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-2 sm:px-3 py-2 sm:py-2.5 min-w-0">
-                      <p className="text-[10px] uppercase tracking-wide text-emerald-600 font-bold">Income</p>
-                      <p className="font-bold text-emerald-800 text-sm sm:text-base lg:text-lg tabular-nums truncate">{formatMoney(display.income)}</p>
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-2.5 py-2 text-center md:text-left">
+                      <p className="text-[10px] uppercase tracking-wide text-emerald-700 font-semibold">Income</p>
+                      <p className="text-sm sm:text-base font-bold text-emerald-800 tabular-nums">{formatMoney(display.income)}</p>
                     </div>
-                    <div className="rounded-xl bg-rose-50 border border-rose-100 px-2 sm:px-3 py-2 sm:py-2.5 min-w-0">
-                      <p className="text-[10px] uppercase tracking-wide text-rose-600 font-bold">Expenses</p>
-                      <p className="font-bold text-rose-800 text-sm sm:text-base lg:text-lg tabular-nums truncate">{formatMoney(display.expenses)}</p>
+                    <div className="rounded-xl bg-rose-50 border border-rose-100 px-2.5 py-2 text-center md:text-left">
+                      <p className="text-[10px] uppercase tracking-wide text-rose-700 font-semibold">Expenses</p>
+                      <p className="text-sm sm:text-base font-bold text-rose-800 tabular-nums">{formatMoney(display.expenses)}</p>
                     </div>
-                    <div className="rounded-xl bg-indigo-50 border border-indigo-100 px-2 sm:px-3 py-2 sm:py-2.5 min-w-0">
-                      <p className="text-[10px] uppercase tracking-wide text-indigo-600 font-bold">NOI</p>
-                      <p className={`font-bold text-sm sm:text-base lg:text-lg tabular-nums truncate ${display.noi >= 0 ? 'text-indigo-800' : 'text-rose-700'}`}>
+                    <div className="rounded-xl bg-indigo-50 border border-indigo-100 px-2.5 py-2 text-center md:text-left">
+                      <p className="text-[10px] uppercase tracking-wide text-indigo-700 font-semibold">NOI</p>
+                      <p className={`text-sm sm:text-base font-bold tabular-nums ${display.noi >= 0 ? 'text-indigo-800' : 'text-rose-700'}`}>
                         {formatMoney(display.noi)}
                       </p>
                     </div>
+                    {display.unitLabel && (
+                      <p className="hidden md:block text-[11px] text-slate-500 col-span-3">
+                        Showing {display.unitLabel}
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                {isAdmin && row.financials && (
-                  <div className="mt-4 p-3 rounded-xl bg-slate-900 text-slate-100 text-xs space-y-1">
-                    <div className="flex items-center gap-1.5 text-amber-300 font-semibold mb-2">
-                      Financing &amp; Ownership
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1">
-                      <span className="text-slate-400">Purchase Price</span><span>{formatMoney(row.financials.purchasePrice)}</span>
-                      <span className="text-slate-400">Monthly Mortgage</span><span>{formatMoney(row.financials.monthlyMortgagePayment)}</span>
-                      <span className="text-slate-400">Loan Amount</span><span>{formatMoney(row.financials.loanAmount)}</span>
-                      <span className="text-slate-400">Interest Rate</span><span>{(row.financials.interestRate * 100).toFixed(2)}%</span>
-                    </div>
+                {expanded && (row.monthly?.length || row.financials) && (
+                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
+                    {row.monthly && row.monthly.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                          Monthly summary (Master P&amp;L)
+                        </p>
+                        <div className="overflow-x-auto rounded-xl border border-slate-200">
+                          <table className="min-w-full text-xs sm:text-sm">
+                            <thead className="bg-slate-50 text-slate-600">
+                              <tr>
+                                <th className="text-left font-semibold px-3 py-2">Month</th>
+                                <th className="text-right font-semibold px-3 py-2">Income</th>
+                                <th className="text-right font-semibold px-3 py-2">OpEx</th>
+                                <th className="text-right font-semibold px-3 py-2">NOI</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {row.monthly.map((m) => (
+                                <tr key={m.month} className="border-t border-slate-100">
+                                  <td className="px-3 py-1.5 font-medium text-slate-800">{MONTHS[m.month - 1]}</td>
+                                  <td className="px-3 py-1.5 text-right tabular-nums text-emerald-700">{formatMoney(m.income)}</td>
+                                  <td className="px-3 py-1.5 text-right tabular-nums text-rose-700">{formatMoney(m.expenses)}</td>
+                                  <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${m.net >= 0 ? 'text-indigo-800' : 'text-rose-700'}`}>
+                                    {formatMoney(m.net)}
+                                  </td>
+                                </tr>
+                              ))}
+                              <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold">
+                                <td className="px-3 py-2">Total</td>
+                                <td className="px-3 py-2 text-right tabular-nums text-emerald-800">
+                                  {formatMoney(row.monthly.reduce((s, m) => s + m.income, 0))}
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums text-rose-800">
+                                  {formatMoney(row.monthly.reduce((s, m) => s + m.expenses, 0))}
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums text-indigo-900">
+                                  {formatMoney(row.monthly.reduce((s, m) => s + m.net, 0))}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                    {isAdmin && row.financials && (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                        {[
+                          ['Purchase', row.financials.purchasePrice],
+                          ['Down payment', row.financials.downPayment],
+                          ['Loan', row.financials.loanAmount],
+                          ['Rate', row.financials.interestRate ? `${(row.financials.interestRate * 100).toFixed(3)}%` : null],
+                          ['Mo. P&I', row.financials.monthlyMortgagePayment],
+                          ['Land', row.financials.landValue],
+                        ].map(([label, val]) => (
+                          val === null || val === undefined || val === 0 || val === '0.000%' ? null : (
+                            <div key={String(label)} className="rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-2">
+                              <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">{label}</p>
+                              <p className="font-bold text-slate-800 tabular-nums">
+                                {typeof val === 'string' ? val : formatMoney(Number(val))}
+                              </p>
+                            </div>
+                          )
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

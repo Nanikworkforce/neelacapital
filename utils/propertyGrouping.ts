@@ -79,12 +79,47 @@ export function propertySearchText(parts: {
     .toLowerCase();
 }
 
+function normalizeName(s?: string): string {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
 export function getPropertyGroupKeyFromProperty(prop: Property): string {
   const text = propertySearchText(prop);
+  const areaAliases: Record<string, string> = {
+    tomabll: 'Tomball',
+    tomball: 'Tomball',
+    'ave q': 'Avenue Q',
+    aveq: 'Avenue Q',
+    'ave h': 'Avenue H',
+    aveh: 'Avenue H',
+    'ave f': 'Avenue F',
+    avef: 'Avenue F',
+    wooden: 'Wooding St',
+    wooding: 'Wooding St',
+    '70th': '70th Street',
+    sherman: 'Sherman St',
+  };
   if (prop.area?.trim()) {
-    const byArea = PROPERTY_GROUPS.find((g) => g.key.toLowerCase() === prop.area!.trim().toLowerCase());
+    const area = prop.area.trim().toLowerCase();
+    if (areaAliases[area]) return areaAliases[area];
+    const byArea = PROPERTY_GROUPS.find((g) => g.key.toLowerCase() === area);
     if (byArea) return byArea.key;
   }
+  const nameNorm = normalizeName(prop.name);
+  const nameAliases: Record<string, string> = {
+    tomball: 'Tomball',
+    tomabll: 'Tomball',
+    conroe: 'Conroe',
+    bellajess: 'Bella Jess',
+    aveq: 'Avenue Q',
+    aveh: 'Avenue H',
+    avef: 'Avenue F',
+    sherman: 'Sherman St',
+    '70th': '70th Street',
+    wooden: 'Wooding St',
+    wooding: 'Wooding St',
+  };
+  if (nameAliases[nameNorm]) return nameAliases[nameNorm];
   const byLength = [...PROPERTY_GROUPS].sort((a, b) => b.key.length - a.key.length);
   for (const g of byLength) {
     if (g.patterns.some((p) => text.includes(p))) return g.key;
@@ -122,10 +157,6 @@ function unitSortKey(label: string): string {
   return m ? m[1].padStart(4, '0') : label;
 }
 
-function normalizeName(s?: string): string {
-  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
-
 export type GroupedPropertyRow = IncomeStatementRow & { groupKey: string };
 
 export function groupIncomeStatementProperties(
@@ -152,6 +183,7 @@ export function groupIncomeStatementProperties(
         units: [],
         unitsCount: 0,
         financials: row.financials,
+        monthly: row.monthly ? row.monthly.map((m) => ({ ...m })) : undefined,
         imageUrl: row.imageUrl,
         address: row.address,
         city: row.city,
@@ -168,6 +200,14 @@ export function groupIncomeStatementProperties(
     if (!group.imageUrl && row.imageUrl) group.imageUrl = row.imageUrl;
     if (!group.financials && row.financials) group.financials = row.financials;
     if (!group.address && row.address) group.address = row.address;
+    // Prefer the richest monthly series (portfolio parent usually has the Master P&L totals).
+    if (row.monthly?.length) {
+      const existing = (group.monthly || []).reduce((s, m) => s + Math.abs(m.income) + Math.abs(m.expenses), 0);
+      const next = row.monthly.reduce((s, m) => s + Math.abs(m.income) + Math.abs(m.expenses), 0);
+      if (!group.monthly?.length || next >= existing) {
+        group.monthly = row.monthly.map((m) => ({ ...m }));
+      }
+    }
 
     if (row.units?.length) {
       for (const unit of row.units) {

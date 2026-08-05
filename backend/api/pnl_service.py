@@ -452,6 +452,15 @@ def compute_property_pnl(
         tenant_prop_map=tenant_prop_map,
     )
 
+    monthly_by_property = _monthly_by_property(
+        year=year,
+        property_ids=property_ids,
+        admin_view=admin_view,
+        tenant_prop_map=tenant_prop_map,
+    )
+    for row in property_rows:
+        row['monthly'] = monthly_by_property.get(row['property_id'], [])
+
     return {
         'year': year,
         'is_admin_view': admin_view,
@@ -521,3 +530,71 @@ def _monthly_cash_flow(*, year, property_ids, admin_view, tenant_prop_map):
             'net': float(income - month_exp),
         })
     return monthly
+
+
+def _monthly_by_property(*, year, property_ids, admin_view, tenant_prop_map):
+    """Per-property monthly income / opEx / NOI (Excel left summary columns)."""
+    property_ids_set = set(property_ids)
+    excel_property_ids = excel_portfolio_property_ids(year)
+
+    rent = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
+    for pay in Payment.objects.filter(
+        status='Paid', type='Rent', date__year=year,
+    ).only('amount', 'date', 'tenant_id', 'reference'):
+        prop_id = tenant_prop_map.get(pay.tenant_id) or parse_import_property_id(pay.reference)
+        if prop_id not in property_ids_set:
+            continue
+        if excel_property_ids and prop_id in excel_property_ids:
+            if not is_excel_import_reference(pay.reference, year):
+                continue
+        if is_door_detail_payment(pay.reference):
+            continue
+        rent[prop_id][pay.date.month] += pay.amount or Decimal('0')
+
+    short = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
+    for row in ShortStayBooking.objects.filter(
+        status='confirmed',
+        check_in__year=year,
+        property_id__in=property_ids,
+    ).annotate(month=ExtractMonth('check_in')).values('property_id', 'month').annotate(total=Sum('total_amount')):
+        short[row['property_id']][int(row['month'])] += row['total'] or Decimal('0')
+
+    expenses = list(OperatingExpense.objects.filter(
+        date__year=year,
+        property_id__in=property_ids,
+    ).only('amount', 'date', 'property_id', 'visibility', 'notes', 'category'))
+    if not admin_view:
+        expenses = [e for e in expenses if e.visibility != 'admin_only']
+
+    summary_keys = {
+        (e.property_id, e.date.month)
+        for e in expenses
+        if is_excel_import_note(e.notes, year) and '__SUMMARY__' in (e.notes or '')
+    }
+    props_with_summary = {pid for pid, _ in summary_keys}
+
+    opex = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
+    for exp in expenses:
+        if _is_financing_expense(exp):
+            continue
+        notes = exp.notes or ''
+        is_excel = is_excel_import_note(notes, year)
+        is_summary = is_excel and '__SUMMARY__' in notes
+        if is_excel and not is_summary and exp.property_id in props_with_summary:
+            continue
+        opex[exp.property_id][exp.date.month] += exp.amount or Decimal('0')
+
+    out = {}
+    for pid in property_ids:
+        rows = []
+        for month in range(1, 13):
+            income = rent[pid][month] + short[pid][month]
+            exp = opex[pid][month]
+            rows.append({
+                'month': month,
+                'income': float(income),
+                'expenses': float(exp),
+                'net': float(income - exp),
+            })
+        out[pid] = rows
+    return out

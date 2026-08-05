@@ -333,6 +333,13 @@ export interface IncomeStatementUnitRow {
   netIncome: number;
 }
 
+export interface IncomeStatementMonthlyRow {
+  month: number;
+  income: number;
+  expenses: number;
+  net: number;
+}
+
 export interface IncomeStatementRow {
   propertyId: string;
   propertyName: string;
@@ -348,6 +355,7 @@ export interface IncomeStatementRow {
   netIncome: number;
   units?: IncomeStatementUnitRow[];
   financials?: PropertyFinancials | null;
+  monthly?: IncomeStatementMonthlyRow[];
 }
 
 export interface IncomeStatementSummary {
