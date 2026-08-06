@@ -6,6 +6,7 @@ import {
   DollarSign, ToggleLeft, ToggleRight, ChevronLeft, ChevronRight, Eye, Download,
   Ban, RefreshCw, X, Filter, Home, Trash2
 } from 'lucide-react';
+import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
 
 type TabId = 'requests' | 'calendar' | 'pricing';
 
@@ -150,6 +151,17 @@ const ShortStaysView: React.FC = () => {
   }, [calendarPropertyId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const silentRefresh = useCallback(async () => {
+    const [bookingData, propertyData] = await Promise.all([
+      api.getShortStayBookings(),
+      api.getProperties(),
+    ]);
+    setBookings(bookingData);
+    setProperties(propertyData);
+  }, []);
+
+  usePollWhileVisible(silentRefresh, 30_000, !loading);
 
   const loadCalendar = useCallback(async () => {
     if (!calendarPropertyId) return;

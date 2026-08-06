@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DollarSign, TrendingUp, Building2, Wallet, ChevronDown, ChevronUp,
-  MapPin, Home, BarChart3, Sparkles, PieChart, Plus,
+  MapPin, Home, BarChart3, Sparkles, PieChart, Plus, Bell,
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -14,6 +14,8 @@ import {
   GroupedPropertyRow,
 } from '../utils/propertyGrouping';
 import AddExpenseModal from './AddExpenseModal';
+import ViewportPortal from './ViewportPortal';
+import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
 
 interface Props {
   properties: Property[];
@@ -89,6 +91,44 @@ function formatExpenseNote(notes?: string): string {
 }
 
 const FINANCING_CATEGORIES = new Set(['mortgage_interest', 'mortgage_principal', 'depreciation']);
+
+const EXPENSE_NOTIF_WINDOW_MS = 24 * 60 * 60 * 1000;
+const EXPENSE_NOTIF_DISMISSED_KEY = 'admin_expense_notif_dismissed';
+
+function readDismissedExpenseNotifs(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(EXPENSE_NOTIF_DISMISSED_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    const cutoff = Date.now() - EXPENSE_NOTIF_WINDOW_MS;
+    const pruned: Record<string, number> = {};
+    for (const [id, ts] of Object.entries(parsed)) {
+      if (typeof ts === 'number' && ts >= cutoff) pruned[id] = ts;
+    }
+    return pruned;
+  } catch {
+    return {};
+  }
+}
+
+function writeDismissedExpenseNotifs(map: Record<string, number>) {
+  localStorage.setItem(EXPENSE_NOTIF_DISMISSED_KEY, JSON.stringify(map));
+}
+
+function expenseRecordedAt(expense: OperatingExpense): number | null {
+  if (!expense.createdAt) return null;
+  const t = new Date(expense.createdAt).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function formatNotifAge(ts: number): string {
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return 'Earlier';
+}
 
 /** Patch P&L totals in-place so saving an expense does not blank the whole page. */
 function applyExpenseDelta(
@@ -169,6 +209,12 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
   /** Per property group: 'all' = combined totals, otherwise a unitId */
   const [selectedUnitByGroup, setSelectedUnitByGroup] = useState<Record<string, string>>({});
   const [showAddExpense, setShowAddExpense] = useState(false);
+  const [expenseSuccessPopup, setExpenseSuccessPopup] = useState<OperatingExpense | null>(null);
+  const [expenseFeedback, setExpenseFeedback] = useState<string | null>(null);
+  const [showExpenseBell, setShowExpenseBell] = useState(false);
+  const [dismissedNotifs, setDismissedNotifs] = useState<Record<string, number>>(() => readDismissedExpenseNotifs());
+  const [notifTick, setNotifTick] = useState(0);
+  const bellRef = useRef<HTMLDivElement>(null);
 
   const load = async (selectedYear: number) => {
     setLoading(true);
@@ -193,7 +239,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     try {
       const [full, expenseRows] = await Promise.all([
         api.getIncomeStatement(selectedYear),
-        api.getOperatingExpenses({ year: selectedYear, limit: 20 }),
+        api.getOperatingExpenses({ year: selectedYear, limit: 50 }),
       ]);
       setSummary(full);
       setExpenses(expenseRows);
@@ -211,10 +257,61 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     load(year);
   }, [year]);
 
+  // Keep expenses, bell, and P&L totals fresh without a manual reload.
+  usePollWhileVisible(async () => {
+    setNotifTick((n) => n + 1);
+    const [expenseRows, full] = await Promise.all([
+      api.getOperatingExpenses({ year, limit: 50 }),
+      api.getIncomeStatement(year),
+    ]);
+    setExpenses(expenseRows);
+    setSummary(full);
+  }, 30_000, !loading);
+  useEffect(() => {
+    if (!showExpenseBell) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
+        setShowExpenseBell(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [showExpenseBell]);
+
   const filteredExpenses = useMemo(
-    () => expenses.filter((e) => new Date(e.date).getFullYear() === year).slice(0, 20),
+    () =>
+      expenses
+        .filter((e) => new Date(e.date).getFullYear() === year)
+        .filter((e) => !(e.notes || '').startsWith('excel-import-'))
+        .slice(0, 20),
     [expenses, year]
   );
+
+  const expenseNotifications = useMemo(() => {
+    void notifTick;
+    const cutoff = Date.now() - EXPENSE_NOTIF_WINDOW_MS;
+    return expenses
+      .filter((e) => !(e.notes || '').startsWith('excel-import-'))
+      .map((e) => {
+        const recordedAt = expenseRecordedAt(e);
+        return recordedAt != null ? { expense: e, recordedAt } : null;
+      })
+      .filter((row): row is { expense: OperatingExpense; recordedAt: number } =>
+        !!row && row.recordedAt >= cutoff && !dismissedNotifs[row.expense.id],
+      )
+      .sort((a, b) => b.recordedAt - a.recordedAt);
+  }, [expenses, dismissedNotifs, notifTick]);
+
+  const dismissExpenseNotifs = (ids: string[]) => {
+    if (!ids.length) return;
+    const next = { ...dismissedNotifs };
+    const now = Date.now();
+    ids.forEach((id) => {
+      next[id] = now;
+    });
+    setDismissedNotifs(next);
+    writeDismissedExpenseNotifs(next);
+  };
 
   const monthlyChartData = useMemo(() => {
     if (!summary?.monthly?.length) return [];
@@ -318,6 +415,72 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
             </p>
           </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full lg:w-auto">
+            <div className="relative self-end sm:self-auto" ref={bellRef}>
+              <button
+                type="button"
+                onClick={() => setShowExpenseBell((v) => !v)}
+                className="relative inline-flex items-center justify-center p-2.5 rounded-xl bg-white/15 backdrop-blur text-white hover:bg-white/25 transition-colors min-h-[44px] min-w-[44px] border border-white/20"
+                aria-label={
+                  expenseNotifications.length
+                    ? `${expenseNotifications.length} new expense notifications`
+                    : 'Expense notifications'
+                }
+              >
+                <Bell className="w-5 h-5" />
+                {expenseNotifications.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[1.15rem] h-[1.15rem] px-1 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-sm">
+                    {expenseNotifications.length > 9 ? '9+' : expenseNotifications.length}
+                  </span>
+                )}
+              </button>
+              {showExpenseBell && (
+                <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-2rem))] max-h-96 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 text-left">
+                  <div className="p-3 border-b border-slate-100 flex items-center justify-between gap-2 sticky top-0 bg-white">
+                    <p className="font-semibold text-sm text-slate-800">New expenses</p>
+                    {expenseNotifications.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          dismissExpenseNotifs(expenseNotifications.map((n) => n.expense.id));
+                        }}
+                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+                  <p className="px-3 py-2 text-[11px] text-slate-400 border-b border-slate-50">
+                    Alerts clear automatically after 24 hours. Expenses stay in Recent Expenses.
+                  </p>
+                  {expenseNotifications.length === 0 ? (
+                    <p className="p-4 text-sm text-slate-500">No new expenses in the last 24 hours.</p>
+                  ) : (
+                    expenseNotifications.map(({ expense: e, recordedAt }) => (
+                      <div
+                        key={e.id}
+                        className="px-4 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-800 truncate">
+                              {formatMoney(e.amount)} · {CATEGORY_LABELS[e.category] || e.category}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-0.5 truncate">
+                              {e.propertyName || 'Property'}
+                              {e.unitLabel ? ` · ${e.unitLabel}` : ''}
+                              {e.createdByName ? ` · ${e.createdByName}` : ''}
+                            </p>
+                          </div>
+                          <span className="text-[11px] text-slate-400 whitespace-nowrap flex-shrink-0">
+                            {formatNotifAge(recordedAt)}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => setShowAddExpense(true)}
@@ -715,6 +878,12 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
             Add expense
           </button>
         </div>
+        {expenseFeedback && (
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 flex-shrink-0" />
+            {expenseFeedback}
+          </div>
+        )}
         <div className="space-y-2 max-h-80 overflow-y-auto">
           {expensesLoading ? (
             <p className="text-sm text-slate-400 text-center py-6">Loading recent expenses…</p>
@@ -741,6 +910,37 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
         </div>
       </div>
 
+      {expenseSuccessPopup && (
+        <ViewportPortal>
+          <div
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+            style={{ position: 'fixed', inset: 0 }}
+          >
+            <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl border border-emerald-100 p-6 text-center animate-fade-in max-h-[min(92dvh,90vh)] overflow-y-auto">
+              <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center">
+                <TrendingUp className="w-7 h-7 text-emerald-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">Expense recorded</h3>
+              <p className="text-2xl font-bold text-rose-700 mt-2">{formatMoney(expenseSuccessPopup.amount)}</p>
+              <p className="text-sm text-slate-600 mt-2">
+                {expenseSuccessPopup.propertyName || 'Property'}
+                {expenseSuccessPopup.unitLabel ? ` · ${expenseSuccessPopup.unitLabel}` : ''}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                {CATEGORY_LABELS[expenseSuccessPopup.category] || expenseSuccessPopup.category} · {expenseSuccessPopup.date}
+              </p>
+              <button
+                type="button"
+                onClick={() => setExpenseSuccessPopup(null)}
+                className="mt-5 w-full py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold rounded-xl hover:from-emerald-700 hover:to-teal-700"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </ViewportPortal>
+      )}
+
       <AddExpenseModal
         open={showAddExpense}
         onClose={() => setShowAddExpense(false)}
@@ -750,7 +950,11 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
           let existing: OperatingExpense | undefined;
           setExpenses((prev) => {
             existing = prev.find((e) => e.id === created.id);
-            return [created, ...prev.filter((e) => e.id !== created.id)].slice(0, 20);
+            const withTimestamp: OperatingExpense = {
+              ...created,
+              createdAt: created.createdAt || new Date().toISOString(),
+            };
+            return [withTimestamp, ...prev.filter((e) => e.id !== created.id)].slice(0, 50);
           });
           setSummary((s) => {
             if (!s) return s;
@@ -758,6 +962,17 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
             let next = applyExpenseDelta(s, existing, -existing.amount);
             return applyExpenseDelta(next, created, created.amount);
           });
+          setExpenseSuccessPopup(created);
+          setExpenseFeedback(
+            `Expense recorded — ${formatMoney(created.amount)} for ${created.propertyName || 'property'}${created.unitLabel ? ` · ${created.unitLabel}` : ''}.`,
+          );
+          // Ensure a freshly recorded expense can appear on the bell (undo prior dismiss).
+          if (dismissedNotifs[created.id]) {
+            const next = { ...dismissedNotifs };
+            delete next[created.id];
+            setDismissedNotifs(next);
+            writeDismissedExpenseNotifs(next);
+          }
         }}
       />
     </div>

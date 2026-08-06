@@ -497,7 +497,8 @@
 }
 
 /* Prevent horizontal scroll on admin content */
-.admin-content-wrap {
+.admin-content-wrap,
+.manager-content-wrap {
   width: 100%;
   min-width: 0;
   overflow-x: hidden;
@@ -520,10 +521,30 @@
   .dash-stat .tabular-nums,
   .dash-stat p:nth-of-type(1) {
     word-break: break-word;
+    overflow-wrap: anywhere;
+    font-size: 1.125rem !important;
+    line-height: 1.25;
   }
 
   .dash-pnl-banner {
     padding: 0.85rem 1rem;
+  }
+
+  .manager-content-wrap main {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  /* Keep action chips usable on phones */
+  .manager-content-wrap button.inline-flex {
+    min-height: 2.5rem;
+  }
+}
+
+@media (max-width: 419px) {
+  .manager-mobile-header .logo-surface--full .logo-img {
+    max-width: min(40vw, 8.5rem);
+    height: 2rem;
   }
 }
 

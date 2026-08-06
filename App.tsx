@@ -17,6 +17,7 @@ import { api } from './services/api';
 import { isAuthenticated } from './services/auth';
 import { adminTabMeta, SEO_PAGES, usePageMeta } from './utils/seo';
 import { Tenant, Payment, MaintenanceRequest, Property } from './types';
+import { usePollWhileVisible } from './hooks/usePollWhileVisible';
 
 const App: React.FC = () => {
   const adminPagePadding = 'px-3 py-4 sm:px-4 sm:py-5 md:px-4 md:py-5 lg:px-6 lg:py-6 xl:px-8 xl:py-8 pb-[max(1rem,env(safe-area-inset-bottom))]';
@@ -226,6 +227,18 @@ const App: React.FC = () => {
       console.error("Error refreshing payments and tenants:", error);
     }
   };
+
+  // Keep admin lists fresh while the staff portal is open (no full-page reload).
+  usePollWhileVisible(async () => {
+    const [tenantsData, paymentsData, maintenanceData] = await Promise.all([
+      api.getTenants(),
+      api.getPayments(),
+      api.getMaintenanceRequests(),
+    ]);
+    setTenants(tenantsData);
+    setPayments(paymentsData);
+    setMaintenance(maintenanceData);
+  }, 45_000, !isAuthChecking && !loading && activeTab !== 'public-portal' && isStaffAdmin());
 
   const renderAdminContent = () => {
     // Check authentication for admin views

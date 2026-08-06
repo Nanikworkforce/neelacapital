@@ -792,9 +792,13 @@ class OperatingExpenseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = OperatingExpense.objects.select_related('property', 'unit', 'created_by').all()
         user = self.request.user
+        include_excel = self.request.query_params.get('include_excel') in ('1', 'true', 'yes')
         if is_property_manager(user):
             # Manager portal lists hand-entered costs only — not Excel P&L import rows.
             qs = qs.filter(created_by=user).exclude(notes__startswith='excel-import-')
+        elif not include_excel:
+            # Admin recent-expense feeds: show live entries (incl. manager) — Excel stays in P&L totals.
+            qs = qs.exclude(notes__startswith='excel-import-')
         qs = qs.filter(
             Q(property__isnull=True)
             | Q(property__in=filter_properties_for_user(Property.objects.all(), user))

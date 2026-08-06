@@ -267,6 +267,7 @@ import {
 import { DollarSign, AlertCircle, CheckCircle2, Users, FileText, Building2, Home, Settings, TrendingUp, ChevronRight, ArrowUpRight, ArrowDownRight, Clock, Zap, X, MapPin, Bed, Bath, Maximize, BarChart3, Receipt } from 'lucide-react';
 import { Tenant, Payment, MaintenanceRequest, TenantStatus, Property, IncomeStatementSummary, OperatingExpense } from '../types';
 import Modal from './Modal';
+import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
 import ViewportPortal from './ViewportPortal';
 import { api } from '../services/api';
 import { formatDateMMDDYYYY, formatRelativeTimeAgo } from '../utils/date';
@@ -369,6 +370,15 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
     return () => { cancelled = true; };
   }, []);
 
+  usePollWhileVisible(async () => {
+    const year = new Date().getFullYear();
+    const [pnl, expenses] = await Promise.all([
+      api.getIncomeStatement(undefined, { summary: true }),
+      api.getOperatingExpenses({ year, limit: 8 }),
+    ]);
+    setPnlSummary(pnl);
+    setManagerExpenses(expenses);
+  }, 30_000);
   // Responsive state for chart labels and sizing
   const [screenSize, setScreenSize] = useState({
     isXLarge: typeof window !== 'undefined' && window.innerWidth >= 1280,
@@ -710,10 +720,6 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
           <p className="text-slate-600 text-sm sm:text-base font-medium leading-relaxed">Welcome back! Here's what's happening with your properties today.</p>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full lg:w-auto lg:flex-shrink-0">
-          <div className="hidden md:flex items-center gap-2 text-xs text-slate-600 bg-gradient-to-r from-slate-50 to-white px-3 py-2 rounded-full border border-slate-200 shadow-sm font-semibold whitespace-nowrap">
-            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-lg shadow-emerald-500/50"></div>
-            <span>Last updated: Just now</span>
-          </div>
           <button 
             onClick={onReviewApplications}
             className={`relative px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-bold text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-500/30 ${

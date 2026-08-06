@@ -813,6 +813,7 @@ export const api = {
     role: string;
     managed_property_ids: string[];
     phone?: string;
+    user?: { id: number; email: string; first_name: string; last_name: string };
   }> => {
     const response = await fetchWithAuth(`${API_URL}/manager/me/`, {
       headers: getHeaders(false, true),
@@ -821,10 +822,19 @@ export const api = {
       throw new Error(parseApiErrorBody(await response.json().catch(() => null), 'Failed to load manager profile'));
     }
     const data = await response.json();
+    const u = data.user as Record<string, unknown> | undefined;
     return {
       role: String(data.role || ''),
       managed_property_ids: ((data.managed_property_ids as Array<string | number>) || []).map(String),
       phone: data.phone ? String(data.phone) : undefined,
+      user: u
+        ? {
+            id: Number(u.id),
+            email: String(u.email || ''),
+            first_name: String(u.first_name || ''),
+            last_name: String(u.last_name || ''),
+          }
+        : undefined,
     };
   },
 

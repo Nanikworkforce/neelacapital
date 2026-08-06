@@ -107,6 +107,17 @@ export const getCurrentUser = (): User | null => {
 };
 
 /**
+ * Merge fields into the stored user session (e.g. refreshed profile name).
+ */
+export const updateStoredUser = (patch: Partial<User>): User | null => {
+  const current = getCurrentUser();
+  if (!current) return null;
+  const next = { ...current, ...patch };
+  localStorage.setItem(USER_KEY, JSON.stringify(next));
+  return next;
+};
+
+/**
  * Check if user is authenticated.
  */
 export const isAuthenticated = (): boolean => {

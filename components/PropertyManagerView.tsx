@@ -2,28 +2,42 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2, Users, CreditCard, Receipt, LogOut, Menu, X, Home, Plus,
-  MapPin, Wallet, Calendar, FileText, Tag, Wrench, ChevronRight, AlertCircle,
-  TrendingUp, Mail, Loader2, CheckCircle, XCircle, MessageSquare, DollarSign,
+  MapPin, Wallet, Calendar, FileText, Tag, Wrench, ChevronRight, ChevronDown, ChevronUp,
+  AlertCircle, TrendingUp, Mail, Loader2, CheckCircle, XCircle, MessageSquare, DollarSign,
   ArrowUpRight, Zap,
 } from 'lucide-react';
 import NeelaLogo from './NeelaLogo';
 import MaintenanceView from './MaintenanceView';
 import AddExpenseModal from './AddExpenseModal';
 import ViewportPortal from './ViewportPortal';
-import { isAuthenticated, getCurrentUser, logout } from '../services/auth';
+import { isAuthenticated, getCurrentUser, logout, updateStoredUser } from '../services/auth';
 import { api } from '../services/api';
 import { Property, Tenant, Payment, OperatingExpense, MaintenanceRequest, TenantStatus } from '../types';
 import {
   CATEGORY_LABELS,
+  getPropertyGroupKeyFromProperty,
   groupPropertiesForSelect,
+  unitBaseKey,
 } from '../utils/propertyGrouping';
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
+import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
 
 const formatMoney = (v: number) =>
   `$${(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const FALLBACK_PROPERTY_IMAGE =
   'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=800&q=80';
+
+/** Synthetic tenants created by Excel P&L import (not real residents). */
+function isExcelImportTenant(t: { email?: string; name?: string }) {
+  const email = (t.email || '').toLowerCase();
+  const name = (t.name || '').toLowerCase();
+  return (
+    email.startsWith('excel-import-')
+    || email.endsWith('@neela.local')
+    || name.startsWith('rent roll')
+  );
+}
 
 type Tab = 'overview' | 'properties' | 'applications' | 'payments' | 'expenses' | 'maintenance';
 
@@ -55,22 +69,22 @@ function ManagerStatCard({
     <button
       type="button"
       onClick={onClick}
-      className={`dash-stat dash-stat--${variant} w-full text-left group`}
+      className={`dash-stat dash-stat--${variant} w-full text-left group min-h-[7.5rem] sm:min-h-0 touch-manipulation`}
     >
-      <div className="flex items-start justify-between gap-3 mb-3">
+      <div className="flex items-start justify-between gap-2 sm:gap-3 mb-2 sm:mb-3">
         <div className={`dash-stat-icon ${iconTone} group-hover:scale-105 transition-transform`}>
-          <Icon className="w-5 h-5" />
+          <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
         </div>
         {badge && (
-          <span className="text-[10px] sm:text-xs font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+          <span className="text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200 truncate max-w-[45%]">
             {badge}
           </span>
         )}
       </div>
-      <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight break-words tabular-nums leading-tight">{value}</p>
-      <p className="text-xs sm:text-sm text-slate-500 font-semibold mt-1 truncate">{label}</p>
+      <p className="text-lg sm:text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight break-words tabular-nums leading-tight">{value}</p>
+      <p className="text-[11px] sm:text-sm text-slate-500 font-semibold mt-1 truncate">{label}</p>
       {footer && (
-        <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-600 font-medium">
+        <div className="mt-3 sm:mt-4 pt-2.5 sm:pt-3 border-t border-slate-100 text-[11px] sm:text-xs text-slate-600 font-medium">
           {footer}
         </div>
       )}
@@ -94,15 +108,15 @@ function SectionCard({
   headerClassName?: string;
 }) {
   return (
-    <div className={`rounded-2xl sm:rounded-3xl bg-white border border-slate-200 shadow-sm overflow-hidden ${className}`}>
-      <div className={`flex items-start sm:items-center justify-between gap-3 px-5 sm:px-6 py-4 sm:py-5 border-b border-slate-100 bg-slate-50/60 ${headerClassName}`}>
-        <div className="min-w-0">
+    <div className={`rounded-2xl sm:rounded-3xl bg-white border border-slate-200 shadow-sm overflow-hidden min-w-0 ${className}`}>
+      <div className={`flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 sm:gap-3 px-4 sm:px-6 py-3.5 sm:py-5 border-b border-slate-100 bg-slate-50/60 ${headerClassName}`}>
+        <div className="min-w-0 flex-1">
           <h3 className="font-bold text-slate-900 text-base sm:text-lg tracking-tight">{title}</h3>
-          {subtitle && <p className="text-xs sm:text-sm text-slate-500 mt-0.5">{subtitle}</p>}
+          {subtitle && <p className="text-xs sm:text-sm text-slate-500 mt-0.5 line-clamp-2">{subtitle}</p>}
         </div>
-        {action}
+        {action && <div className="flex-shrink-0 self-start sm:self-center">{action}</div>}
       </div>
-      <div className="p-4 sm:p-6">{children}</div>
+      <div className="p-3.5 sm:p-6 min-w-0 overflow-x-hidden">{children}</div>
     </div>
   );
 }
@@ -196,8 +210,8 @@ const PropertyManagerView: React.FC = () => {
   const [markPaidReference, setMarkPaidReference] = useState('');
   const [managedIds, setManagedIds] = useState<string[]>([]);
   const [showAddExpense, setShowAddExpense] = useState(false);
-
-  const user = getCurrentUser();
+  const [expandedProperty, setExpandedProperty] = useState<string | null>(null);
+  const [user, setUser] = useState(() => getCurrentUser());
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -223,6 +237,14 @@ const PropertyManagerView: React.FC = () => {
           api.getMaintenanceRequests(),
         ]);
         if (cancelled) return;
+        if (meRes.user) {
+          const synced = updateStoredUser({
+            first_name: meRes.user.first_name,
+            last_name: meRes.user.last_name,
+            email: meRes.user.email,
+          });
+          if (synced) setUser(synced);
+        }
         setManagedIds(meRes.managed_property_ids);
         // Backend already scopes lists for property managers; avoid double-filtering to empty.
         setProperties(props);
@@ -243,7 +265,12 @@ const PropertyManagerView: React.FC = () => {
   }, [navigate]);
 
   // Tenant/payment/maintenance lists are already scoped by the backend for property managers.
-  const myTenants = tenants;
+  // Hide Excel P&L "Rent Roll" placeholders — those are bookkeeping stubs, not real residents.
+  const myTenants = useMemo(() => tenants.filter((t) => !isExcelImportTenant(t)), [tenants]);
+  const excelImportTenantIds = useMemo(
+    () => new Set(tenants.filter(isExcelImportTenant).map((t) => t.id)),
+    [tenants],
+  );
 
   const applicants = useMemo(() => myTenants.filter((t) => t.status === 'Applicant'), [myTenants]);
   const approvedTenants = useMemo(() => myTenants.filter((t) => t.status === TenantStatus.APPROVED), [myTenants]);
@@ -338,7 +365,10 @@ const PropertyManagerView: React.FC = () => {
     }
   };
 
-  const myPayments = payments;
+  const myPayments = useMemo(
+    () => payments.filter((p) => !excelImportTenantIds.has(p.tenantId)),
+    [payments, excelImportTenantIds],
+  );
 
   const delinquentResidents = useMemo(() => {
     return residents.filter((t) => {
@@ -447,6 +477,34 @@ const PropertyManagerView: React.FC = () => {
     }
   }, []);
 
+  const silentRefresh = useCallback(async () => {
+    const year = new Date().getFullYear();
+    const [meRes, props, t, p, ex, m] = await Promise.all([
+      api.getManagerMe(),
+      api.getProperties(),
+      api.getTenants(),
+      api.getPayments(),
+      api.getOperatingExpenses({ year, limit: 100 }),
+      api.getMaintenanceRequests(),
+    ]);
+    if (meRes.user) {
+      const synced = updateStoredUser({
+        first_name: meRes.user.first_name,
+        last_name: meRes.user.last_name,
+        email: meRes.user.email,
+      });
+      if (synced) setUser(synced);
+    }
+    setManagedIds(meRes.managed_property_ids);
+    setProperties(props);
+    setTenants(t);
+    setPayments(p);
+    setExpenses(ex);
+    setMaintenance(m);
+  }, []);
+
+  usePollWhileVisible(silentRefresh, 30_000, !loading);
+
   const handleLogout = () => {
     logout();
     navigate('/manager/login', { replace: true });
@@ -477,59 +535,129 @@ const PropertyManagerView: React.FC = () => {
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'properties':
+      case 'properties': {
+        const buildingCount = propertyGroups.length;
+        const unitCount = propertyGroups.reduce((sum, g) => sum + Math.max(g.units.length, 1), 0);
         return (
           <div className="space-y-6 sm:space-y-8 animate-fade-in">
             <PageHeader
               icon={Building2}
               title="My Properties"
-              subtitle={`${properties.length} assigned propert${properties.length === 1 ? 'y' : 'ies'} under your management`}
+              subtitle={`${buildingCount} building${buildingCount === 1 ? '' : 's'} · ${unitCount} unit${unitCount === 1 ? '' : 's'} under your management`}
               accent="from-teal-600 via-emerald-600 to-cyan-700"
             />
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-              {properties.map((p) => (
-                <div
-                  key={p.id}
-                  className="group rounded-2xl sm:rounded-3xl bg-white/90 backdrop-blur-sm border border-slate-200/70 overflow-hidden shadow-sm hover:shadow-xl hover:shadow-emerald-500/10 hover:border-emerald-200/60 hover:-translate-y-0.5 transition-all duration-300"
-                >
-                  <div className="relative h-44 sm:h-48 overflow-hidden bg-slate-200">
-                    <img
-                      src={p.image || FALLBACK_PROPERTY_IMAGE}
-                      alt={p.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900/75 via-slate-900/15 to-transparent" />
-                    <span className="absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide bg-emerald-500/90 text-white backdrop-blur-sm capitalize shadow-lg">
-                      {p.status || 'active'}
-                    </span>
-                  </div>
-                  <div className="p-5">
-                    <h3 className="font-bold text-lg text-slate-900 group-hover:text-emerald-800 transition-colors">{p.name}</h3>
-                    <p className="text-sm text-slate-500 flex items-start gap-1.5 mt-1.5">
-                      <MapPin className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-emerald-600" />
-                      {p.address}, {p.city}
-                    </p>
-                    <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
-                      <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600">
-                        <Home className="w-4 h-4" />
+            <div className="flex flex-col gap-4 max-w-4xl">
+              {propertyGroups.map((group) => {
+                const parent = properties.find((p) => p.id === group.propertyId);
+                const unitRows = group.units.length > 0
+                  ? group.units
+                  : [{ label: group.label, propertyId: group.propertyId }];
+                const multiUnit = unitRows.length > 1;
+                const expanded = expandedProperty === group.groupKey;
+                const img =
+                  group.image ||
+                  properties.find((p) => unitRows.some((u) => u.propertyId === p.id) && p.image)?.image ||
+                  FALLBACK_PROPERTY_IMAGE;
+
+                return (
+                  <div
+                    key={group.groupKey}
+                    className="rounded-2xl sm:rounded-3xl bg-white/90 backdrop-blur-sm border border-slate-200/70 overflow-hidden shadow-sm hover:shadow-md hover:border-emerald-200/60 transition-all duration-300"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setExpandedProperty(expanded ? null : group.groupKey)}
+                      className="w-full text-left flex flex-col min-[420px]:flex-row gap-0 min-[420px]:gap-3 sm:gap-4 items-stretch touch-manipulation"
+                    >
+                      <div className="w-full min-[420px]:w-[34%] sm:w-40 md:w-48 flex-shrink-0 overflow-hidden bg-slate-200 self-stretch h-36 min-[420px]:h-auto min-[420px]:min-h-[7.5rem]">
+                        <img
+                          src={img}
+                          alt={group.label}
+                          className="w-full h-full object-cover"
+                        />
                       </div>
-                      <p className="text-sm font-semibold text-emerald-700">
-                        {p.units} unit{p.units === 1 ? '' : 's'}
-                      </p>
-                    </div>
+                      <div className="flex-1 min-w-0 p-3.5 sm:p-5 flex flex-col justify-center gap-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h3 className="font-bold text-base sm:text-lg text-slate-900 truncate">{group.label}</h3>
+                            {(group.address || parent?.city) && (
+                              <p className="text-xs sm:text-sm text-slate-500 flex items-start gap-1.5 mt-1">
+                                <MapPin className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-emerald-600" />
+                                <span className="line-clamp-2">
+                                  {[group.address, parent?.city, parent?.state].filter(Boolean).join(', ')}
+                                </span>
+                              </p>
+                            )}
+                          </div>
+                          {expanded
+                            ? <ChevronUp className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" />
+                            : <ChevronDown className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" />}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600">
+                            <Home className="w-3.5 h-3.5" />
+                          </div>
+                          <p className="text-sm font-semibold text-emerald-700">
+                            {multiUnit
+                              ? `${unitRows.length} units`
+                              : (parent?.status || 'Active')}
+                          </p>
+                          <span className="text-xs text-slate-400 ml-auto font-medium hidden min-[420px]:inline">
+                            {expanded ? 'Hide units' : 'View units'}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+
+                    {expanded && (
+                      <div className="border-t border-slate-100 bg-slate-50/60 px-4 sm:px-5 py-3 space-y-2">
+                        {unitRows.map((unit) => {
+                          const siblings = properties.filter(
+                            (p) => getPropertyGroupKeyFromProperty(p) === group.groupKey,
+                          );
+                          const unitProp =
+                            siblings.find((p) => (p.name || '').toLowerCase() === unit.label.toLowerCase())
+                            || siblings.find((p) => unitBaseKey(p.name || '') === unitBaseKey(unit.label))
+                            || (unitRows.length === 1 ? parent : undefined);
+                          const status = unitProp?.status || 'vacant';
+                          const price = unitProp?.price;
+                          return (
+                            <div
+                              key={`${group.groupKey}-${unit.label}`}
+                              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+                            >
+                              <div className="min-w-0 flex items-center gap-2.5">
+                                <div className="p-1.5 rounded-lg bg-teal-50 text-teal-700 flex-shrink-0">
+                                  <Home className="w-3.5 h-3.5" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-slate-900 truncate">{unit.label}</p>
+                                  <p className="text-[11px] text-slate-500 capitalize">{status}</p>
+                                </div>
+                              </div>
+                              {price != null && price > 0 && (
+                                <p className="text-sm font-bold text-emerald-700 flex-shrink-0">
+                                  {formatMoney(price)}
+                                  <span className="text-[10px] font-semibold text-slate-400">/mo</span>
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
-              {properties.length === 0 && (
-                <div className="col-span-full">
-                  <SectionCard title="No properties yet">
-                    <EmptyState icon={Building2} message="No properties assigned yet. Contact admin to get buildings linked to your account." />
-                  </SectionCard>
-                </div>
+                );
+              })}
+              {propertyGroups.length === 0 && (
+                <SectionCard title="No properties yet">
+                  <EmptyState icon={Building2} message="No properties assigned yet. Contact admin to get buildings linked to your account." />
+                </SectionCard>
               )}
             </div>
           </div>
         );
+      }
       case 'applications':
         return (
           <div className="space-y-6 sm:space-y-8 animate-fade-in">
@@ -961,15 +1089,15 @@ const PropertyManagerView: React.FC = () => {
         return (
           <div className="space-y-5 sm:space-y-6 lg:space-y-8 animate-fade-in">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3 sm:gap-4 pb-4 sm:pb-5 border-b-2 border-slate-100">
-              <div className="min-w-0">
+              <div className="min-w-0 w-full lg:w-auto">
                 <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold bg-gradient-to-r from-slate-900 via-indigo-900 to-purple-900 bg-clip-text text-transparent tracking-tight mb-1">
                   Overview
                 </h1>
-                <p className="text-slate-600 text-sm sm:text-base font-medium">
+                <p className="text-slate-600 text-sm sm:text-base font-medium break-words">
                   Welcome back, {managerName}. Here&apos;s what needs attention across your {properties.length} propert{properties.length === 1 ? 'y' : 'ies'}.
                 </p>
               </div>
-              <div className="flex items-center gap-2 sm:gap-3 w-full lg:w-auto">
+              <div className="flex flex-col min-[400px]:flex-row items-stretch min-[400px]:items-center gap-2 sm:gap-3 w-full lg:w-auto">
                 <div className="hidden md:flex items-center gap-2 text-xs text-slate-600 bg-slate-50 px-3 py-2 rounded-full border border-slate-200 font-semibold whitespace-nowrap">
                   <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
                   <span>{residents.length} active resident{residents.length === 1 ? '' : 's'}</span>
@@ -978,7 +1106,7 @@ const PropertyManagerView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setActiveTab('applications')}
-                    className="flex-1 lg:flex-none px-4 py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-500/20 hover:shadow-xl transition-all"
+                    className="w-full lg:w-auto px-4 py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-500/20 hover:shadow-xl transition-all touch-manipulation min-h-[2.75rem]"
                   >
                     Review {applicants.length} application{applicants.length === 1 ? '' : 's'}
                   </button>
@@ -986,7 +1114,7 @@ const PropertyManagerView: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2.5 sm:gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
               <ManagerStatCard
                 label="Properties"
                 value={properties.length}
@@ -1030,16 +1158,16 @@ const PropertyManagerView: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-              <div className="dash-pnl-banner sm:col-span-2">
-                <div className="flex flex-wrap items-center justify-between gap-3 w-full">
-                  <div className="flex items-center gap-3 min-w-0">
+              <div className="dash-pnl-banner sm:col-span-2 min-w-0">
+                <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center justify-between gap-3 w-full">
+                  <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
                     <div className="dash-stat-icon dash-stat-icon--emerald flex-shrink-0">
                       <DollarSign className="w-5 h-5" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-wider text-teal-700">This month</p>
-                      <p className="text-lg sm:text-xl font-bold text-slate-900">{formatMoney(monthRevenueTotal)} collected</p>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="text-base sm:text-xl font-bold text-slate-900 break-words">{formatMoney(monthRevenueTotal)} collected</p>
+                      <p className="text-xs text-slate-500 mt-0.5 break-words">
                         {formatMoney(monthExpenseTotal)} expenses · {formatMoney(overdueBalance)} outstanding
                       </p>
                     </div>
@@ -1047,7 +1175,7 @@ const PropertyManagerView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setActiveTab('payments')}
-                    className="text-sm font-semibold text-indigo-600 flex items-center gap-1 hover:text-indigo-700"
+                    className="text-sm font-semibold text-indigo-600 flex items-center gap-1 hover:text-indigo-700 touch-manipulation min-h-[2.75rem] sm:min-h-0"
                   >
                     Rent & payments <ChevronRight className="w-4 h-4" />
                   </button>
@@ -1056,17 +1184,17 @@ const PropertyManagerView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowAddExpense(true)}
-                className="dash-action text-left group"
+                className="dash-action text-left group touch-manipulation min-h-[3.25rem]"
               >
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-violet-500 text-white shadow-md group-hover:scale-105 transition-transform">
+                  <div className="p-2.5 rounded-xl bg-violet-500 text-white shadow-md group-hover:scale-105 transition-transform flex-shrink-0">
                     <Plus className="w-5 h-5" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-bold text-slate-900 text-sm">Record expense</p>
                     <p className="text-xs text-slate-500 mt-0.5">Log a receipt or cost</p>
                   </div>
-                  <ArrowUpRight className="w-4 h-4 text-slate-400 ml-auto group-hover:text-indigo-600 transition-colors" />
+                  <ArrowUpRight className="w-4 h-4 text-slate-400 ml-auto group-hover:text-indigo-600 transition-colors flex-shrink-0" />
                 </div>
               </button>
             </div>
@@ -1089,25 +1217,25 @@ const PropertyManagerView: React.FC = () => {
               {overviewGroups.length === 0 ? (
                 <p className="text-slate-500 text-center py-8">No properties assigned yet.</p>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 -m-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 -m-1">
                   {overviewGroups.map((group) => (
                     <div
                       key={group.groupKey}
-                      className="group flex gap-0 rounded-2xl border border-slate-100 overflow-hidden bg-slate-50/50 hover:shadow-lg hover:border-emerald-200/60 transition-all duration-300"
+                      className="group flex flex-col min-[420px]:flex-row gap-0 rounded-2xl border border-slate-100 overflow-hidden bg-slate-50/50 hover:shadow-lg hover:border-emerald-200/60 transition-all duration-300 min-w-0"
                     >
-                      <div className="w-[38%] sm:w-[34%] flex-shrink-0 overflow-hidden bg-slate-200">
+                      <div className="w-full min-[420px]:w-[38%] sm:w-[34%] flex-shrink-0 overflow-hidden bg-slate-200 h-28 min-[420px]:h-auto">
                         <img
                           src={group.image || FALLBACK_PROPERTY_IMAGE}
                           alt={group.label}
                           className="w-full h-full min-h-[6.5rem] object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                       </div>
-                      <div className="py-3.5 px-3.5 sm:px-4 min-w-0 flex-1 flex flex-col justify-center">
+                      <div className="py-3 px-3.5 sm:px-4 min-w-0 flex-1 flex flex-col justify-center">
                         <p className="font-bold text-slate-900 truncate text-sm sm:text-base">{group.label}</p>
                         {group.address && (
                           <p className="text-[11px] sm:text-xs text-slate-500 flex items-center gap-1 mt-1 truncate">
                             <MapPin className="w-3 h-3 flex-shrink-0 text-emerald-600" />
-                            {group.address}
+                            <span className="truncate">{group.address}</span>
                           </p>
                         )}
                         <p className="text-[11px] sm:text-xs text-emerald-700 font-semibold mt-2">
@@ -1255,20 +1383,21 @@ const PropertyManagerView: React.FC = () => {
   const activeNavLabel = navItems.find((n) => n.id === activeTab)?.label ?? 'Overview';
 
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen flex bg-slate-50 overflow-x-hidden">
       {mobileOpen && (
         <button
           type="button"
           aria-label="Close menu"
-          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 md:hidden"
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 md:hidden touch-manipulation"
           onClick={() => setMobileOpen(false)}
         />
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-[min(85vw,17.5rem)] flex flex-col bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-white shadow-2xl shadow-black/30 border-r border-slate-800/50 transform transition-transform duration-300 ease-out md:translate-x-0 md:static md:inset-auto md:w-64 lg:w-72 ${
+        className={`fixed inset-y-0 left-0 z-50 w-[min(88vw,18rem)] flex flex-col bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-white shadow-2xl shadow-black/30 border-r border-slate-800/50 transform transition-transform duration-300 ease-out md:translate-x-0 md:static md:inset-auto md:w-64 lg:w-72 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
         <div className="manager-sidebar-logo flex flex-col items-center justify-center min-h-[4.75rem] px-4 py-5 border-b border-white/5">
           <NeelaLogo variant="full" size="sm" showGlow className="shrink-0" />
@@ -1277,7 +1406,7 @@ const PropertyManagerView: React.FC = () => {
           </p>
         </div>
 
-        <nav className="flex-1 p-3 sm:p-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 p-3 sm:p-4 space-y-1 overflow-y-auto overscroll-contain">
           {navItems.map(({ id, label, icon: Icon }) => {
             const isActive = activeTab === id;
             return (
@@ -1285,7 +1414,7 @@ const PropertyManagerView: React.FC = () => {
                 key={id}
                 type="button"
                 onClick={() => { setActiveTab(id); setMobileOpen(false); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                className={`w-full flex items-center gap-3 px-4 py-3.5 sm:py-3 rounded-xl text-sm font-semibold transition-all duration-200 touch-manipulation min-h-[2.75rem] ${
                   isActive
                     ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white shadow-lg shadow-emerald-500/25'
                     : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
@@ -1302,26 +1431,26 @@ const PropertyManagerView: React.FC = () => {
           <button
             type="button"
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-4 py-3 text-slate-300 hover:text-white rounded-xl hover:bg-slate-800/70 text-sm font-semibold transition-colors"
+            className="w-full flex items-center gap-3 px-4 py-3.5 sm:py-3 text-slate-300 hover:text-white rounded-xl hover:bg-slate-800/70 text-sm font-semibold transition-colors touch-manipulation min-h-[2.75rem]"
           >
             <LogOut className="w-5 h-5" /> Sign Out
           </button>
         </div>
       </aside>
 
-      <div className="flex-1 min-w-0 flex flex-col">
-        <header className="manager-mobile-header md:hidden sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/70 px-3 py-2.5 sm:px-4 shadow-sm shadow-slate-200/40">
+      <div className="flex-1 min-w-0 flex flex-col manager-content-wrap">
+        <header className="manager-mobile-header md:hidden sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/70 px-3 py-2.5 sm:px-4 shadow-sm shadow-slate-200/40 safe-area-top">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileOpen(!mobileOpen)}
-              className="p-2 -ml-1 rounded-xl hover:bg-slate-100 text-slate-700 flex-shrink-0"
+              className="p-2.5 -ml-1 rounded-xl hover:bg-slate-100 text-slate-700 flex-shrink-0 touch-manipulation min-h-[2.75rem] min-w-[2.75rem] inline-flex items-center justify-center"
               aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
             >
               {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
-            <NeelaLogo variant="full" size="sm" className="shrink-0 min-w-0" />
-            <div className="min-w-0 flex-1 text-right sm:text-left">
+            <NeelaLogo variant="full" size="sm" className="shrink-0 min-w-0 max-w-[42vw]" />
+            <div className="min-w-0 flex-1 text-right">
               <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 truncate">
                 {activeNavLabel}
               </p>
@@ -1329,21 +1458,21 @@ const PropertyManagerView: React.FC = () => {
           </div>
         </header>
 
-        <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-[max(1rem,env(safe-area-inset-bottom))] max-w-7xl w-full mx-auto min-w-0 overflow-x-hidden">
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-[max(1.25rem,env(safe-area-inset-bottom))] max-w-7xl w-full mx-auto min-w-0 overflow-x-hidden">
           {noticeFeedback && activeTab !== 'expenses' && activeTab !== 'payments' && (
             <div
-              className={`mb-4 rounded-xl border px-4 py-3 text-sm font-medium flex items-center gap-2 ${
+              className={`mb-4 rounded-xl border px-3 sm:px-4 py-3 text-sm font-medium flex items-start sm:items-center gap-2 break-words ${
                 noticeFeedback.type === 'success'
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                   : 'bg-rose-50 border-rose-200 text-rose-800'
               }`}
             >
               {noticeFeedback.type === 'success' ? (
-                <TrendingUp className="w-4 h-4 flex-shrink-0" />
+                <TrendingUp className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
               ) : (
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
               )}
-              {noticeFeedback.text}
+              <span className="min-w-0">{noticeFeedback.text}</span>
             </div>
           )}
           {renderContent()}

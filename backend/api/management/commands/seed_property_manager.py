@@ -16,8 +16,8 @@ class Command(BaseCommand):
         user, created = User.objects.get_or_create(
             email=MANAGER_EMAIL,
             defaults={
-                'first_name': 'Neela',
-                'last_name': 'Manager',
+                'first_name': 'Will',
+                'last_name': 'Reschke',
                 'role': 'property_manager',
                 'is_verified': True,
                 'is_active': True,
@@ -25,8 +25,13 @@ class Command(BaseCommand):
                 'is_superuser': False,
             },
         )
-        user.first_name = user.first_name or 'Neela'
-        user.last_name = user.last_name or 'Manager'
+        # Keep the seeded manager name correct even if an older seed used "Neela".
+        if created or user.first_name in ('', 'Neela') or user.last_name in ('', 'Manager'):
+            user.first_name = 'Will'
+            user.last_name = 'Reschke'
+        else:
+            user.first_name = user.first_name or 'Will'
+            user.last_name = user.last_name or 'Reschke'
         user.role = 'property_manager'
         user.is_verified = True
         user.is_active = True

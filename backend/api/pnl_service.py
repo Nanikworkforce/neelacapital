@@ -1,13 +1,13 @@
 """
 Portfolio P&L calculations aligned with the Neela Capital Excel workbook.
 
-Excel per property / month (see import_income_statement.parse_property_sheet):
-  Total Income          → rent collected (+ short-stay when applicable)
-  Total Operating Expenses → sum of operating expense line items
+Per property / month:
+  Total Income          → paid rent (Excel import + live collections) + short-stay
+  Total Operating Expenses → Excel monthly __SUMMARY__ + hand-entered operating costs
   Net Operating Income (NOI) → Total Income − Total Operating Expenses
 
-Admin view includes admin_only categories (mortgage, depreciation, taxes, etc.).
-Property managers only see operating expenses they record — not portfolio NOI.
+Financing (mortgage, depreciation) sits below NOI and is excluded from operating totals.
+Live rents and manager/admin expenses always affect the income statement.
 """
 import re
 from collections import defaultdict
@@ -121,6 +121,61 @@ def build_tenant_property_map(tenants, property_ids_set, property_aliases):
     return tenant_prop_map
 
 
+def _rollup_property_id(prop_id, property_ids_set, props_by_id):
+    """
+    Map a unit-level property id onto the portfolio parent id used in the income statement.
+    Live rent/expenses on door listings must roll into the building row.
+    """
+    if prop_id in property_ids_set:
+        return prop_id
+    prop = props_by_id.get(prop_id)
+    if not prop:
+        return None
+    group_key = get_property_group_key(prop)
+    parent = None
+    fallback = None
+    for pid in property_ids_set:
+        candidate = props_by_id.get(pid)
+        if not candidate:
+            continue
+        if get_property_group_key(candidate) != group_key:
+            continue
+        if is_portfolio_parent(candidate, group_key):
+            parent = pid
+            break
+        if fallback is None:
+            fallback = pid
+    return parent if parent is not None else fallback
+
+
+def build_full_tenant_property_map(year_properties):
+    """
+    Match tenants to any portfolio property, then roll unit listings up to IS parents.
+    """
+    year_ids = {p.id for p in year_properties}
+    all_props = list(Property.objects.only('id', 'name', 'area', 'address', 'city', 'state', 'units'))
+    props_by_id = {p.id: p for p in all_props}
+    aliases = []
+    for p in all_props:
+        parts = [normalize(p.name), normalize(p.address)]
+        if p.area:
+            parts.append(normalize(p.area))
+        aliases.append((p.id, [a for a in parts if a]))
+
+    all_ids = {p.id for p in all_props}
+    tenants_qs = exclude_import_placeholder_tenants(
+        Tenant.objects.only('id', 'property_unit', 'email')
+    )
+    raw_map = build_tenant_property_map(list(tenants_qs), all_ids, aliases)
+
+    rolled = {}
+    for tenant_id, prop_id in raw_map.items():
+        parent_id = _rollup_property_id(prop_id, year_ids, props_by_id)
+        if parent_id is not None:
+            rolled[tenant_id] = parent_id
+    return rolled, props_by_id
+
+
 def _is_financing_expense(exp):
     """Mortgage / depreciation sit below NOI in the Excel workbook."""
     if (exp.category or '') in FINANCING_CATEGORIES:
@@ -129,10 +184,11 @@ def _is_financing_expense(exp):
     return 'mortgage interest' in notes or 'depreciation' in notes or 'principal repayment' in notes
 
 
-def _aggregate_expenses(expenses_qs, *, admin_view, year):
+def _aggregate_expenses(expenses_qs, *, admin_view, year, rollup_property_id=None):
     """
     Excel imports store monthly __SUMMARY__ rows matching workbook totals.
     Line-item rows feed category breakdown only when a summary row exists.
+    Hand-entered expenses always count toward NOI.
     NOI uses operating expenses only — financing (mortgage, depreciation) excluded.
     """
     expenses = list(expenses_qs)
@@ -156,6 +212,9 @@ def _aggregate_expenses(expenses_qs, *, admin_view, year):
         is_excel = is_excel_import_note(notes, year)
         is_summary = is_excel and '__SUMMARY__' in notes
         is_financing = _is_financing_expense(exp)
+        prop_id = exp.property_id
+        if rollup_property_id and prop_id:
+            prop_id = rollup_property_id(prop_id) or prop_id
 
         if not is_summary:
             expenses_by_category[exp.category] += amount
@@ -164,6 +223,8 @@ def _aggregate_expenses(expenses_qs, *, admin_view, year):
         if is_financing:
             continue
 
+        # Excel line items are already inside __SUMMARY__ — don't double-count property totals.
+        # Hand-entered rows always add.
         if is_excel and not is_summary and exp.property_id in properties_with_excel_summary:
             if exp.unit_id:
                 expenses_by_unit[exp.unit_id] += amount
@@ -171,18 +232,16 @@ def _aggregate_expenses(expenses_qs, *, admin_view, year):
 
         if exp.unit_id:
             expenses_by_unit[exp.unit_id] += amount
-        if exp.property_id:
-            expenses_by_property[exp.property_id] += amount
+        if prop_id:
+            expenses_by_property[prop_id] += amount
         else:
             expenses_by_property['portfolio'] += amount
 
     return expenses_by_property, expenses_by_category, expenses_by_unit
 
 
-def _monthly_expense_map(expenses_qs, *, admin_view, property_ids_set, year):
-    expenses = list(expenses_qs.filter(
-        Q(property_id__in=property_ids_set) | Q(property_id__isnull=True)
-    ))
+def _monthly_expense_map(expenses_qs, *, admin_view, property_ids_set, year, rollup_property_id=None):
+    expenses = list(expenses_qs)
     if not admin_view:
         expenses = [e for e in expenses if e.visibility != 'admin_only']
 
@@ -199,6 +258,14 @@ def _monthly_expense_map(expenses_qs, *, admin_view, property_ids_set, year):
         is_excel = is_excel_import_note(notes, year)
         is_summary = is_excel and '__SUMMARY__' in notes
         if _is_financing_expense(exp):
+            continue
+        prop_id = exp.property_id
+        if rollup_property_id and prop_id:
+            prop_id = rollup_property_id(prop_id) or prop_id
+        if prop_id is None:
+            # Portfolio-level expense (no property)
+            pass
+        elif prop_id not in property_ids_set:
             continue
         if is_excel and not is_summary and exp.property_id in properties_with_excel_summary:
             continue
@@ -243,22 +310,8 @@ def compute_property_pnl(
     """
     property_ids = [p.id for p in properties]
     property_ids_set = set(property_ids)
-    excel_property_ids = excel_portfolio_property_ids(year)
 
-    property_aliases = []
-    for p in properties:
-        aliases = [normalize(p.name), normalize(p.address)]
-        if p.area:
-            aliases.append(normalize(p.area))
-        aliases = [a for a in aliases if a]
-        property_aliases.append((p.id, aliases))
-
-    tenants_qs = exclude_import_placeholder_tenants(Tenant.objects.only('id', 'property_unit', 'email'))
-    tenant_prop_map = build_tenant_property_map(
-        list(tenants_qs),
-        property_ids_set,
-        property_aliases,
-    )
+    tenant_prop_map, props_by_id = build_full_tenant_property_map(properties)
 
     unit_rows_by_property = defaultdict(list)
     if not summary_only:
@@ -299,9 +352,8 @@ def compute_property_pnl(
         prop_id = tenant_prop_map.get(pay.tenant_id) or parse_import_property_id(pay.reference)
         if prop_id not in property_ids_set:
             continue
-        if excel_property_ids and prop_id in excel_property_ids:
-            if not is_excel_import_reference(pay.reference, year):
-                continue
+        # Count every paid rent (Excel import rows + live collections). Door-detail
+        # excel rows still only feed unit breakdown so workbook totals are not doubled.
         amount = pay.amount or Decimal('0')
         detail_only = is_door_detail_payment(pay.reference)
         if not detail_only:
@@ -333,16 +385,26 @@ def compute_property_pnl(
     expenses_by_category = defaultdict(lambda: Decimal('0'))
     expenses_by_unit = defaultdict(lambda: Decimal('0'))
 
+    # Include expenses posted on unit-level listings, then roll them up to parents.
+    sibling_ids = set(property_ids_set)
+    for p in props_by_id.values():
+        rolled = _rollup_property_id(p.id, property_ids_set, props_by_id)
+        if rolled is not None:
+            sibling_ids.add(p.id)
+
     expenses_qs = OperatingExpense.objects.filter(
         date__year=year,
     ).filter(
-        Q(property_id__in=property_ids) | Q(property_id__isnull=True)
+        Q(property_id__in=sibling_ids) | Q(property_id__isnull=True)
     ).select_related('property', 'unit').only(
         'id', 'amount', 'category', 'property_id', 'unit_id', 'visibility', 'notes', 'date'
     )
 
     expenses_by_property, expenses_by_category, expenses_by_unit = _aggregate_expenses(
-        expenses_qs, admin_view=admin_view, year=year
+        expenses_qs,
+        admin_view=admin_view,
+        year=year,
+        rollup_property_id=lambda pid: _rollup_property_id(pid, property_ids_set, props_by_id) if pid else None,
     )
 
     if summary_only:
@@ -481,7 +543,6 @@ def compute_property_pnl(
 def _monthly_cash_flow(*, year, property_ids, admin_view, tenant_prop_map):
     """Monthly income / expenses / NOI — mirrors Excel month summary rows."""
     property_ids_set = set(property_ids)
-    excel_property_ids = excel_portfolio_property_ids(year)
 
     month_rent_map = defaultdict(lambda: Decimal('0'))
     for pay in Payment.objects.filter(
@@ -490,9 +551,6 @@ def _monthly_cash_flow(*, year, property_ids, admin_view, tenant_prop_map):
         prop_id = tenant_prop_map.get(pay.tenant_id) or parse_import_property_id(pay.reference)
         if prop_id not in property_ids_set:
             continue
-        if excel_property_ids and prop_id in excel_property_ids:
-            if not is_excel_import_reference(pay.reference, year):
-                continue
         if is_door_detail_payment(pay.reference):
             continue
         month = pay.date.month
@@ -509,12 +567,19 @@ def _monthly_cash_flow(*, year, property_ids, admin_view, tenant_prop_map):
 
     month_exp_qs = OperatingExpense.objects.filter(
         date__year=year,
-    ).filter(
-        Q(property_id__in=property_ids) | Q(property_id__isnull=True)
     ).only('amount', 'date', 'property_id', 'visibility', 'notes')
 
+    # Roll unit-listing expenses up to income-statement parents.
+    all_props = list(Property.objects.only('id', 'name', 'area', 'address', 'city', 'state', 'units'))
+    props_by_id = {p.id: p for p in all_props}
+    rollup = lambda pid: _rollup_property_id(pid, property_ids_set, props_by_id) if pid else None
+
     month_exp_map = _monthly_expense_map(
-        month_exp_qs, admin_view=admin_view, property_ids_set=property_ids_set, year=year
+        month_exp_qs,
+        admin_view=admin_view,
+        property_ids_set=property_ids_set,
+        year=year,
+        rollup_property_id=rollup,
     )
 
     monthly = []
@@ -535,7 +600,6 @@ def _monthly_cash_flow(*, year, property_ids, admin_view, tenant_prop_map):
 def _monthly_by_property(*, year, property_ids, admin_view, tenant_prop_map):
     """Per-property monthly income / opEx / NOI (Excel left summary columns)."""
     property_ids_set = set(property_ids)
-    excel_property_ids = excel_portfolio_property_ids(year)
 
     rent = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
     for pay in Payment.objects.filter(
@@ -544,9 +608,6 @@ def _monthly_by_property(*, year, property_ids, admin_view, tenant_prop_map):
         prop_id = tenant_prop_map.get(pay.tenant_id) or parse_import_property_id(pay.reference)
         if prop_id not in property_ids_set:
             continue
-        if excel_property_ids and prop_id in excel_property_ids:
-            if not is_excel_import_reference(pay.reference, year):
-                continue
         if is_door_detail_payment(pay.reference):
             continue
         rent[prop_id][pay.date.month] += pay.amount or Decimal('0')
@@ -561,10 +622,12 @@ def _monthly_by_property(*, year, property_ids, admin_view, tenant_prop_map):
 
     expenses = list(OperatingExpense.objects.filter(
         date__year=year,
-        property_id__in=property_ids,
     ).only('amount', 'date', 'property_id', 'visibility', 'notes', 'category'))
     if not admin_view:
         expenses = [e for e in expenses if e.visibility != 'admin_only']
+
+    all_props = list(Property.objects.only('id', 'name', 'area', 'address', 'city', 'state', 'units'))
+    props_by_id = {p.id: p for p in all_props}
 
     summary_keys = {
         (e.property_id, e.date.month)
@@ -582,7 +645,12 @@ def _monthly_by_property(*, year, property_ids, admin_view, tenant_prop_map):
         is_summary = is_excel and '__SUMMARY__' in notes
         if is_excel and not is_summary and exp.property_id in props_with_summary:
             continue
-        opex[exp.property_id][exp.date.month] += exp.amount or Decimal('0')
+        prop_id = exp.property_id
+        if prop_id:
+            prop_id = _rollup_property_id(prop_id, property_ids_set, props_by_id) or prop_id
+        if prop_id not in property_ids_set:
+            continue
+        opex[prop_id][exp.date.month] += exp.amount or Decimal('0')
 
     out = {}
     for pid in property_ids:
