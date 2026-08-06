@@ -401,9 +401,11 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
 
   return (
     <div className="space-y-8 animate-fade-in pb-8">
-      <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-br from-indigo-700 via-purple-700 to-fuchsia-700 text-white p-4 sm:p-6 lg:p-8 shadow-2xl shadow-indigo-500/20">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1600&q=80')] opacity-15 bg-cover bg-center" />
-        <div className="relative flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 sm:gap-6">
+      <div className="relative z-20 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-indigo-700 via-purple-700 to-fuchsia-700 text-white p-4 sm:p-6 lg:p-8 shadow-2xl shadow-indigo-500/20">
+        <div className="absolute inset-0 overflow-hidden rounded-2xl sm:rounded-3xl pointer-events-none">
+          <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1600&q=80')] opacity-15 bg-cover bg-center" />
+        </div>
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 sm:gap-6">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider mb-3">
               <Sparkles className="w-3.5 h-3.5" />
@@ -434,7 +436,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                 )}
               </button>
               {showExpenseBell && (
-                <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-2rem))] max-h-96 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 text-left">
+                <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-2rem))] max-h-96 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-50 text-left">
                   <div className="p-3 border-b border-slate-100 flex items-center justify-between gap-2 sticky top-0 bg-white">
                     <p className="font-semibold text-sm text-slate-800">New expenses</p>
                     {expenseNotifications.length > 0 && (
