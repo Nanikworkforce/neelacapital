@@ -120,7 +120,7 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
   showPerformanceMetrics = false,
   showFinancingAndSummary = true,
   useSheetDefaults = true,
-  sheetKind = 'bella',
+  sheetKind: sheetKindProp = 'bella',
   overviewSlot,
   onSaveOverview,
   externalSaveControl = false,
@@ -128,6 +128,7 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
   onSavingChange,
   onSaved,
 }) => {
+  const sheetKind: SheetPnlKind = sheetKindProp;
   const [incomeLines, setIncomeLines] = useState<PnlLine[]>(() =>
     mergeIncomeForSheet(sheetKind, null, month, useSheetDefaults),
   );
@@ -376,8 +377,12 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
 
       {overviewSlot}
 
-      <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5">
-        <table className="w-full text-xs sm:text-sm min-w-[16rem]">
+      <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5 max-w-full">
+        <table className="w-full text-xs sm:text-sm table-fixed">
+          <colgroup>
+            <col className="w-[58%]" />
+            <col className="w-[42%]" />
+          </colgroup>
           <thead>
             <tr className="bg-slate-200">
               <th className="text-left px-2.5 sm:px-3 py-2 font-bold" colSpan={2}>
@@ -387,29 +392,29 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
           </thead>
           <tbody>
             <tr className="border-t">
-              <td className="px-2.5 sm:px-3 py-2 italic text-amber-800">{unitLabel}</td>
+              <td className="px-2.5 sm:px-3 py-2 italic text-amber-800 break-words">{unitLabel}</td>
               <td className={`px-2.5 sm:px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap ${moneyToneClass(summary.totalEffectiveIncome)}`}>
                 {formatMoneyPnL(summary.totalEffectiveIncome)}
               </td>
             </tr>
             {incomeLines.map((l) => (
               <tr key={l.key} className="border-t border-slate-100">
-                <td className="px-2.5 sm:px-3 py-2 pr-2 align-middle">{l.label}</td>
-                <td className="px-2 sm:px-3 py-1.5 text-right w-28 sm:w-36 align-middle">
+                <td className="px-2.5 sm:px-3 py-2 pr-2 align-middle break-words leading-snug">{l.label}</td>
+                <td className="px-2 sm:px-3 py-1.5 text-right align-middle">
                   <input
                     type="number"
                     step="0.01"
                     inputMode="decimal"
                     value={l.amount}
                     onChange={(e) => setIncomeAmount(l.key, e.target.value)}
-                    className={`w-full max-w-[7.5rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[36px] ${moneyToneClass(l.amount)}`}
+                    className={`w-full max-w-[7.25rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[40px] sm:min-h-[36px] ${moneyToneClass(l.amount)}`}
                     disabled={loading || saving}
                   />
                 </td>
               </tr>
             ))}
             <tr className="border-t bg-emerald-50 font-bold">
-              <td className="px-2.5 sm:px-3 py-2.5">Total Effective Income</td>
+              <td className="px-2.5 sm:px-3 py-2.5 break-words leading-snug">Total Effective Income</td>
               <td className={`px-2.5 sm:px-3 py-2.5 text-right tabular-nums whitespace-nowrap ${moneyToneClass(summary.totalEffectiveIncome)}`}>
                 {formatMoneyPnL(summary.totalEffectiveIncome)}
               </td>
@@ -418,8 +423,12 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
         </table>
       </div>
 
-      <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5">
-        <table className="w-full text-xs sm:text-sm min-w-[16rem]">
+      <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5 max-w-full">
+        <table className="w-full text-xs sm:text-sm table-fixed">
+          <colgroup>
+            <col className="w-[58%]" />
+            <col className="w-[42%]" />
+          </colgroup>
           <thead>
             <tr className="bg-slate-200">
               <th className="text-left px-2.5 sm:px-3 py-2 font-bold" colSpan={2}>
@@ -430,22 +439,22 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
           <tbody>
             {opexLines.map((l) => (
               <tr key={l.key} className="border-t border-slate-100">
-                <td className={`px-2.5 sm:px-3 py-2 pr-2 align-middle ${l.accent ? 'italic text-amber-800' : ''}`}>{l.label}</td>
-                <td className="px-2 sm:px-3 py-1.5 text-right w-28 sm:w-36 align-middle">
+                <td className={`px-2.5 sm:px-3 py-2 pr-2 align-middle break-words leading-snug ${l.accent ? 'italic text-amber-800' : ''}`}>{l.label}</td>
+                <td className="px-2 sm:px-3 py-1.5 text-right align-middle">
                   <input
                     type="number"
                     step="0.01"
                     inputMode="decimal"
                     value={l.amount}
                     onChange={(e) => setOpexAmount(l.key, e.target.value)}
-                    className={`w-full max-w-[7.5rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[36px] ${moneyToneClass(l.amount)}`}
+                    className={`w-full max-w-[7.25rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[40px] sm:min-h-[36px] ${moneyToneClass(l.amount)}`}
                     disabled={loading || saving}
                   />
                 </td>
               </tr>
             ))}
             <tr className="border-t bg-emerald-50 font-bold">
-              <td className="px-2.5 sm:px-3 py-2.5">Total Operating Expenses</td>
+              <td className="px-2.5 sm:px-3 py-2.5 break-words leading-snug">Total Operating Expenses</td>
               <td className={`px-2.5 sm:px-3 py-2.5 text-right tabular-nums whitespace-nowrap ${moneyToneClass(summary.totalOpex)}`}>
                 {formatMoneyPnL(summary.totalOpex)}
               </td>
@@ -456,8 +465,12 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
 
       {showFinancingAndSummary && (
         <>
-          <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5">
-            <table className="w-full text-xs sm:text-sm min-w-[16rem]">
+          <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5 max-w-full">
+            <table className="w-full text-xs sm:text-sm table-fixed">
+              <colgroup>
+                <col className="w-[58%]" />
+                <col className="w-[42%]" />
+              </colgroup>
               <thead>
                 <tr className="bg-slate-200">
                   <th className="text-left px-2.5 sm:px-3 py-2 font-bold" colSpan={2}>
@@ -468,15 +481,15 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
               <tbody>
                 {financingLines.map((l) => (
                   <tr key={l.key} className="border-t border-slate-100">
-                    <td className="px-2.5 sm:px-3 py-2 pr-2 align-middle">{l.label}</td>
-                    <td className="px-2 sm:px-3 py-1.5 text-right w-28 sm:w-36 align-middle">
+                    <td className="px-2.5 sm:px-3 py-2 pr-2 align-middle break-words leading-snug">{l.label}</td>
+                    <td className="px-2 sm:px-3 py-1.5 text-right align-middle">
                       <input
                         type="number"
                         step="0.01"
                         inputMode="decimal"
                         value={l.amount}
                         onChange={(e) => setFinancingAmount(l.key, e.target.value)}
-                        className={`w-full max-w-[7.5rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[36px] ${moneyToneClass(l.amount)}`}
+                        className={`w-full max-w-[7.25rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[40px] sm:min-h-[36px] ${moneyToneClass(l.amount)}`}
                         disabled={loading || saving}
                       />
                     </td>
@@ -486,8 +499,12 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
             </table>
           </div>
 
-          <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5">
-            <table className="w-full text-xs sm:text-sm min-w-[16rem]">
+          <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5 max-w-full">
+            <table className="w-full text-xs sm:text-sm table-fixed">
+              <colgroup>
+                <col className="w-[58%]" />
+                <col className="w-[42%]" />
+              </colgroup>
               <thead>
                 <tr className="bg-slate-200">
                   <th className="text-left px-2.5 sm:px-3 py-2 font-bold" colSpan={2}>
@@ -497,25 +514,31 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
               </thead>
               <tbody>
                 <tr className="border-t border-slate-100">
-                  <td className="px-2.5 sm:px-3 py-2 pr-2">Net Operating Income (NOI)</td>
+                  <td className="px-2.5 sm:px-3 py-2 pr-2 break-words leading-snug">
+                    <span className="sm:hidden">NOI</span>
+                    <span className="hidden sm:inline">Net Operating Income (NOI)</span>
+                  </td>
                   <td className={`px-2.5 sm:px-3 py-2 text-right tabular-nums font-bold whitespace-nowrap ${moneyToneClass(summary.noi)}`}>
                     {formatMoneyPnL(summary.noi)}
                   </td>
                 </tr>
                 <tr className="border-t border-slate-100">
-                  <td className="px-2.5 sm:px-3 py-2 pr-2">Cash Flow Before Tax</td>
+                  <td className="px-2.5 sm:px-3 py-2 pr-2 break-words leading-snug">Cash Flow Before Tax</td>
                   <td className={`px-2.5 sm:px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap ${moneyToneClass(summary.cashFlowBeforeTax)}`}>
                     {formatMoneyPnL(summary.cashFlowBeforeTax)}
                   </td>
                 </tr>
                 <tr className="border-t border-slate-100">
-                  <td className="px-2.5 sm:px-3 py-2 pr-2">Depreciation (Non-cash)</td>
+                  <td className="px-2.5 sm:px-3 py-2 pr-2 break-words leading-snug">Depreciation (Non-cash)</td>
                   <td className={`px-2.5 sm:px-3 py-2 text-right tabular-nums whitespace-nowrap ${moneyToneClass(summary.depreciation)}`}>
                     {formatMoneyPnL(summary.depreciation)}
                   </td>
                 </tr>
                 <tr className="border-t border-slate-100">
-                  <td className="px-2.5 sm:px-3 py-2 pr-2">Net Profit (for Tax Reporting)</td>
+                  <td className="px-2.5 sm:px-3 py-2 pr-2 break-words leading-snug">
+                    <span className="sm:hidden">Net Profit</span>
+                    <span className="hidden sm:inline">Net Profit (for Tax Reporting)</span>
+                  </td>
                   <td className={`px-2.5 sm:px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap ${moneyToneClass(summary.netProfit)}`}>
                     {formatMoneyPnL(summary.netProfit)}
                   </td>
@@ -525,8 +548,12 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
           </div>
 
           {showPerformanceMetrics && (
-            <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5">
-              <table className="w-full text-xs sm:text-sm min-w-[16rem]">
+            <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5 max-w-full">
+              <table className="w-full text-xs sm:text-sm table-fixed">
+                <colgroup>
+                  <col className="w-[58%]" />
+                  <col className="w-[42%]" />
+                </colgroup>
                 <thead>
                   <tr className="bg-slate-200">
                     <th className="text-left px-2.5 sm:px-3 py-2 font-bold" colSpan={2}>
@@ -536,13 +563,19 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
                 </thead>
                 <tbody>
                   <tr className="border-t border-slate-100">
-                    <td className="px-2.5 sm:px-3 py-2 pr-2">Cap Rate (NOI / Purchase Price)</td>
+                    <td className="px-2.5 sm:px-3 py-2 pr-2 break-words leading-snug">
+                      <span className="sm:hidden">Cap Rate</span>
+                      <span className="hidden sm:inline">Cap Rate (NOI / Purchase Price)</span>
+                    </td>
                     <td className={`px-2.5 sm:px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap ${pctToneClass(summary.capRatePct)}`}>
                       {formatPct(summary.capRatePct)}
                     </td>
                   </tr>
                   <tr className="border-t border-slate-100">
-                    <td className="px-2.5 sm:px-3 py-2 pr-2">Cash-on-Cash Return (Cash Flow / Down Payment)</td>
+                    <td className="px-2.5 sm:px-3 py-2 pr-2 break-words leading-snug">
+                      <span className="sm:hidden">Cash-on-Cash</span>
+                      <span className="hidden sm:inline">Cash-on-Cash Return (Cash Flow / Down Payment)</span>
+                    </td>
                     <td className={`px-2.5 sm:px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap ${pctToneClass(summary.cashOnCashPct)}`}>
                       {formatPct(summary.cashOnCashPct)}
                     </td>

@@ -409,7 +409,7 @@ function PropertyPnlDetail({
   // Land value stays in state for Summary dep formula; not shown on the sheet overview.
 
   const adminOverviewBlock = isAdmin ? (
-    <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5">
+    <div className="overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 -mx-0.5 max-w-full">
       <div className="px-2.5 sm:px-3 py-2 bg-slate-200">
         <h4 className="text-left font-bold text-slate-900 text-xs sm:text-sm">
           PROPERTY OVERVIEW
@@ -424,15 +424,19 @@ function PropertyPnlDetail({
           }`}
         >
           {!ovError && <CheckCircle2 className="w-4 h-4 flex-shrink-0" />}
-          <span>{ovError || ovStatus}</span>
+          <span className="break-words">{ovError || ovStatus}</span>
         </div>
       )}
-      <table className="w-full min-w-[16rem] text-xs sm:text-sm">
+      <table className="w-full text-xs sm:text-sm table-fixed">
+        <colgroup>
+          <col className="w-[58%]" />
+          <col className="w-[42%]" />
+        </colgroup>
         <tbody>
           {overviewFields.map((r) => (
             <tr key={r.label} className="border-t border-slate-100">
-              <td className="px-2.5 sm:px-3 py-2 text-slate-800 font-medium">{r.label}</td>
-              <td className="px-2 sm:px-3 py-1.5 text-right w-28 sm:w-36">
+              <td className="px-2.5 sm:px-3 py-2 text-slate-800 font-medium break-words leading-snug">{r.label}</td>
+              <td className="px-2 sm:px-3 py-1.5 text-right">
                 {r.readOnly ? (
                   <span className="tabular-nums text-slate-900 font-semibold whitespace-nowrap px-1">
                     {r.value}
@@ -445,7 +449,7 @@ function PropertyPnlDetail({
                     value={r.value}
                     onChange={(e) => r.set(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
-                    className="w-full max-w-[7.5rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[36px]"
+                    className="w-full max-w-[7.25rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[40px] sm:min-h-[36px]"
                     disabled={ovSaving}
                   />
                 )}
@@ -464,22 +468,22 @@ function PropertyPnlDetail({
           <p className="text-xs sm:text-sm text-slate-600">
             Year totals for this property. Open monthly breakdown for Income / OpEx / Financing detail.
           </p>
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-lg bg-white border border-slate-100 px-2 py-2">
+          <div className="grid grid-cols-1 min-[380px]:grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg bg-white border border-slate-100 px-2 py-2 min-w-0">
               <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Income</p>
-              <p className={`text-xs font-bold tabular-nums mt-0.5 ${moneyToneClass(row.totalIncome)}`}>
+              <p className={`text-xs font-bold tabular-nums mt-0.5 break-all ${moneyToneClass(row.totalIncome)}`}>
                 {formatMoneyPnL(row.totalIncome)}
               </p>
             </div>
-            <div className="rounded-lg bg-white border border-slate-100 px-2 py-2">
+            <div className="rounded-lg bg-white border border-slate-100 px-2 py-2 min-w-0">
               <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">OpEx</p>
-              <p className={`text-xs font-bold tabular-nums mt-0.5 ${moneyToneClass(row.totalExpenses)}`}>
+              <p className={`text-xs font-bold tabular-nums mt-0.5 break-all ${moneyToneClass(row.totalExpenses)}`}>
                 {formatMoneyPnL(row.totalExpenses)}
               </p>
             </div>
-            <div className="rounded-lg bg-white border border-emerald-100 px-2 py-2">
+            <div className="rounded-lg bg-white border border-emerald-100 px-2 py-2 min-w-0">
               <p className="text-[10px] uppercase tracking-wide text-emerald-700/80 font-semibold">NOI</p>
-              <p className={`text-xs font-bold tabular-nums mt-0.5 ${moneyToneClass(row.netIncome)}`}>
+              <p className={`text-xs font-bold tabular-nums mt-0.5 break-all ${moneyToneClass(row.netIncome)}`}>
                 {formatMoneyPnL(row.netIncome)}
               </p>
             </div>
@@ -491,85 +495,149 @@ function PropertyPnlDetail({
         !useSheet && !(row.monthly && row.monthly.length) ? (
           <p className="text-sm text-slate-500 py-2">Yearly month breakdown not loaded yet for this property.</p>
         ) : (
-          <div className="overflow-x-auto overscroll-x-contain rounded-xl border border-slate-300 bg-white">
-            <table className="w-full min-w-[32rem] text-xs sm:text-sm border-collapse table-fixed">
-              <colgroup>
-                <col className="w-[14%]" />
-                <col className="w-[28.5%]" />
-                <col className="w-[28.5%]" />
-                <col className="w-[29%]" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th
-                    colSpan={4}
-                    className="text-center font-bold text-slate-900 px-3 py-3 border-b border-slate-300 bg-white text-sm sm:text-base tracking-wide"
-                  >
-                    {year}
-                  </th>
-                </tr>
-                <tr className="bg-amber-600 text-white">
-                  <th className="text-center font-semibold px-2 py-2.5 border border-amber-700/40 align-middle">
-                    Month
-                  </th>
-                  <th className="text-center font-semibold px-2 py-2.5 border border-amber-700/40 align-middle leading-snug">
-                    Total Income
-                  </th>
-                  <th className="text-center font-semibold px-2 py-2.5 border border-amber-700/40 align-middle leading-snug">
-                    Total Operating Expenses
-                  </th>
-                  <th className="text-center font-semibold px-2 py-2.5 border border-amber-700/40 align-middle leading-snug">
-                    <span className="sm:hidden">NOI</span>
-                    <span className="hidden sm:inline">Net Operating Income (NOI)</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+          <>
+            {/* Phone: stacked month cards — no horizontal scroll */}
+            <div className="sm:hidden rounded-xl border border-slate-300 bg-white overflow-hidden">
+              <div className="px-3 py-2.5 border-b border-slate-200 bg-white text-center font-bold text-slate-900 text-sm">
+                {year}
+              </div>
+              <div className="divide-y divide-slate-100">
                 {monthRows.map((m) => {
                   const label = MONTHS[m.month - 1];
                   const active = selectedMonth === m.month;
                   return (
-                    <tr
-                      key={label}
-                      className={`cursor-pointer hover:bg-amber-50/80 active:bg-amber-50 ${active ? 'bg-amber-50' : 'bg-white'}`}
+                    <button
+                      key={`mcard-${label}`}
+                      type="button"
+                      className={`w-full text-left px-3 py-3 touch-manipulation min-h-[44px] ${active ? 'bg-amber-50' : 'bg-white active:bg-slate-50'}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedMonth((p) => (p === m.month ? null : m.month));
                       }}
-                      title={`Open ${label} ${year} detail`}
                     >
-                      <td className="px-2 sm:px-3 py-2 text-center font-semibold text-slate-800 whitespace-nowrap border border-slate-200 align-middle">
-                        {label}
-                      </td>
-                      <td className={`px-2 sm:px-3 py-2 text-right tabular-nums whitespace-nowrap border border-slate-200 align-middle ${moneyToneClass(m.income)}`}>
-                        {formatSheetMoney(m.income, true)}
-                      </td>
-                      <td className={`px-2 sm:px-3 py-2 text-right tabular-nums whitespace-nowrap border border-slate-200 align-middle ${moneyToneClass(m.expenses)}`}>
-                        {formatSheetMoney(m.expenses)}
-                      </td>
-                      <td className={`px-2 sm:px-3 py-2 text-right tabular-nums whitespace-nowrap border border-slate-200 align-middle ${moneyToneClass(m.net)}`}>
-                        {formatSheetMoney(m.net)}
-                      </td>
-                    </tr>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="font-semibold text-slate-800 text-sm">{label}</span>
+                        <span className={`text-xs font-bold tabular-nums ${moneyToneClass(m.net)}`}>
+                          NOI {formatSheetMoney(m.net)}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-lg bg-slate-50 border border-slate-100 px-2 py-1.5 min-w-0">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Income</p>
+                          <p className={`text-[11px] font-bold tabular-nums mt-0.5 truncate ${moneyToneClass(m.income)}`}>
+                            {formatSheetMoney(m.income, true)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 border border-slate-100 px-2 py-1.5 min-w-0">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">OpEx</p>
+                          <p className={`text-[11px] font-bold tabular-nums mt-0.5 truncate ${moneyToneClass(m.expenses)}`}>
+                            {formatSheetMoney(m.expenses)}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
                   );
                 })}
-                <tr className="bg-slate-50 font-bold">
-                  <td className="px-2 sm:px-3 py-2.5 text-center text-slate-900 border border-slate-200 border-t-2 border-t-slate-800 align-middle">
-                    Total
-                  </td>
-                  <td className={`px-2 sm:px-3 py-2.5 text-right tabular-nums whitespace-nowrap border border-slate-200 border-t-2 border-t-slate-800 border-b-[3px] border-b-double border-b-slate-800 align-middle ${moneyToneClass(yInc)}`}>
-                    {formatSheetMoney(yInc)}
-                  </td>
-                  <td className={`px-2 sm:px-3 py-2.5 text-right tabular-nums whitespace-nowrap border border-slate-200 border-t-2 border-t-slate-800 border-b-[3px] border-b-double border-b-slate-800 align-middle ${moneyToneClass(yExp)}`}>
-                    {formatSheetMoney(yExp)}
-                  </td>
-                  <td className={`px-2 sm:px-3 py-2.5 text-right tabular-nums whitespace-nowrap border border-slate-200 border-t-2 border-t-slate-800 border-b-[3px] border-b-double border-b-slate-800 align-middle ${moneyToneClass(yNet)}`}>
-                    {formatSheetMoney(yNet)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+              </div>
+              <div className="px-3 py-3 border-t-2 border-slate-800 bg-slate-50 grid grid-cols-3 gap-1.5">
+                <div className="min-w-0 text-center">
+                  <p className="text-[10px] uppercase text-slate-500 font-semibold">Income</p>
+                  <p className={`text-[11px] font-bold tabular-nums truncate ${moneyToneClass(yInc)}`}>{formatSheetMoney(yInc)}</p>
+                </div>
+                <div className="min-w-0 text-center">
+                  <p className="text-[10px] uppercase text-slate-500 font-semibold">OpEx</p>
+                  <p className={`text-[11px] font-bold tabular-nums truncate ${moneyToneClass(yExp)}`}>{formatSheetMoney(yExp)}</p>
+                </div>
+                <div className="min-w-0 text-center">
+                  <p className="text-[10px] uppercase text-emerald-700/80 font-semibold">NOI</p>
+                  <p className={`text-[11px] font-bold tabular-nums truncate ${moneyToneClass(yNet)}`}>{formatSheetMoney(yNet)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Tablet+ : Excel-style yearly table */}
+            <div className="hidden sm:block overflow-x-auto overscroll-x-contain rounded-xl border border-slate-300 bg-white">
+              <table className="w-full min-w-[28rem] text-xs sm:text-sm border-collapse table-fixed">
+                <colgroup>
+                  <col className="w-[14%]" />
+                  <col className="w-[28.5%]" />
+                  <col className="w-[28.5%]" />
+                  <col className="w-[29%]" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th
+                      colSpan={4}
+                      className="text-center font-bold text-slate-900 px-3 py-3 border-b border-slate-300 bg-white text-sm sm:text-base tracking-wide"
+                    >
+                      {year}
+                    </th>
+                  </tr>
+                  <tr className="bg-amber-600 text-white">
+                    <th className="text-center font-semibold px-2 py-2.5 border border-amber-700/40 align-middle">
+                      Month
+                    </th>
+                    <th className="text-center font-semibold px-2 py-2.5 border border-amber-700/40 align-middle leading-snug">
+                      <span className="md:hidden">Income</span>
+                      <span className="hidden md:inline">Total Income</span>
+                    </th>
+                    <th className="text-center font-semibold px-2 py-2.5 border border-amber-700/40 align-middle leading-snug">
+                      <span className="md:hidden">OpEx</span>
+                      <span className="hidden md:inline">Total Operating Expenses</span>
+                    </th>
+                    <th className="text-center font-semibold px-2 py-2.5 border border-amber-700/40 align-middle leading-snug">
+                      <span className="lg:hidden">NOI</span>
+                      <span className="hidden lg:inline">Net Operating Income (NOI)</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthRows.map((m) => {
+                    const label = MONTHS[m.month - 1];
+                    const active = selectedMonth === m.month;
+                    return (
+                      <tr
+                        key={label}
+                        className={`cursor-pointer hover:bg-amber-50/80 active:bg-amber-50 ${active ? 'bg-amber-50' : 'bg-white'}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedMonth((p) => (p === m.month ? null : m.month));
+                        }}
+                        title={`Open ${label} ${year} detail`}
+                      >
+                        <td className="px-2 sm:px-3 py-2 text-center font-semibold text-slate-800 whitespace-nowrap border border-slate-200 align-middle">
+                          {label}
+                        </td>
+                        <td className={`px-2 sm:px-3 py-2 text-right tabular-nums whitespace-nowrap border border-slate-200 align-middle ${moneyToneClass(m.income)}`}>
+                          {formatSheetMoney(m.income, true)}
+                        </td>
+                        <td className={`px-2 sm:px-3 py-2 text-right tabular-nums whitespace-nowrap border border-slate-200 align-middle ${moneyToneClass(m.expenses)}`}>
+                          {formatSheetMoney(m.expenses)}
+                        </td>
+                        <td className={`px-2 sm:px-3 py-2 text-right tabular-nums whitespace-nowrap border border-slate-200 align-middle ${moneyToneClass(m.net)}`}>
+                          {formatSheetMoney(m.net)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="bg-slate-50 font-bold">
+                    <td className="px-2 sm:px-3 py-2.5 text-center text-slate-900 border border-slate-200 border-t-2 border-t-slate-800 align-middle">
+                      Total
+                    </td>
+                    <td className={`px-2 sm:px-3 py-2.5 text-right tabular-nums whitespace-nowrap border border-slate-200 border-t-2 border-t-slate-800 border-b-[3px] border-b-double border-b-slate-800 align-middle ${moneyToneClass(yInc)}`}>
+                      {formatSheetMoney(yInc)}
+                    </td>
+                    <td className={`px-2 sm:px-3 py-2.5 text-right tabular-nums whitespace-nowrap border border-slate-200 border-t-2 border-t-slate-800 border-b-[3px] border-b-double border-b-slate-800 align-middle ${moneyToneClass(yExp)}`}>
+                      {formatSheetMoney(yExp)}
+                    </td>
+                    <td className={`px-2 sm:px-3 py-2.5 text-right tabular-nums whitespace-nowrap border border-slate-200 border-t-2 border-t-slate-800 border-b-[3px] border-b-double border-b-slate-800 align-middle ${moneyToneClass(yNet)}`}>
+                      {formatSheetMoney(yNet)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </>
         )
       )}
 
@@ -584,17 +652,20 @@ function PropertyPnlDetail({
             role="presentation"
           >
             <div
-              className="w-full sm:max-w-2xl max-h-[92vh] sm:max-h-[88vh] bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 flex flex-col min-h-0 overflow-hidden"
+              className="w-full sm:max-w-2xl max-h-[min(94dvh,92vh)] sm:max-h-[min(90dvh,88vh)] bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 flex flex-col min-h-0 overflow-hidden pb-[env(safe-area-inset-bottom,0px)]"
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
               aria-label={`${MONTH_NAMES[selectedMonth - 1]} ${year} monthly breakdown`}
             >
-              <div className="flex items-center gap-2 px-4 sm:px-5 py-3 border-b border-slate-200 bg-slate-50 flex-shrink-0">
+              <div className="sm:hidden flex justify-center pt-2 flex-shrink-0" aria-hidden>
+                <div className="w-10 h-1 rounded-full bg-slate-300" />
+              </div>
+              <div className="flex flex-wrap items-center gap-2 px-3 sm:px-5 py-3 border-b border-slate-200 bg-slate-50 flex-shrink-0">
                 <select
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                  className="rounded-lg border border-emerald-700 bg-emerald-800 px-3 py-2 text-sm font-bold text-white min-h-[40px] w-auto max-w-[9.5rem] shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                  className="rounded-lg border border-emerald-700 bg-emerald-800 px-3 py-2 text-sm font-bold text-white min-h-[40px] flex-1 min-w-[8rem] max-w-full sm:flex-initial sm:w-auto sm:max-w-[11rem] shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
                   aria-label="Select month"
                 >
                   {MONTH_NAMES.map((label, i) => (
@@ -603,19 +674,19 @@ function PropertyPnlDetail({
                     </option>
                   ))}
                 </select>
-                <div className="flex-1" />
+                <div className="hidden sm:block flex-1" />
                 <button
                   type="button"
                   onClick={() => void monthSaveRef.current?.()}
                   disabled={monthSaving}
-                  className="rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2.5 min-h-[40px] flex-shrink-0"
+                  className="rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2.5 min-h-[40px] flex-1 sm:flex-initial flex-shrink-0 touch-manipulation"
                 >
                   {monthSaving ? 'Saving…' : 'Save'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedMonth(null)}
-                  className="p-2 rounded-xl hover:bg-slate-200 text-slate-600 min-h-[40px] min-w-[40px] inline-flex items-center justify-center flex-shrink-0"
+                  className="p-2 rounded-xl hover:bg-slate-200 text-slate-600 min-h-[40px] min-w-[40px] inline-flex items-center justify-center flex-shrink-0 touch-manipulation"
                   aria-label="Close monthly breakdown"
                 >
                   <X className="w-5 h-5" />
@@ -1104,7 +1175,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                 )}
               </button>
               {showExpenseBell && (
-                <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-2rem))] max-h-96 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-50 text-left">
+                <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-[min(22rem,calc(100vw-2.5rem))] max-h-96 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-50 text-left">
                   <div className="p-3 border-b border-slate-100 flex items-center justify-between gap-2 sticky top-0 bg-white">
                     <p className="font-semibold text-sm text-slate-800">Manager expenses</p>
                     {expenseNotifications.length > 0 && (
@@ -1175,23 +1246,36 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
         <div className="px-3 sm:px-5 py-3.5 bg-amber-600">
           <h3 className="font-bold text-white text-base sm:text-lg">Portfolio Summary — {year}</h3>
         </div>
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col className="w-[58%]" />
+            <col className="w-[42%]" />
+          </colgroup>
           <tbody>
             <tr className="border-t border-slate-200 bg-slate-50/80">
-              <td className="px-3.5 sm:px-5 py-3 sm:py-3.5 font-medium text-slate-700">Total Income</td>
-              <td className={`px-3.5 sm:px-5 py-3 sm:py-3.5 text-right font-bold tabular-nums whitespace-nowrap ${moneyToneClass(portfolioDisplay.totalIncome)}`}>
+              <td className="px-3 sm:px-5 py-3 sm:py-3.5 font-medium text-slate-700 text-xs sm:text-sm">
+                <span className="sm:hidden">Income</span>
+                <span className="hidden sm:inline">Total Income</span>
+              </td>
+              <td className={`px-3 sm:px-5 py-3 sm:py-3.5 text-right font-bold tabular-nums text-xs sm:text-sm break-all sm:whitespace-nowrap ${moneyToneClass(portfolioDisplay.totalIncome)}`}>
                 {formatMoneyPnL(portfolioDisplay.totalIncome)}
               </td>
             </tr>
             <tr className="border-t border-slate-200 bg-rose-50/50">
-              <td className="px-3.5 sm:px-5 py-3 sm:py-3.5 font-medium text-slate-700">Total Operating Expenses</td>
-              <td className={`px-3.5 sm:px-5 py-3 sm:py-3.5 text-right font-bold tabular-nums whitespace-nowrap ${moneyToneClass(portfolioDisplay.totalExpenses)}`}>
+              <td className="px-3 sm:px-5 py-3 sm:py-3.5 font-medium text-slate-700 text-xs sm:text-sm">
+                <span className="sm:hidden">OpEx</span>
+                <span className="hidden sm:inline">Total Operating Expenses</span>
+              </td>
+              <td className={`px-3 sm:px-5 py-3 sm:py-3.5 text-right font-bold tabular-nums text-xs sm:text-sm break-all sm:whitespace-nowrap ${moneyToneClass(portfolioDisplay.totalExpenses)}`}>
                 {formatMoneyPnL(portfolioDisplay.totalExpenses)}
               </td>
             </tr>
             <tr className="border-t border-slate-200 bg-emerald-50">
-              <td className="px-3.5 sm:px-5 py-3 sm:py-3.5 font-semibold text-emerald-900">Net Operating Income (NOI)</td>
-              <td className={`px-3.5 sm:px-5 py-3 sm:py-3.5 text-right font-bold tabular-nums whitespace-nowrap ${moneyToneClass(portfolioDisplay.netIncome)}`}>
+              <td className="px-3 sm:px-5 py-3 sm:py-3.5 font-semibold text-emerald-900 text-xs sm:text-sm">
+                <span className="sm:hidden">NOI</span>
+                <span className="hidden sm:inline">Net Operating Income (NOI)</span>
+              </td>
+              <td className={`px-3 sm:px-5 py-3 sm:py-3.5 text-right font-bold tabular-nums text-xs sm:text-sm break-all sm:whitespace-nowrap ${moneyToneClass(portfolioDisplay.netIncome)}`}>
                 {formatMoneyPnL(portfolioDisplay.netIncome)}
               </td>
             </tr>
@@ -1318,21 +1402,21 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
 
         {/* Desktop: Excel-style table */}
         <div className="hidden md:block overflow-x-auto overscroll-x-contain">
-          <table className="w-full min-w-[42rem] text-sm">
+          <table className="w-full min-w-[36rem] lg:min-w-[42rem] text-sm">
             <thead>
               <tr className="bg-amber-600 text-white">
-                <th className="text-left font-semibold px-4 py-3 w-[32%]">Property</th>
-                <th className="text-right font-semibold px-4 py-3">
+                <th className="text-left font-semibold px-3 lg:px-4 py-3 w-[28%] lg:w-[32%]">Property</th>
+                <th className="text-right font-semibold px-2 lg:px-4 py-3">
                   <span className="lg:hidden">Income</span>
                   <span className="hidden lg:inline">Total Income</span>
                 </th>
-                <th className="text-right font-semibold px-4 py-3">
+                <th className="text-right font-semibold px-2 lg:px-4 py-3">
                   <span className="lg:hidden">OpEx</span>
                   <span className="hidden lg:inline">Total Operating Expenses</span>
                 </th>
-                <th className="text-right font-semibold px-4 py-3">NOI</th>
-                <th className="text-center font-semibold px-3 py-3 whitespace-nowrap">Monthly</th>
-                <th className="text-center font-semibold px-3 py-3 w-12"> </th>
+                <th className="text-right font-semibold px-2 lg:px-4 py-3">NOI</th>
+                <th className="text-center font-semibold px-2 lg:px-3 py-3 whitespace-nowrap">Monthly</th>
+                <th className="text-center font-semibold px-2 lg:px-3 py-3 w-10 lg:w-12"> </th>
               </tr>
             </thead>
             <tbody>
@@ -1393,9 +1477,10 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                               e.stopPropagation();
                               openPropertyMonthly(row);
                             }}
-                            className="inline-flex items-center justify-center rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-2.5 py-1.5 min-h-[36px] whitespace-nowrap"
+                            className="inline-flex items-center justify-center rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-2 lg:px-2.5 py-1.5 min-h-[36px] whitespace-nowrap"
                           >
-                            View breakdown
+                            <span className="lg:hidden">Open</span>
+                            <span className="hidden lg:inline">View breakdown</span>
                           </button>
                         </td>
                         <td
@@ -1472,19 +1557,19 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
             <p className="text-sm text-slate-500 text-center py-8">No expenses recorded yet.</p>
           ) : (
             filteredExpenses.map((e) => (
-              <div key={e.id} className="flex items-center justify-between border border-slate-100 rounded-xl p-3 hover:bg-slate-50 transition-colors">
-                <div className="min-w-0">
-                  <p className="font-semibold text-sm text-slate-800 truncate">
+              <div key={e.id} className="flex items-start sm:items-center justify-between gap-2 border border-slate-100 rounded-xl p-3 hover:bg-slate-50 transition-colors min-w-0">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-sm text-slate-800 break-words">
                     {e.propertyName || 'Portfolio'}
                     {e.unitLabel ? ` - ${e.unitLabel}` : ''}
                     {' - '}{CATEGORY_LABELS[e.category] || e.category}
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 break-words">
                     {e.date}
                     {formatExpenseNote(e.notes) ? ` - ${formatExpenseNote(e.notes)}` : ''}
                   </p>
                 </div>
-                <p className="font-bold text-sm text-rose-700 ml-3 flex-shrink-0">{formatMoney(e.amount)}</p>
+                <p className="font-bold text-sm text-rose-700 ml-1 sm:ml-3 flex-shrink-0 tabular-nums">{formatMoney(e.amount)}</p>
               </div>
             ))
           )}

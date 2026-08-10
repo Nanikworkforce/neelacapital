@@ -115,9 +115,9 @@ function SectionCard({
           <h3 className="font-bold text-slate-900 text-base sm:text-lg tracking-tight">{title}</h3>
           {subtitle && <p className="text-xs sm:text-sm text-slate-500 mt-0.5 line-clamp-2">{subtitle}</p>}
         </div>
-        {action && <div className="flex-shrink-0 self-start sm:self-center">{action}</div>}
+        {action && <div className="w-full sm:w-auto flex-shrink-0 self-stretch sm:self-center min-w-0">{action}</div>}
       </div>
-      <div className="p-3.5 sm:p-6 min-w-0 overflow-x-hidden">{children}</div>
+      <div className="p-3.5 sm:p-6 min-w-0 overflow-x-auto overscroll-x-contain">{children}</div>
     </div>
   );
 }
