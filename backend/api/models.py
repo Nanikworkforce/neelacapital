@@ -1,4 +1,5 @@
 import uuid
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -482,6 +483,41 @@ class PropertyFinancials(models.Model):
 
     def __str__(self):
         return f"Financials — {self.property.name}"
+
+
+class PropertyMonthInput(models.Model):
+    """
+    Editable monthly Income + Operating Expense lines for a property (and optional unit/door).
+    Shared by admin and property managers — last write wins; both sides read the same row.
+    """
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='month_inputs')
+    unit = models.ForeignKey(
+        PropertyUnit, on_delete=models.SET_NULL, null=True, blank=True, related_name='month_inputs',
+    )
+    unit_label = models.CharField(max_length=64, blank=True, default='Door 1')
+    year = models.PositiveIntegerField()
+    month = models.PositiveSmallIntegerField()  # 1–12
+    # [{key, label, amount}]
+    income_lines = models.JSONField(default=list, blank=True)
+    # [{key, label, amount, accent?}]
+    opex_lines = models.JSONField(default=list, blank=True)
+    # [{key, label, amount}] Mortgage Interest, Principal Repayment, …
+    financing_lines = models.JSONField(default=list, blank=True)
+    # Backend-computed rollups (NOI, cash flow, dep, etc.) — refreshed on every save.
+    computed = models.JSONField(default=dict, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='pnl_month_updates',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [('property', 'unit_label', 'year', 'month')]
+        ordering = ['-year', '-month', 'property_id']
+
+    def __str__(self):
+        return f"{self.property_id} {self.year}-{self.month:02d} {self.unit_label}"
 
 
 class PropertyManagerProfile(models.Model):

@@ -7,7 +7,10 @@ Per property / month:
   Net Operating Income (NOI) → Total Income − Total Operating Expenses
 
 Financing (mortgage, depreciation) sits below NOI and is excluded from operating totals.
-Live rents and manager/admin expenses always affect the income statement.
+Live rents and manager/admin expenses affect the income statement for most properties.
+
+Bella Jess, Tomball, and Conroe are sheet / PropertyMonthInput only — rent collections and
+recorded operating expenses are excluded from their Income Statement totals (2026 corrected yearly seeds).
 """
 import re
 from collections import defaultdict
@@ -16,16 +19,161 @@ from decimal import Decimal
 from django.db.models import Sum, Q
 from django.db.models.functions import ExtractMonth
 
-from .models import Payment, Property, Tenant, OperatingExpense, ShortStayBooking, PropertyUnit
+from .models import (
+    Payment,
+    Property,
+    Tenant,
+    OperatingExpense,
+    ShortStayBooking,
+    PropertyUnit,
+    PropertyMonthInput,
+)
 from .property_units_service import (
-    catalog_units_for_property,
     display_units_for_property,
     get_property_group_key,
     is_portfolio_parent,
-    sync_units_for_property,
     unit_for_door_number,
 )
 from .permissions import is_admin_user, exclude_import_placeholder_tenants
+
+# Corrected Bella Jess 2026 TEI / OpEx / NOI (matches utils/bellaJessPnl2026.ts).
+BELLA_JESS_2026_YEARLY = [
+    (Decimal('2300'), Decimal('468.53'), Decimal('1831.47')),
+    (Decimal('2300'), Decimal('411.23'), Decimal('1888.77')),
+    (Decimal('2300'), Decimal('380.5'), Decimal('1919.5')),
+    (Decimal('2300'), Decimal('748.06'), Decimal('1551.94')),
+    (Decimal('0'), Decimal('7733.9'), Decimal('-7733.9')),
+    (Decimal('0'), Decimal('2372'), Decimal('-2372')),
+    (Decimal('0'), Decimal('1315.85'), Decimal('-1315.85')),
+    (Decimal('0'), Decimal('1467.27'), Decimal('-1467.27')),
+    (Decimal('0'), Decimal('1467.27'), Decimal('-1467.27')),
+    (Decimal('0'), Decimal('1867.27'), Decimal('-1867.27')),
+    (Decimal('0'), Decimal('1967.27'), Decimal('-1967.27')),
+    (Decimal('0'), Decimal('1140.14'), Decimal('-1140.14')),
+]
+
+# Corrected Tomball 2026 TEI / OpEx / NOI (matches utils/tomballPnl2026.ts).
+TOMBALL_2026_YEARLY = [
+    (Decimal('0'), Decimal('229'), Decimal('-229')),
+    (Decimal('0'), Decimal('229'), Decimal('-229')),
+    (Decimal('0'), Decimal('229'), Decimal('-229')),
+    (Decimal('0'), Decimal('229'), Decimal('-229')),
+    (Decimal('0'), Decimal('7721.27'), Decimal('-7721.27')),
+    (Decimal('0'), Decimal('2097.08'), Decimal('-2097.08')),
+    (Decimal('0'), Decimal('1449.02'), Decimal('-1449.02')),
+    (Decimal('0'), Decimal('1705.47'), Decimal('-1705.47')),
+    (Decimal('0'), Decimal('1627.5'), Decimal('-1627.5')),
+    (Decimal('0'), Decimal('1980.85'), Decimal('-1980.85')),
+    (Decimal('0'), Decimal('2128.85'), Decimal('-2128.85')),
+    (Decimal('0'), Decimal('1262.31'), Decimal('-1262.31')),
+]
+
+# Corrected Conroe 2026 TEI / OpEx / NOI (matches utils/conroePnl2026.ts).
+CONROE_2026_YEARLY = [
+    (Decimal('0'), Decimal('0'), Decimal('0')),
+    (Decimal('0'), Decimal('0'), Decimal('0')),
+    (Decimal('0'), Decimal('0'), Decimal('0')),
+    (Decimal('0'), Decimal('0'), Decimal('0')),
+    (Decimal('0'), Decimal('7721.27'), Decimal('-7721.27')),
+    (Decimal('0'), Decimal('2097.08'), Decimal('-2097.08')),
+    (Decimal('0'), Decimal('1449.02'), Decimal('-1449.02')),
+    (Decimal('0'), Decimal('1705.47'), Decimal('-1705.47')),
+    (Decimal('0'), Decimal('1627.5'), Decimal('-1627.5')),
+    (Decimal('0'), Decimal('1980.85'), Decimal('-1980.85')),
+    (Decimal('0'), Decimal('2128.85'), Decimal('-2128.85')),
+    (Decimal('0'), Decimal('1262.31'), Decimal('-1262.31')),
+]
+
+
+def is_bella_jess_property(prop) -> bool:
+    name = getattr(prop, 'name', None) or ''
+    return bool(re.search(r'bella\s*jess', name, re.I))
+
+
+def is_tomball_property(prop) -> bool:
+    """Tomball sheet — exclude Bella Jess (address may contain Tomball)."""
+    name = getattr(prop, 'name', None) or ''
+    if re.search(r'bella\s*jess', name, re.I):
+        return False
+    return bool(re.search(r'tomball|tomabll', name, re.I))
+
+
+def is_conroe_property(prop) -> bool:
+    name = getattr(prop, 'name', None) or ''
+    return bool(re.search(r'conroe', name, re.I))
+
+
+def bella_jess_property_ids(properties) -> set:
+    return {p.id for p in properties if is_bella_jess_property(p)}
+
+
+def tomball_property_ids(properties) -> set:
+    return {p.id for p in properties if is_tomball_property(p)}
+
+
+def conroe_property_ids(properties) -> set:
+    return {p.id for p in properties if is_conroe_property(p)}
+
+
+def sheet_pnl_property_ids(properties) -> set:
+    """Properties that use Excel sheet / month-input totals only."""
+    return bella_jess_property_ids(properties) | tomball_property_ids(properties) | conroe_property_ids(properties)
+
+
+def _sheet_year_seed(prop_id: int, year: int, bella_ids: set, tomball_ids: set, conroe_ids: set):
+    if year != 2026:
+        return None
+    if prop_id in bella_ids:
+        return BELLA_JESS_2026_YEARLY
+    if prop_id in tomball_ids:
+        return TOMBALL_2026_YEARLY
+    if prop_id in conroe_ids:
+        return CONROE_2026_YEARLY
+    return None
+
+
+def sheet_month_rows(prop_id: int, year: int, bella_ids: set, tomball_ids: set, conroe_ids: set):
+    """Return list of 12 (income, expenses, noi) Decimals for a sheet property."""
+    by_month = {}
+    for row in PropertyMonthInput.objects.filter(property_id=prop_id, year=year).only(
+        'month', 'computed', 'income_lines', 'opex_lines', 'financing_lines'
+    ):
+        computed = row.computed or {}
+        if computed.get('total_effective_income') is not None or computed.get('totalEffectiveIncome') is not None:
+            tei = Decimal(str(
+                computed.get('total_effective_income', computed.get('totalEffectiveIncome', 0)) or 0
+            ))
+            opex = Decimal(str(computed.get('total_opex', computed.get('totalOpex', 0)) or 0))
+            noi = Decimal(str(computed.get('noi', tei - opex) or 0))
+            by_month[row.month] = (tei, opex, noi)
+
+    seeds = _sheet_year_seed(prop_id, year, bella_ids, tomball_ids, conroe_ids)
+    rows = []
+    for month in range(1, 13):
+        if month in by_month:
+            rows.append(by_month[month])
+        elif seeds is not None:
+            rows.append(seeds[month - 1])
+        else:
+            rows.append((Decimal('0'), Decimal('0'), Decimal('0')))
+    return rows
+
+
+def sheet_year_totals(prop_id: int, year: int, bella_ids: set, tomball_ids: set, conroe_ids: set):
+    rows = sheet_month_rows(prop_id, year, bella_ids, tomball_ids, conroe_ids)
+    income = sum((r[0] for r in rows), Decimal('0'))
+    expenses = sum((r[1] for r in rows), Decimal('0'))
+    net = sum((r[2] for r in rows), Decimal('0'))
+    return income, expenses, net
+
+
+# Back-compat aliases used elsewhere / tests.
+def bella_jess_month_rows(prop_id: int, year: int):
+    return sheet_month_rows(prop_id, year, {prop_id}, set(), set())
+
+
+def bella_jess_year_totals(prop_id: int, year: int):
+    return sheet_year_totals(prop_id, year, {prop_id}, set(), set())
 
 IMPORT_TAG_PREFIX = 'excel-import-'
 IMPORT_TAG = 'excel-import-2026'
@@ -111,12 +259,6 @@ def build_tenant_property_map(tenants, property_ids_set, property_aliases):
             if any(alias and alias in token for alias in aliases):
                 tenant_prop_map[t.id] = prop_id
                 break
-
-    # Back-fill from import payment references when tenant matching missed
-    for pay in Payment.objects.filter(reference__startswith=IMPORT_TAG_PREFIX).only('id', 'tenant_id', 'reference'):
-        pid = parse_import_property_id(pay.reference)
-        if pid and pid in property_ids_set:
-            tenant_prop_map[pay.tenant_id] = pid
 
     return tenant_prop_map
 
@@ -273,10 +415,14 @@ def _monthly_expense_map(expenses_qs, *, admin_view, property_ids_set, year, rol
     return month_map
 
 
-def portfolio_parent_property_ids():
+def portfolio_parent_property_ids(properties=None):
     """Portfolio roll-up properties (one per building / Excel sheet)."""
     ids = set()
-    for prop in Property.objects.only('id', 'name', 'area', 'address', 'units'):
+    props = properties
+    if props is None:
+        # Include city/state — get_property_group_key reads them (deferred loads were ~1s each on Neon).
+        props = Property.objects.only('id', 'name', 'area', 'address', 'city', 'state', 'units')
+    for prop in props:
         group_key = get_property_group_key(prop)
         if is_portfolio_parent(prop, group_key):
             ids.add(prop.id)
@@ -310,47 +456,54 @@ def compute_property_pnl(
     """
     property_ids = [p.id for p in properties]
     property_ids_set = set(property_ids)
+    bella_ids = bella_jess_property_ids(properties)
+    tomball_ids = tomball_property_ids(properties)
+    conroe_ids = conroe_property_ids(properties)
+    sheet_ids = bella_ids | tomball_ids | conroe_ids
 
     tenant_prop_map, props_by_id = build_full_tenant_property_map(properties)
 
+    def rolls_to_sheet(pid):
+        """True when this property (or its rollup parent) is a sheet P&L property."""
+        if not pid or not sheet_ids:
+            return False
+        if pid in sheet_ids:
+            return True
+        rolled = _rollup_property_id(pid, property_ids_set, props_by_id)
+        return (rolled or pid) in sheet_ids
+
     unit_rows_by_property = defaultdict(list)
     if not summary_only:
+        # Read-only unit display for P&L — never sync/write on GET (that was ~minutes slow).
         existing_units = PropertyUnit.objects.filter(property_id__in=property_ids).order_by(
             'sort_order', 'id'
         )
         for unit in existing_units:
             unit_rows_by_property[unit.property_id].append(unit)
 
-        all_props = None
         for prop in properties:
-            catalog = catalog_units_for_property(prop)
             rows = unit_rows_by_property.get(prop.id, [])
-            if catalog is not None:
-                display = display_units_for_property(prop, rows)
-                labels_ok = [u.label for u in display] == list(catalog)
-                if catalog and not labels_ok:
-                    if all_props is None:
-                        all_props = list(properties) if len(properties) < 50 else list(Property.objects.all())
-                    unit_rows_by_property[prop.id] = sync_units_for_property(prop, all_props)
-                else:
-                    unit_rows_by_property[prop.id] = display
-            elif not rows:
-                if all_props is None:
-                    all_props = list(properties) if len(properties) < 50 else list(Property.objects.all())
-                unit_rows_by_property[prop.id] = sync_units_for_property(prop, all_props)
+            unit_rows_by_property[prop.id] = display_units_for_property(prop, rows)
 
     rent_income_by_property = defaultdict(lambda: Decimal('0'))
     rent_income_by_unit = defaultdict(lambda: Decimal('0'))
+    month_rent = defaultdict(lambda: Decimal('0'))
+    rent_by_prop_month = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
 
     payments_qs = Payment.objects.filter(
         status='Paid',
         date__year=year,
         type='Rent',
-    ).select_related('tenant').only('id', 'amount', 'tenant_id', 'tenant__property_unit', 'tenant__email', 'reference')
+    ).select_related('tenant').only(
+        'id', 'amount', 'date', 'tenant_id', 'tenant__property_unit', 'tenant__email', 'reference',
+    )
 
     for pay in payments_qs:
         prop_id = tenant_prop_map.get(pay.tenant_id) or parse_import_property_id(pay.reference)
         if prop_id not in property_ids_set:
+            continue
+        # Sheet properties: month-input only — ignore rent collections.
+        if rolls_to_sheet(prop_id):
             continue
         # Count every paid rent (Excel import rows + live collections). Door-detail
         # excel rows still only feed unit breakdown so workbook totals are not doubled.
@@ -358,6 +511,10 @@ def compute_property_pnl(
         detail_only = is_door_detail_payment(pay.reference)
         if not detail_only:
             rent_income_by_property[prop_id] += amount
+            if not summary_only:
+                month = pay.date.month
+                month_rent[month] += amount
+                rent_by_prop_month[prop_id][month] += amount
         if not summary_only:
             door_n = door_number_from_payment(pay.reference)
             matched = False
@@ -374,12 +531,22 @@ def compute_property_pnl(
                         break
 
     short_stay_by_property = defaultdict(lambda: Decimal('0'))
+    month_short = defaultdict(lambda: Decimal('0'))
+    short_by_prop_month = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
     for row in ShortStayBooking.objects.filter(
         status='confirmed',
         check_in__year=year,
         property_id__in=property_ids,
-    ).values('property_id').annotate(total=Sum('total_amount')):
-        short_stay_by_property[row['property_id']] = row['total'] or Decimal('0')
+    ).annotate(month=ExtractMonth('check_in')).values('property_id', 'month').annotate(total=Sum('total_amount')):
+        pid = row['property_id']
+        if rolls_to_sheet(pid):
+            continue
+        total = row['total'] or Decimal('0')
+        short_stay_by_property[pid] += total
+        if not summary_only:
+            month = int(row['month'])
+            month_short[month] += total
+            short_by_prop_month[pid][month] += total
 
     expenses_by_property = defaultdict(lambda: Decimal('0'))
     expenses_by_category = defaultdict(lambda: Decimal('0'))
@@ -392,26 +559,77 @@ def compute_property_pnl(
         if rolled is not None:
             sibling_ids.add(p.id)
 
-    expenses_qs = OperatingExpense.objects.filter(
-        date__year=year,
-    ).filter(
-        Q(property_id__in=sibling_ids) | Q(property_id__isnull=True)
-    ).select_related('property', 'unit').only(
-        'id', 'amount', 'category', 'property_id', 'unit_id', 'visibility', 'notes', 'date'
+    expenses_list = list(
+        OperatingExpense.objects.filter(
+            date__year=year,
+        ).filter(
+            Q(property_id__in=sibling_ids) | Q(property_id__isnull=True)
+        ).only(
+            'id', 'amount', 'category', 'property_id', 'unit_id', 'visibility', 'notes', 'date'
+        )
     )
+    # Sheet properties: ignore recorded / imported operating expenses.
+    expenses_list = [
+        e for e in expenses_list
+        if not rolls_to_sheet(e.property_id)
+    ]
 
+    rollup = lambda pid: _rollup_property_id(pid, property_ids_set, props_by_id) if pid else None
     expenses_by_property, expenses_by_category, expenses_by_unit = _aggregate_expenses(
-        expenses_qs,
+        expenses_list,
         admin_view=admin_view,
         year=year,
-        rollup_property_id=lambda pid: _rollup_property_id(pid, property_ids_set, props_by_id) if pid else None,
+        rollup_property_id=rollup,
     )
 
+    month_exp = defaultdict(lambda: Decimal('0'))
+    opex_by_prop_month = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
+    if not summary_only:
+        exp_rows = expenses_list
+        if not admin_view:
+            exp_rows = [e for e in exp_rows if e.visibility != 'admin_only']
+        summary_keys = {
+            (e.property_id, e.date.month)
+            for e in exp_rows
+            if is_excel_import_note(e.notes, year) and '__SUMMARY__' in (e.notes or '')
+        }
+        props_with_summary = {pid for pid, _ in summary_keys}
+        for exp in exp_rows:
+            if _is_financing_expense(exp):
+                continue
+            notes = exp.notes or ''
+            is_excel = is_excel_import_note(notes, year)
+            is_summary = is_excel and '__SUMMARY__' in notes
+            if is_excel and not is_summary and exp.property_id in props_with_summary:
+                continue
+            prop_id = rollup(exp.property_id) if exp.property_id else None
+            if prop_id and prop_id not in property_ids_set:
+                continue
+            amount = exp.amount or Decimal('0')
+            month = exp.date.month
+            if prop_id:
+                opex_by_prop_month[prop_id][month] += amount
+                month_exp[month] += amount
+            else:
+                month_exp[month] += amount
+
     if summary_only:
-        total_rent = sum(rent_income_by_property.get(p.id, Decimal('0')) for p in properties)
-        total_short = sum(short_stay_by_property.get(p.id, Decimal('0')) for p in properties)
-        total_expenses = sum(expenses_by_property.get(p.id, Decimal('0')) for p in properties)
-        portfolio_expenses = total_expenses + expenses_by_property['portfolio']
+        # When sheet properties are in scope, portfolio totals are sheet-only (Bella + Tomball).
+        total_rent = Decimal('0')
+        total_short = Decimal('0')
+        total_expenses = Decimal('0')
+        if sheet_ids:
+            for p in properties:
+                if p.id in sheet_ids:
+                    inc, exp, _net = sheet_year_totals(p.id, year, bella_ids, tomball_ids, conroe_ids)
+                    total_rent += inc
+                    total_expenses += exp
+        else:
+            for p in properties:
+                total_rent += rent_income_by_property.get(p.id, Decimal('0'))
+                total_short += short_stay_by_property.get(p.id, Decimal('0'))
+                total_expenses += expenses_by_property.get(p.id, Decimal('0'))
+            total_expenses += expenses_by_property['portfolio']
         portfolio_income = total_rent + total_short
         return {
             'year': year,
@@ -420,12 +638,12 @@ def compute_property_pnl(
                 'rent_income': float(total_rent),
                 'short_stay_income': float(total_short),
                 'total_income': float(portfolio_income),
-                'total_expenses': float(portfolio_expenses),
-                'net_income': float(portfolio_income - portfolio_expenses),
+                'total_expenses': float(total_expenses),
+                'net_income': float(portfolio_income - total_expenses),
             },
             'by_property': [],
             'by_unit': [],
-            'expenses_by_category': {k: float(v) for k, v in expenses_by_category.items()},
+            'expenses_by_category': {k: float(v) for k, v in expenses_by_category.items()} if not sheet_ids else {},
             'monthly': [],
         }
 
@@ -436,12 +654,24 @@ def compute_property_pnl(
     total_expenses = Decimal('0')
 
     for p in properties:
-        rent = rent_income_by_property[p.id]
-        short = short_stay_by_property[p.id]
-        expenses = expenses_by_property[p.id]
-        income = rent + short
-        # Excel: NOI = Total Income − Total Operating Expenses
-        net = income - expenses
+        if p.id in sheet_ids:
+            income, expenses, net = sheet_year_totals(p.id, year, bella_ids, tomball_ids, conroe_ids)
+            rent = income
+            short = Decimal('0')
+        elif sheet_ids:
+            # Sheet mode: other properties do not contribute to P&L totals.
+            rent = Decimal('0')
+            short = Decimal('0')
+            expenses = Decimal('0')
+            income = Decimal('0')
+            net = Decimal('0')
+        else:
+            rent = rent_income_by_property[p.id]
+            short = short_stay_by_property[p.id]
+            expenses = expenses_by_property[p.id]
+            income = rent + short
+            # Excel: NOI = Total Income − Total Operating Expenses
+            net = income - expenses
         total_rent += rent
         total_short += short
         total_expenses += expenses
@@ -471,8 +701,13 @@ def compute_property_pnl(
 
         units = []
         for unit in unit_rows_by_property.get(p.id, []):
-            unit_income = rent_income_by_unit[unit.id]
-            unit_expenses = expenses_by_unit[unit.id]
+            if sheet_ids:
+                # Sheet-only P&L mode: no rent/expense attribution on units.
+                unit_income = Decimal('0')
+                unit_expenses = Decimal('0')
+            else:
+                unit_income = rent_income_by_unit[unit.id]
+                unit_expenses = expenses_by_unit[unit.id]
             unit_detail = {
                 'unit_id': unit.id,
                 'property_id': p.id,
@@ -503,25 +738,61 @@ def compute_property_pnl(
             'financials': financials_data,
         })
 
-    portfolio_expenses = total_expenses + expenses_by_property['portfolio']
+    # When sheet properties are in scope, portfolio ignores unassigned / other-property opex.
+    portfolio_expenses = total_expenses if sheet_ids else (total_expenses + expenses_by_property['portfolio'])
     portfolio_income = total_rent + total_short
     portfolio_net = portfolio_income - portfolio_expenses
 
-    monthly = _monthly_cash_flow(
-        year=year,
-        property_ids=property_ids,
-        admin_view=admin_view,
-        tenant_prop_map=tenant_prop_map,
-    )
+    sheet_month_cache = {
+        sid: sheet_month_rows(sid, year, bella_ids, tomball_ids, conroe_ids) for sid in sheet_ids
+    }
 
-    monthly_by_property = _monthly_by_property(
-        year=year,
-        property_ids=property_ids,
-        admin_view=admin_view,
-        tenant_prop_map=tenant_prop_map,
-    )
+    monthly = []
+    for month in range(1, 13):
+        if sheet_ids:
+            income = Decimal('0')
+            expenses_m = Decimal('0')
+            for sid in sheet_ids:
+                bi, be, _bn = sheet_month_cache[sid][month - 1]
+                income += bi
+                expenses_m += be
+        else:
+            income = month_rent[month] + month_short[month]
+            expenses_m = month_exp[month]
+        monthly.append({
+            'month': month,
+            'income': float(income),
+            'expenses': float(expenses_m),
+            'net': float(income - expenses_m),
+        })
+
     for row in property_rows:
-        row['monthly'] = monthly_by_property.get(row['property_id'], [])
+        pid = row['property_id']
+        rows = []
+        if pid in sheet_ids:
+            month_rows = sheet_month_cache[pid]
+            for month in range(1, 13):
+                income_m, exp_m, net_m = month_rows[month - 1]
+                rows.append({
+                    'month': month,
+                    'income': float(income_m),
+                    'expenses': float(exp_m),
+                    'net': float(net_m),
+                })
+        elif sheet_ids:
+            for month in range(1, 13):
+                rows.append({'month': month, 'income': 0.0, 'expenses': 0.0, 'net': 0.0})
+        else:
+            for month in range(1, 13):
+                income = rent_by_prop_month[pid][month] + short_by_prop_month[pid][month]
+                exp = opex_by_prop_month[pid][month]
+                rows.append({
+                    'month': month,
+                    'income': float(income),
+                    'expenses': float(exp),
+                    'net': float(income - exp),
+                })
+        row['monthly'] = rows
 
     return {
         'year': year,
@@ -535,16 +806,19 @@ def compute_property_pnl(
         },
         'by_property': property_rows,
         'by_unit': unit_detail_rows,
-        'expenses_by_category': {k: float(v) for k, v in expenses_by_category.items()},
+        'expenses_by_category': (
+            {} if sheet_ids else {k: float(v) for k, v in expenses_by_category.items()}
+        ),
         'monthly': monthly,
     }
 
 
-def _monthly_cash_flow(*, year, property_ids, admin_view, tenant_prop_map):
-    """Monthly income / expenses / NOI — mirrors Excel month summary rows."""
+def _monthly_maps(*, year, property_ids, admin_view, tenant_prop_map, props_by_id):
+    """Portfolio + per-property monthly maps in one payment pass and one expense pass."""
     property_ids_set = set(property_ids)
 
-    month_rent_map = defaultdict(lambda: Decimal('0'))
+    month_rent = defaultdict(lambda: Decimal('0'))
+    rent_by_prop = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
     for pay in Payment.objects.filter(
         status='Paid', type='Rent', date__year=year,
     ).only('amount', 'date', 'tenant_id', 'reference'):
@@ -553,81 +827,29 @@ def _monthly_cash_flow(*, year, property_ids, admin_view, tenant_prop_map):
             continue
         if is_door_detail_payment(pay.reference):
             continue
+        amount = pay.amount or Decimal('0')
         month = pay.date.month
-        month_rent_map[month] += pay.amount or Decimal('0')
+        month_rent[month] += amount
+        rent_by_prop[prop_id][month] += amount
 
-    month_short_map = {
-        int(row['month']): row['total'] or Decimal('0')
-        for row in ShortStayBooking.objects.filter(
-            status='confirmed',
-            check_in__year=year,
-            property_id__in=property_ids,
-        ).annotate(month=ExtractMonth('check_in')).values('month').annotate(total=Sum('total_amount'))
-    }
-
-    month_exp_qs = OperatingExpense.objects.filter(
-        date__year=year,
-    ).only('amount', 'date', 'property_id', 'visibility', 'notes')
-
-    # Roll unit-listing expenses up to income-statement parents.
-    all_props = list(Property.objects.only('id', 'name', 'area', 'address', 'city', 'state', 'units'))
-    props_by_id = {p.id: p for p in all_props}
-    rollup = lambda pid: _rollup_property_id(pid, property_ids_set, props_by_id) if pid else None
-
-    month_exp_map = _monthly_expense_map(
-        month_exp_qs,
-        admin_view=admin_view,
-        property_ids_set=property_ids_set,
-        year=year,
-        rollup_property_id=rollup,
-    )
-
-    monthly = []
-    for month in range(1, 13):
-        month_rent = month_rent_map.get(month, Decimal('0'))
-        month_short = month_short_map.get(month, Decimal('0'))
-        month_exp = month_exp_map.get(month, Decimal('0'))
-        income = month_rent + month_short
-        monthly.append({
-            'month': month,
-            'income': float(income),
-            'expenses': float(month_exp),
-            'net': float(income - month_exp),
-        })
-    return monthly
-
-
-def _monthly_by_property(*, year, property_ids, admin_view, tenant_prop_map):
-    """Per-property monthly income / opEx / NOI (Excel left summary columns)."""
-    property_ids_set = set(property_ids)
-
-    rent = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
-    for pay in Payment.objects.filter(
-        status='Paid', type='Rent', date__year=year,
-    ).only('amount', 'date', 'tenant_id', 'reference'):
-        prop_id = tenant_prop_map.get(pay.tenant_id) or parse_import_property_id(pay.reference)
-        if prop_id not in property_ids_set:
-            continue
-        if is_door_detail_payment(pay.reference):
-            continue
-        rent[prop_id][pay.date.month] += pay.amount or Decimal('0')
-
-    short = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
+    month_short = defaultdict(lambda: Decimal('0'))
+    short_by_prop = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
     for row in ShortStayBooking.objects.filter(
         status='confirmed',
         check_in__year=year,
         property_id__in=property_ids,
     ).annotate(month=ExtractMonth('check_in')).values('property_id', 'month').annotate(total=Sum('total_amount')):
-        short[row['property_id']][int(row['month'])] += row['total'] or Decimal('0')
+        pid = row['property_id']
+        month = int(row['month'])
+        total = row['total'] or Decimal('0')
+        month_short[month] += total
+        short_by_prop[pid][month] += total
 
-    expenses = list(OperatingExpense.objects.filter(
-        date__year=year,
-    ).only('amount', 'date', 'property_id', 'visibility', 'notes', 'category'))
+    expenses = list(OperatingExpense.objects.filter(date__year=year).only(
+        'amount', 'date', 'property_id', 'visibility', 'notes', 'category',
+    ))
     if not admin_view:
         expenses = [e for e in expenses if e.visibility != 'admin_only']
-
-    all_props = list(Property.objects.only('id', 'name', 'area', 'address', 'city', 'state', 'units'))
-    props_by_id = {p.id: p for p in all_props}
 
     summary_keys = {
         (e.property_id, e.date.month)
@@ -636,7 +858,8 @@ def _monthly_by_property(*, year, property_ids, admin_view, tenant_prop_map):
     }
     props_with_summary = {pid for pid, _ in summary_keys}
 
-    opex = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
+    month_exp = defaultdict(lambda: Decimal('0'))
+    opex_by_prop = defaultdict(lambda: defaultdict(lambda: Decimal('0')))
     for exp in expenses:
         if _is_financing_expense(exp):
             continue
@@ -648,21 +871,67 @@ def _monthly_by_property(*, year, property_ids, admin_view, tenant_prop_map):
         prop_id = exp.property_id
         if prop_id:
             prop_id = _rollup_property_id(prop_id, property_ids_set, props_by_id) or prop_id
-        if prop_id not in property_ids_set:
+        if prop_id and prop_id not in property_ids_set:
             continue
-        opex[prop_id][exp.date.month] += exp.amount or Decimal('0')
+        amount = exp.amount or Decimal('0')
+        month = exp.date.month
+        if prop_id:
+            opex_by_prop[prop_id][month] += amount
+            month_exp[month] += amount
+        else:
+            month_exp[month] += amount
 
-    out = {}
+    monthly = []
+    for month in range(1, 13):
+        income = month_rent[month] + month_short[month]
+        expenses_m = month_exp[month]
+        monthly.append({
+            'month': month,
+            'income': float(income),
+            'expenses': float(expenses_m),
+            'net': float(income - expenses_m),
+        })
+
+    by_property = {}
     for pid in property_ids:
         rows = []
         for month in range(1, 13):
-            income = rent[pid][month] + short[pid][month]
-            exp = opex[pid][month]
+            income = rent_by_prop[pid][month] + short_by_prop[pid][month]
+            exp = opex_by_prop[pid][month]
             rows.append({
                 'month': month,
                 'income': float(income),
                 'expenses': float(exp),
                 'net': float(income - exp),
             })
-        out[pid] = rows
-    return out
+        by_property[pid] = rows
+
+    return monthly, by_property
+
+
+def _monthly_cash_flow(*, year, property_ids, admin_view, tenant_prop_map):
+    """Backward-compatible wrapper."""
+    all_props = list(Property.objects.only('id', 'name', 'area', 'address', 'city', 'state', 'units'))
+    props_by_id = {p.id: p for p in all_props}
+    monthly, _ = _monthly_maps(
+        year=year,
+        property_ids=property_ids,
+        admin_view=admin_view,
+        tenant_prop_map=tenant_prop_map,
+        props_by_id=props_by_id,
+    )
+    return monthly
+
+
+def _monthly_by_property(*, year, property_ids, admin_view, tenant_prop_map):
+    """Backward-compatible wrapper."""
+    all_props = list(Property.objects.only('id', 'name', 'area', 'address', 'city', 'state', 'units'))
+    props_by_id = {p.id: p for p in all_props}
+    _, by_property = _monthly_maps(
+        year=year,
+        property_ids=property_ids,
+        admin_view=admin_view,
+        tenant_prop_map=tenant_prop_map,
+        props_by_id=props_by_id,
+    )
+    return by_property

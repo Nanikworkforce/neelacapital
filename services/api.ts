@@ -1,4 +1,4 @@
-import { Tenant, Payment, MaintenanceRequest, Listing, Property, LeaseSigningMetadata, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, IncomeStatementSummary, PropertyManagerProfile, CreatePropertyManagerInput, PropertyUnit } from '../types';
+import { Tenant, Payment, MaintenanceRequest, Listing, Property, LeaseSigningMetadata, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, IncomeStatementSummary, PropertyManagerProfile, CreatePropertyManagerInput, PropertyUnit, PropertyMonthInput, PropertyMonthInputLine } from '../types';
 import { getAuthHeader, clearInvalidTokens, refreshAccessToken, refreshTokenIfNeeded } from './auth';
 
 // In dev, use Vite proxy (/api → backend) unless VITE_API_URL is set explicitly.
@@ -118,6 +118,7 @@ export const api = {
     date: item.date,
     notes: item.notes || '',
     createdByName: item.created_by_name || '',
+    createdByIsManager: !!item.created_by_is_manager,
     createdAt: item.created_at,
   }),
 
@@ -272,7 +273,10 @@ export const api = {
     const response = await fetchWithAuth(`${API_URL}/payments/income-statement/${query ? `?${query}` : ''}`, {
       headers: getHeaders(false, true),
     });
-    if (!response.ok) throw new Error('Failed to fetch income statement');
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => null);
+      throw new Error(parseApiErrorBody(errBody, 'Failed to fetch income statement'));
+    }
     const data = await response.json();
     return {
       year: data.year,
@@ -346,6 +350,162 @@ export const api = {
         expenses: parseFloat(m.expenses || 0),
         net: parseFloat(m.net || 0),
       })),
+    };
+  },
+
+  mapPropertyMonthInput: (row: any): PropertyMonthInput => {
+    const c = row.computed && typeof row.computed === 'object' ? row.computed : null;
+    return {
+      id: String(row.id),
+      property: String(row.property),
+      propertyName: row.property_name || undefined,
+      unit: row.unit != null ? String(row.unit) : null,
+      unitLabel: String(row.unit_label || 'Door 1'),
+      year: Number(row.year),
+      month: Number(row.month),
+      incomeLines: Array.isArray(row.income_lines) ? row.income_lines : [],
+      opexLines: Array.isArray(row.opex_lines) ? row.opex_lines : [],
+      financingLines: Array.isArray(row.financing_lines) ? row.financing_lines : [],
+      computed: c
+        ? {
+            totalEffectiveIncome: parseFloat(c.total_effective_income ?? 0),
+            totalOpex: parseFloat(c.total_opex ?? 0),
+            mortgageInterest: parseFloat(c.mortgage_interest ?? 0),
+            principalRepayment: parseFloat(c.principal_repayment ?? 0),
+            noi: parseFloat(c.noi ?? 0),
+            cashFlowBeforeTax: parseFloat(c.cash_flow_before_tax ?? 0),
+            annualDepreciation: parseFloat(c.annual_depreciation ?? 0),
+            depreciation: parseFloat(c.depreciation ?? 0),
+            netProfit: parseFloat(c.net_profit ?? 0),
+            cashInvested: parseFloat(c.cash_invested ?? 0),
+            capRatePct: c.cap_rate_pct == null ? null : parseFloat(c.cap_rate_pct),
+            cashOnCashPct: c.cash_on_cash_pct == null ? null : parseFloat(c.cash_on_cash_pct),
+          }
+        : null,
+      updatedBy: row.updated_by != null ? Number(row.updated_by) : null,
+      updatedByName: row.updated_by_name || null,
+      updatedAt: row.updated_at || undefined,
+      createdAt: row.created_at || undefined,
+    };
+  },
+
+  getPropertyMonthInput: async (opts: {
+    property: string;
+    year: number;
+    month: number;
+    unitLabel?: string;
+  }): Promise<PropertyMonthInput | null> => {
+    const params = new URLSearchParams({
+      property: opts.property,
+      year: String(opts.year),
+      month: String(opts.month),
+      unit_label: opts.unitLabel || 'Door 1',
+    });
+    const response = await fetchWithAuth(`${API_URL}/property-month-inputs/?${params}`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) throw new Error('Failed to fetch month inputs');
+    const data = await response.json();
+    const rows = Array.isArray(data) ? data : data.results || [];
+    if (!rows.length) return null;
+    return api.mapPropertyMonthInput(rows[0]);
+  },
+
+  listPropertyMonthInputs: async (opts: {
+    property: string;
+    year: number;
+    unitLabel?: string;
+  }): Promise<PropertyMonthInput[]> => {
+    const params = new URLSearchParams({
+      property: opts.property,
+      year: String(opts.year),
+      unit_label: opts.unitLabel || 'Door 1',
+    });
+    const response = await fetchWithAuth(`${API_URL}/property-month-inputs/?${params}`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) throw new Error('Failed to fetch month inputs');
+    const data = await response.json();
+    const rows = Array.isArray(data) ? data : data.results || [];
+    return rows.map((row: any) => api.mapPropertyMonthInput(row));
+  },
+
+  upsertPropertyMonthInput: async (payload: {
+    property: string;
+    year: number;
+    month: number;
+    unitLabel?: string;
+    incomeLines?: PropertyMonthInputLine[];
+    opexLines?: PropertyMonthInputLine[];
+    financingLines?: PropertyMonthInputLine[];
+  }): Promise<PropertyMonthInput> => {
+    const response = await fetchWithAuth(`${API_URL}/property-month-inputs/upsert/`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        property: payload.property,
+        year: payload.year,
+        month: payload.month,
+        unit_label: payload.unitLabel || 'Door 1',
+        income_lines: payload.incomeLines,
+        opex_lines: payload.opexLines,
+        financing_lines: payload.financingLines,
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(parseApiErrorBody(err, 'Failed to save month inputs'));
+    }
+    return api.mapPropertyMonthInput(await response.json());
+  },
+
+  upsertPropertyFinancials: async (
+    propertyId: string,
+    payload: {
+      purchasePrice?: number;
+      downPayment?: number;
+      closingCost?: number;
+      loanAmount?: number;
+      interestRate?: number;
+      loanTermYears?: number | null;
+      monthlyMortgagePayment?: number;
+      landValue?: number;
+      annualDepreciationYears?: number;
+      escrowNotes?: string;
+    },
+  ): Promise<import('../types').PropertyFinancials> => {
+    const response = await fetchWithAuth(`${API_URL}/properties/${propertyId}/financials/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        purchase_price: payload.purchasePrice,
+        down_payment: payload.downPayment,
+        closing_cost: payload.closingCost,
+        loan_amount: payload.loanAmount,
+        interest_rate: payload.interestRate,
+        loan_term_years: payload.loanTermYears,
+        monthly_mortgage_payment: payload.monthlyMortgagePayment,
+        land_value: payload.landValue,
+        annual_depreciation_years: payload.annualDepreciationYears,
+        escrow_notes: payload.escrowNotes,
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(parseApiErrorBody(err, 'Failed to save property overview'));
+    }
+    const row = await response.json();
+    return {
+      purchasePrice: parseFloat(row.purchase_price || 0),
+      downPayment: parseFloat(row.down_payment || 0),
+      closingCost: parseFloat(row.closing_cost || 0),
+      loanAmount: parseFloat(row.loan_amount || 0),
+      interestRate: parseFloat(row.interest_rate || 0),
+      loanTermYears: row.loan_term_years ?? null,
+      monthlyMortgagePayment: parseFloat(row.monthly_mortgage_payment || 0),
+      landValue: parseFloat(row.land_value || 0),
+      annualDepreciationYears: parseFloat(row.annual_depreciation_years || 27.5),
+      escrowNotes: row.escrow_notes || '',
     };
   },
 

@@ -14,7 +14,7 @@ import PasswordReset from './components/PasswordReset';
 import { Menu } from 'lucide-react';
 import NeelaLogo from './components/NeelaLogo';
 import { api } from './services/api';
-import { isAuthenticated } from './services/auth';
+import { isAuthenticated, getCurrentUser, logout } from './services/auth';
 import { adminTabMeta, SEO_PAGES, usePageMeta } from './utils/seo';
 import { Tenant, Payment, MaintenanceRequest, Property } from './types';
 import { usePollWhileVisible } from './hooks/usePollWhileVisible';
@@ -68,17 +68,13 @@ const App: React.FC = () => {
   }, []);
 
   const isStaffAdmin = useCallback((): boolean => {
-    try {
-      const user = JSON.parse(localStorage.getItem('user_data') || 'null');
-      return !!(user?.is_staff || user?.is_superuser);
-    } catch {
-      return false;
-    }
+    const user = getCurrentUser('admin');
+    return !!(user?.is_staff || user?.is_superuser);
   }, []);
 
   // Safety net: admin tab open but tenants never loaded (login via /admin or refresh race)
   useEffect(() => {
-    if (isAuthChecking || loading || activeTab === 'public-portal' || !isAuthenticated()) return;
+    if (isAuthChecking || loading || activeTab === 'public-portal' || !isAuthenticated('admin')) return;
     if (tenants.length > 0) return;
     if (!isStaffAdmin()) return;
     loadAdminData({ blockUI: false }).catch((error) => {
@@ -124,7 +120,7 @@ const App: React.FC = () => {
     const initializeApp = async () => {
       setIsAuthChecking(true);
       try {
-        const isAuth = isAuthenticated();
+        const isAuth = isAuthenticated('admin');
         const staffAdmin = isAuth && isStaffAdmin();
 
         if (staffAdmin) {
@@ -185,6 +181,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    logout('admin');
     setActiveTab('public-portal');
     setIsMobileMenuOpen(false);
   };
@@ -242,7 +239,7 @@ const App: React.FC = () => {
 
   const renderAdminContent = () => {
     // Check authentication for admin views
-    if (activeTab !== 'public-portal' && !isAuthenticated()) {
+    if (activeTab !== 'public-portal' && !isAuthenticated('admin')) {
       return (
         <div className="flex items-center justify-center h-full min-h-[60vh] sm:min-h-[520px] px-4">
           <div className="text-center bg-white/90 backdrop-blur-md rounded-3xl p-10 max-w-md w-full shadow-2xl shadow-indigo-500/10 border border-slate-200/60">

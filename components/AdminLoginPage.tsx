@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { login, isAuthenticated, logout } from '../services/auth';
+import { login, isAuthenticated, logout, getCurrentUser } from '../services/auth';
 import { Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import NeelaLogo from './NeelaLogo';
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
@@ -16,18 +16,10 @@ const AdminLoginPage: React.FC = () => {
   usePageMeta(SEO_PAGES.adminLogin);
 
   useEffect(() => {
-    if (isAuthenticated()) {
-      const userStr = localStorage.getItem('user_data');
-      if (userStr) {
-        try {
-          const user = JSON.parse(userStr);
-          if (user.is_staff || user.is_superuser) {
-            navigate('/', { replace: true, state: { adminLogin: true } });
-          }
-        } catch {
-          // ignore
-        }
-      }
+    if (!isAuthenticated('admin')) return;
+    const user = getCurrentUser('admin');
+    if (user?.is_staff || user?.is_superuser) {
+      navigate('/', { replace: true, state: { adminLogin: true } });
     }
   }, [navigate]);
 
@@ -36,9 +28,9 @@ const AdminLoginPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await login(email, password);
+      const response = await login(email, password, 'admin');
       if (!response.user?.is_staff && !response.user?.is_superuser) {
-        logout();
+        logout('admin');
         setError('Invalid email or password.');
         return;
       }

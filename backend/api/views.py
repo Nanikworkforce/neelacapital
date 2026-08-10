@@ -759,18 +759,16 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
         admin_view = is_admin_user(request.user)
         summary_only = request.query_params.get('summary') in ('1', 'true', 'yes')
-        if summary_only:
-            properties_qs = filter_properties_for_user(Property.objects.all(), request.user)
-        else:
-            properties_qs = filter_properties_for_user(
-                Property.objects.select_related('financials').prefetch_related('property_units'),
-                request.user,
-            )
+        properties_qs = filter_properties_for_user(
+            Property.objects.select_related('financials').prefetch_related('property_units'),
+            request.user,
+        )
         properties = list(properties_qs)
 
-        excel_ids = excel_portfolio_property_ids(year)
-        portfolio_ids = portfolio_parent_property_ids()
+        # Filter to Excel / portfolio parents in-memory (avoid extra Neon round-trips).
         if admin_view:
+            excel_ids = excel_portfolio_property_ids(year)
+            portfolio_ids = portfolio_parent_property_ids(properties)
             keep_ids = excel_ids | portfolio_ids if (excel_ids or portfolio_ids) else None
             if keep_ids:
                 properties = [p for p in properties if p.id in keep_ids]
@@ -994,6 +992,126 @@ class PropertyManagerViewSet(viewsets.ModelViewSet):
         user.save()
         out = PropertyManagerProfileSerializer(profile, context={'request': request})
         return Response(out.data)
+
+
+class PropertyMonthInputViewSet(viewsets.ModelViewSet):
+    """Admin + property manager shared monthly Income / OpEx input rows."""
+    serializer_class = PropertyMonthInputSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = PropertyMonthInput.objects.select_related('property', 'property__financials', 'unit', 'updated_by')
+        if is_admin_user(user):
+            pass
+        elif is_property_manager(user):
+            allowed = filter_properties_for_user(Property.objects.all(), user)
+            qs = qs.filter(property__in=allowed)
+        else:
+            return PropertyMonthInput.objects.none()
+
+        prop = self.request.query_params.get('property')
+        year = self.request.query_params.get('year')
+        month = self.request.query_params.get('month')
+        unit_label = self.request.query_params.get('unit_label')
+        if prop:
+            qs = qs.filter(property_id=prop)
+        if year:
+            qs = qs.filter(year=int(year))
+        if month:
+            qs = qs.filter(month=int(month))
+        if unit_label:
+            qs = qs.filter(unit_label=unit_label)
+        return qs.order_by('-year', '-month', 'unit_label')
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        prop = serializer.validated_data['property']
+        if is_property_manager(user) and not is_admin_user(user):
+            allowed = filter_properties_for_user(Property.objects.filter(id=prop.id), user)
+            if not allowed.exists():
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied('You cannot edit this property.')
+        obj = serializer.save(updated_by=user)
+        from .pnl_formulas import compute_for_month_input
+        obj.property = Property.objects.select_related('financials').get(id=obj.property_id)
+        obj.computed = compute_for_month_input(obj, include_performance=True)
+        obj.save(update_fields=['computed', 'updated_at'])
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        prop = serializer.instance.property
+        if is_property_manager(user) and not is_admin_user(user):
+            allowed = filter_properties_for_user(Property.objects.filter(id=prop.id), user)
+            if not allowed.exists():
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied('You cannot edit this property.')
+        obj = serializer.save(updated_by=user)
+        from .pnl_formulas import compute_for_month_input
+        obj.property = Property.objects.select_related('financials').get(id=obj.property_id)
+        obj.computed = compute_for_month_input(obj, include_performance=True)
+        obj.save(update_fields=['computed', 'updated_at'])
+
+    @action(detail=False, methods=['put'], url_path='upsert')
+    def upsert(self, request):
+        """Create or update the month input for property + year + month + unit_label."""
+        user = request.user
+        if not (is_admin_user(user) or is_property_manager(user)):
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+        prop_id = request.data.get('property')
+        year = request.data.get('year')
+        month = request.data.get('month')
+        unit_label = (request.data.get('unit_label') or 'Door 1').strip() or 'Door 1'
+        if not prop_id or not year or not month:
+            return Response({'error': 'property, year, and month are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            prop = Property.objects.get(id=prop_id)
+        except Property.DoesNotExist:
+            return Response({'error': 'Property not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if is_property_manager(user) and not is_admin_user(user):
+            allowed = filter_properties_for_user(Property.objects.filter(id=prop.id), user)
+            if not allowed.exists():
+                return Response({'error': 'You cannot edit this property.'}, status=status.HTTP_403_FORBIDDEN)
+
+        obj, _created = PropertyMonthInput.objects.get_or_create(
+            property=prop,
+            unit_label=unit_label,
+            year=int(year),
+            month=int(month),
+            defaults={
+                'income_lines': request.data.get('income_lines') or [],
+                'opex_lines': request.data.get('opex_lines') or [],
+                'financing_lines': request.data.get('financing_lines') or [],
+                'updated_by': user,
+            },
+        )
+        if not _created:
+            if 'income_lines' in request.data:
+                obj.income_lines = request.data.get('income_lines') or []
+            if 'opex_lines' in request.data:
+                obj.opex_lines = request.data.get('opex_lines') or []
+            if 'financing_lines' in request.data:
+                obj.financing_lines = request.data.get('financing_lines') or []
+            obj.updated_by = user
+
+        # Always recompute formulas from saved lines + property financials.
+        from .pnl_formulas import compute_for_month_input
+        # Ensure financials are available without an extra round-trip when possible.
+        if not hasattr(obj.property, '_state') or 'financials' not in getattr(obj.property, '_prefetched_objects_cache', {}):
+            try:
+                obj.property = Property.objects.select_related('financials').get(id=obj.property_id)
+            except Property.DoesNotExist:
+                pass
+        obj.computed = compute_for_month_input(obj, include_performance=True)
+        obj.save()
+
+        return Response(
+            PropertyMonthInputSerializer(obj, context={'request': request}).data
+        )
 
 
 @api_view(['GET'])
@@ -1988,6 +2106,29 @@ class PropertyViewSet(viewsets.ModelViewSet):
         if is_property_manager(self.request.user):
             raise PermissionDenied('Only admin can delete properties.')
         instance.delete()
+
+    @action(detail=True, methods=['get', 'put', 'patch'], url_path='financials')
+    def financials(self, request, pk=None):
+        """Admin-only property ownership / financing overview (PropertyFinancials)."""
+        if not is_admin_user(request.user):
+            raise PermissionDenied('Only admin can view or edit property financials.')
+        prop = self.get_object()
+        fin, _ = PropertyFinancials.objects.get_or_create(property=prop)
+        if request.method == 'GET':
+            return Response(PropertyFinancialsSerializer(fin).data)
+
+        ser = PropertyFinancialsSerializer(fin, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        # Refresh stored month rollups that depend on purchase / land / dep years.
+        from .pnl_formulas import compute_for_month_input
+        month_rows = PropertyMonthInput.objects.filter(property=prop).select_related(
+            'property', 'property__financials'
+        )
+        for row in month_rows:
+            row.computed = compute_for_month_input(row, include_performance=True)
+            row.save(update_fields=['computed', 'updated_at'])
+        return Response(ser.data)
 
 
 class ShortStayBookingViewSet(viewsets.ModelViewSet):

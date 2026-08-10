@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Tenant, Payment, MaintenanceRequest, LegalDocument, Listing, Property, LeaseTemplate, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, PropertyUnit, PropertyFinancials, PropertyManagerProfile
+from .models import Tenant, Payment, MaintenanceRequest, LegalDocument, Listing, Property, LeaseTemplate, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, PropertyUnit, PropertyFinancials, PropertyManagerProfile, PropertyMonthInput
 from .permissions import (
     is_admin_user,
     is_property_manager,
@@ -330,6 +330,7 @@ class OperatingExpenseSerializer(serializers.ModelSerializer):
     property_name = serializers.CharField(source='property.name', read_only=True)
     unit_label = serializers.CharField(source='unit.label', read_only=True)
     created_by_name = serializers.SerializerMethodField()
+    created_by_is_manager = serializers.SerializerMethodField()
 
     class Meta:
         model = OperatingExpense
@@ -340,6 +341,16 @@ class OperatingExpenseSerializer(serializers.ModelSerializer):
         if not obj.created_by:
             return None
         return f"{obj.created_by.first_name} {obj.created_by.last_name}".strip() or obj.created_by.email
+
+    def get_created_by_is_manager(self, obj):
+        user = obj.created_by
+        if not user:
+            return False
+        return (
+            getattr(user, 'role', None) == 'property_manager'
+            and not user.is_staff
+            and not user.is_superuser
+        )
 
     def validate(self, data):
         visibility = data.get('visibility', getattr(self.instance, 'visibility', 'operating'))
@@ -401,6 +412,37 @@ class PropertyFinancialsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyFinancials
         fields = '__all__'
+
+
+class PropertyMonthInputSerializer(serializers.ModelSerializer):
+    property_name = serializers.CharField(source='property.name', read_only=True)
+    updated_by_name = serializers.SerializerMethodField()
+    computed = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PropertyMonthInput
+        fields = (
+            'id', 'property', 'property_name', 'unit', 'unit_label', 'year', 'month',
+            'income_lines', 'opex_lines', 'financing_lines', 'computed',
+            'updated_by', 'updated_by_name',
+            'updated_at', 'created_at',
+        )
+        read_only_fields = ('updated_by', 'created_at', 'updated_at', 'computed')
+
+    def get_updated_by_name(self, obj):
+        if not obj.updated_by:
+            return None
+        return f"{obj.updated_by.first_name} {obj.updated_by.last_name}".strip() or obj.updated_by.email
+
+    def get_computed(self, obj):
+        from .pnl_formulas import compute_for_month_input
+        request = self.context.get('request')
+        include_performance = True
+        if request and getattr(request, 'user', None):
+            # Cap Rate / CoC stay admin-only in the payload.
+            include_performance = is_admin_user(request.user)
+        # Always live-compute so financials (purchase/land/dep) stay in sync.
+        return compute_for_month_input(obj, include_performance=include_performance)
 
 
 class PropertyManagerProfileSerializer(serializers.ModelSerializer):

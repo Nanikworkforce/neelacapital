@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { login, isAuthenticated } from '../services/auth';
+import { login, isAuthenticated, getCurrentUser, logout } from '../services/auth';
 import { Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import NeelaLogo from './NeelaLogo';
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
@@ -16,18 +16,10 @@ const TenantLoginPage: React.FC = () => {
   usePageMeta(SEO_PAGES.tenantLogin);
 
   useEffect(() => {
-    if (isAuthenticated()) {
-      const userStr = localStorage.getItem('user_data');
-      if (userStr) {
-        try {
-          const user = JSON.parse(userStr);
-          if (!user.is_staff && !user.is_superuser) {
-            navigate('/', { replace: true });
-          }
-        } catch {
-          // ignore
-        }
-      }
+    if (!isAuthenticated('tenant')) return;
+    const user = getCurrentUser('tenant');
+    if (user && !user.is_staff && !user.is_superuser && user.role !== 'property_manager') {
+      navigate('/', { replace: true });
     }
   }, [navigate]);
 
@@ -36,8 +28,9 @@ const TenantLoginPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await login(email, password);
-      if (response.user?.is_staff || response.user?.is_superuser) {
+      const response = await login(email, password, 'tenant');
+      if (response.user?.is_staff || response.user?.is_superuser || response.user?.role === 'property_manager') {
+        logout('tenant');
         setError('Access denied. Use the admin login for staff accounts.');
         return;
       }

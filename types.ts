@@ -279,6 +279,48 @@ export interface OperatingExpense {
   date: string;
   notes?: string;
   createdByName?: string;
+  createdByIsManager?: boolean;
+  createdAt?: string;
+}
+
+/** Shared admin ↔ PM monthly Income / OpEx line inputs for a property door. */
+export interface PropertyMonthInputLine {
+  key: string;
+  label: string;
+  amount: number;
+  accent?: boolean;
+}
+
+export interface PropertyMonthComputed {
+  totalEffectiveIncome: number;
+  totalOpex: number;
+  mortgageInterest: number;
+  principalRepayment: number;
+  noi: number;
+  cashFlowBeforeTax: number;
+  annualDepreciation: number;
+  depreciation: number;
+  netProfit: number;
+  cashInvested: number;
+  capRatePct: number | null;
+  cashOnCashPct: number | null;
+}
+
+export interface PropertyMonthInput {
+  id: string;
+  property: string;
+  propertyName?: string;
+  unit?: string | null;
+  unitLabel: string;
+  year: number;
+  month: number;
+  incomeLines: PropertyMonthInputLine[];
+  opexLines: PropertyMonthInputLine[];
+  financingLines: PropertyMonthInputLine[];
+  computed?: PropertyMonthComputed | null;
+  updatedBy?: number | null;
+  updatedByName?: string | null;
+  updatedAt?: string;
   createdAt?: string;
 }
 

@@ -88,10 +88,18 @@ const PasswordReset: React.FC<PasswordResetProps> = ({ uidb64, token, onSuccess 
         
         // If tokens are returned, store them for automatic login
         if (data.access && data.refresh && data.user) {
-          // Store tokens and user data
-          localStorage.setItem('access_token', data.access);
-          localStorage.setItem('refresh_token', data.refresh);
-          localStorage.setItem('user_data', JSON.stringify(data.user));
+          const portal =
+            data.user.is_staff || data.user.is_superuser
+              ? 'admin'
+              : data.user.role === 'property_manager'
+                ? 'manager'
+                : 'tenant';
+          localStorage.setItem(`neela_${portal}_access_token`, data.access);
+          localStorage.setItem(`neela_${portal}_refresh_token`, data.refresh);
+          localStorage.setItem(`neela_${portal}_user_data`, JSON.stringify(data.user));
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          localStorage.removeItem('user_data');
         }
         
         setSuccess(true);

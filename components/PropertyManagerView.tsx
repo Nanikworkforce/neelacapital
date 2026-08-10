@@ -10,6 +10,7 @@ import NeelaLogo from './NeelaLogo';
 import MaintenanceView from './MaintenanceView';
 import AddExpenseModal from './AddExpenseModal';
 import ViewportPortal from './ViewportPortal';
+import PropertyMonthIncomeOpexEditor from './PropertyMonthIncomeOpexEditor';
 import { isAuthenticated, getCurrentUser, logout, updateStoredUser } from '../services/auth';
 import { api } from '../services/api';
 import { Property, Tenant, Payment, OperatingExpense, MaintenanceRequest, TenantStatus } from '../types';
@@ -211,14 +212,17 @@ const PropertyManagerView: React.FC = () => {
   const [managedIds, setManagedIds] = useState<string[]>([]);
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [expandedProperty, setExpandedProperty] = useState<string | null>(null);
-  const [user, setUser] = useState(() => getCurrentUser());
+  const [bellaPnlMonth, setBellaPnlMonth] = useState(1);
+  const [tomballPnlMonth, setTomballPnlMonth] = useState(1);
+  const [conroePnlMonth, setConroePnlMonth] = useState(1);
+  const [user, setUser] = useState(() => getCurrentUser('manager'));
 
   useEffect(() => {
-    if (!isAuthenticated()) {
+    if (!isAuthenticated('manager')) {
       navigate('/manager/login', { replace: true });
       return;
     }
-    const u = getCurrentUser();
+    const u = getCurrentUser('manager');
     if (!u || u.role !== 'property_manager' || u.is_staff || u.is_superuser) {
       navigate('/manager/login', { replace: true });
       return;
@@ -242,7 +246,7 @@ const PropertyManagerView: React.FC = () => {
             first_name: meRes.user.first_name,
             last_name: meRes.user.last_name,
             email: meRes.user.email,
-          });
+          }, 'manager');
           if (synced) setUser(synced);
         }
         setManagedIds(meRes.managed_property_ids);
@@ -506,7 +510,7 @@ const PropertyManagerView: React.FC = () => {
   usePollWhileVisible(silentRefresh, 30_000, !loading);
 
   const handleLogout = () => {
-    logout();
+    logout('manager');
     navigate('/manager/login', { replace: true });
   };
 
@@ -1042,6 +1046,155 @@ const PropertyManagerView: React.FC = () => {
                 <ChevronRight className="w-5 h-5 text-white/80 flex-shrink-0" />
               </div>
             </button>
+
+            {(() => {
+              const bella = properties.find((p) => /bella\s*jess/i.test(p.name || ''));
+              if (!bella) return null;
+              const monthNames = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December',
+              ];
+              return (
+                <SectionCard
+                  title="Bella Jess — monthly P&L inputs"
+                  action={
+                    <select
+                      value={bellaPnlMonth}
+                      onChange={(e) => setBellaPnlMonth(Number(e.target.value))}
+                      className="w-full sm:w-auto min-h-[40px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-800"
+                    >
+                      {monthNames.map((name, i) => (
+                        <option key={name} value={i + 1}>
+                          {name} 2026
+                        </option>
+                      ))}
+                    </select>
+                  }
+                >
+                  <PropertyMonthIncomeOpexEditor
+                    key={`bella-${bellaPnlMonth}`}
+                    propertyId={bella.id}
+                    year={2026}
+                    month={bellaPnlMonth}
+                    unitLabel="Door 1"
+                    monthTitle={`${monthNames[bellaPnlMonth - 1]} 2026`}
+                    overview={{
+                      purchasePrice: 255000,
+                      downPayment: 52234.95,
+                      closingCost: 16897.62,
+                      landValue: 49500,
+                      depreciationYears: 27.5,
+                      loanAmount: 204000,
+                      interestRate: 0.0725,
+                      monthlyMortgagePayment: 2076.13,
+                    }}
+                    showPerformanceMetrics={false}
+                    useSheetDefaults
+                    sheetKind="bella"
+                  />
+                </SectionCard>
+              );
+            })()}
+
+            {(() => {
+              const tomball = properties.find(
+                (p) => /tomball|tomabll/i.test(p.name || '') && !/bella\s*jess/i.test(p.name || ''),
+              );
+              if (!tomball) return null;
+              const monthNames = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December',
+              ];
+              return (
+                <SectionCard
+                  title="Tomball — monthly P&L inputs"
+                  action={
+                    <select
+                      value={tomballPnlMonth}
+                      onChange={(e) => setTomballPnlMonth(Number(e.target.value))}
+                      className="w-full sm:w-auto min-h-[40px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-800"
+                    >
+                      {monthNames.map((name, i) => (
+                        <option key={name} value={i + 1}>
+                          {name} 2026
+                        </option>
+                      ))}
+                    </select>
+                  }
+                >
+                  <PropertyMonthIncomeOpexEditor
+                    key={`tomball-${tomballPnlMonth}`}
+                    propertyId={tomball.id}
+                    year={2026}
+                    month={tomballPnlMonth}
+                    unitLabel="Door 1"
+                    monthTitle={`${monthNames[tomballPnlMonth - 1]} 2026`}
+                    overview={{
+                      purchasePrice: 0,
+                      downPayment: 0,
+                      closingCost: 0,
+                      landValue: 49500,
+                      depreciationYears: 27.5,
+                      loanAmount: 0,
+                      interestRate: 0,
+                      monthlyMortgagePayment: 2112.22,
+                    }}
+                    showPerformanceMetrics={false}
+                    useSheetDefaults
+                    sheetKind="tomball"
+                  />
+                </SectionCard>
+              );
+            })()}
+
+            {(() => {
+              const conroe = properties.find((p) => /conroe/i.test(p.name || ''));
+              if (!conroe) return null;
+              const monthNames = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December',
+              ];
+              return (
+                <SectionCard
+                  title="Conroe — monthly P&L inputs"
+                  action={
+                    <select
+                      value={conroePnlMonth}
+                      onChange={(e) => setConroePnlMonth(Number(e.target.value))}
+                      className="w-full sm:w-auto min-h-[40px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-800"
+                    >
+                      {monthNames.map((name, i) => (
+                        <option key={name} value={i + 1}>
+                          {name} 2026
+                        </option>
+                      ))}
+                    </select>
+                  }
+                >
+                  <PropertyMonthIncomeOpexEditor
+                    key={`conroe-${conroePnlMonth}`}
+                    propertyId={conroe.id}
+                    year={2026}
+                    month={conroePnlMonth}
+                    unitLabel="Door 1"
+                    monthTitle={`${monthNames[conroePnlMonth - 1]} 2026`}
+                    overview={{
+                      purchasePrice: 0,
+                      downPayment: 0,
+                      closingCost: 0,
+                      landValue: 49500,
+                      depreciationYears: 27.5,
+                      loanAmount: 0,
+                      interestRate: 0,
+                      monthlyMortgagePayment: 0,
+                    }}
+                    showPerformanceMetrics={false}
+                    useSheetDefaults
+                    sheetKind="conroe"
+                  />
+                </SectionCard>
+              );
+            })()}
 
             <SectionCard title="Recent expenses" subtitle="Your latest operating cost entries">
               {managerRecordedExpenses.length === 0 ? (

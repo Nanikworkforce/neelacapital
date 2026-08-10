@@ -16,11 +16,10 @@ const PropertyManagerLoginPage: React.FC = () => {
   usePageMeta(SEO_PAGES.managerLogin);
 
   useEffect(() => {
-    if (isAuthenticated()) {
-      const user = getCurrentUser();
-      if (user?.role === 'property_manager' && !user.is_staff && !user.is_superuser) {
-        navigate('/manager', { replace: true });
-      }
+    if (!isAuthenticated('manager')) return;
+    const user = getCurrentUser('manager');
+    if (user?.role === 'property_manager' && !user.is_staff && !user.is_superuser) {
+      navigate('/manager', { replace: true });
     }
   }, [navigate]);
 
@@ -29,13 +28,13 @@ const PropertyManagerLoginPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await login(email, password);
+      const response = await login(email, password, 'manager');
       if (
         response.user?.is_staff ||
         response.user?.is_superuser ||
         response.user?.role !== 'property_manager'
       ) {
-        logout();
+        logout('manager');
         setError('Invalid email or password.');
         return;
       }

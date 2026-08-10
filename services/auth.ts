@@ -1,10 +1,21 @@
 /**
  * Authentication service for managing user session and tokens.
+ *
+ * Admin, property manager, and tenant sessions use separate localStorage keys
+ * so two portals can stay logged in in different tabs without clobbering each other.
  */
 
-const ACCESS_TOKEN_KEY = 'access_token';
-const REFRESH_TOKEN_KEY = 'refresh_token';
-const USER_KEY = 'user_data';
+export type AuthPortal = 'admin' | 'manager' | 'tenant';
+
+const LEGACY_ACCESS = 'access_token';
+const LEGACY_REFRESH = 'refresh_token';
+const LEGACY_USER = 'user_data';
+
+const portalKeys = (portal: AuthPortal) => ({
+  access: `neela_${portal}_access_token`,
+  refresh: `neela_${portal}_refresh_token`,
+  user: `neela_${portal}_user_data`,
+});
 
 export interface User {
   id: number;
@@ -43,10 +54,61 @@ export interface LoginResponse {
   tenant: Tenant | null;
 }
 
-// const API_URL = import.meta.env.VITE_API_URL || 'https://neela-backend-96ia.onrender.com';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-export const login = async (email: string, password: string): Promise<LoginResponse> => {
+export const detectAuthPortal = (): AuthPortal => {
+  if (typeof window === 'undefined') return 'admin';
+  const path = window.location.pathname || '/';
+  if (path.startsWith('/manager')) return 'manager';
+  if (path.startsWith('/tenant') || path.startsWith('/resident')) return 'tenant';
+  return 'admin';
+};
+
+const userMatchesPortal = (user: User | null, portal: AuthPortal): boolean => {
+  if (!user) return false;
+  if (portal === 'admin') return !!(user.is_staff || user.is_superuser);
+  if (portal === 'manager') {
+    return user.role === 'property_manager' && !user.is_staff && !user.is_superuser;
+  }
+  return !user.is_staff && !user.is_superuser && user.role !== 'property_manager';
+};
+
+const readUserFromKey = (key: string): User | null => {
+  const userStr = localStorage.getItem(key);
+  if (!userStr) return null;
+  try {
+    return JSON.parse(userStr) as User;
+  } catch {
+    return null;
+  }
+};
+
+/** Migrate once from legacy shared keys into portal-scoped keys when possible. */
+const migrateLegacyIfNeeded = (portal: AuthPortal): void => {
+  const keys = portalKeys(portal);
+  if (localStorage.getItem(keys.access)) return;
+
+  const legacyAccess = localStorage.getItem(LEGACY_ACCESS);
+  const legacyUser = readUserFromKey(LEGACY_USER);
+  if (!legacyAccess || !userMatchesPortal(legacyUser, portal)) return;
+
+  localStorage.setItem(keys.access, legacyAccess);
+  const legacyRefresh = localStorage.getItem(LEGACY_REFRESH);
+  if (legacyRefresh) localStorage.setItem(keys.refresh, legacyRefresh);
+  if (legacyUser) localStorage.setItem(keys.user, JSON.stringify(legacyUser));
+};
+
+const clearLegacyKeys = (): void => {
+  localStorage.removeItem(LEGACY_ACCESS);
+  localStorage.removeItem(LEGACY_REFRESH);
+  localStorage.removeItem(LEGACY_USER);
+};
+
+export const login = async (
+  email: string,
+  password: string,
+  portal: AuthPortal = detectAuthPortal(),
+): Promise<LoginResponse> => {
   const response = await fetch(`${API_URL}/accounts/login/`, {
     method: 'POST',
     headers: {
@@ -61,90 +123,63 @@ export const login = async (email: string, password: string): Promise<LoginRespo
   }
 
   const data: LoginResponse = await response.json();
-  
-  // Store tokens and user data
-  localStorage.setItem(ACCESS_TOKEN_KEY, data.access);
-  localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh);
-  localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-  
+  const keys = portalKeys(portal);
+  localStorage.setItem(keys.access, data.access);
+  localStorage.setItem(keys.refresh, data.refresh);
+  localStorage.setItem(keys.user, JSON.stringify(data.user));
+  // Drop shared legacy keys so another portal login cannot clobber this one.
+  clearLegacyKeys();
+
   return data;
 };
 
 /**
- * Logout the current user.
+ * Logout the current portal session (or a specific portal).
  */
-export const logout = (): void => {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+export const logout = (portal: AuthPortal = detectAuthPortal()): void => {
+  const keys = portalKeys(portal);
+  localStorage.removeItem(keys.access);
+  localStorage.removeItem(keys.refresh);
+  localStorage.removeItem(keys.user);
+  clearLegacyKeys();
 };
 
-/**
- * Get the current access token.
- */
-export const getAccessToken = (): string | null => {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
+export const getAccessToken = (portal: AuthPortal = detectAuthPortal()): string | null => {
+  migrateLegacyIfNeeded(portal);
+  return localStorage.getItem(portalKeys(portal).access);
 };
 
-/**
- * Get the current refresh token.
- */
-export const getRefreshToken = (): string | null => {
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
+export const getRefreshToken = (portal: AuthPortal = detectAuthPortal()): string | null => {
+  migrateLegacyIfNeeded(portal);
+  return localStorage.getItem(portalKeys(portal).refresh);
 };
 
-/**
- * Get the current user data.
- */
-export const getCurrentUser = (): User | null => {
-  const userStr = localStorage.getItem(USER_KEY);
-  if (!userStr) return null;
-  try {
-    return JSON.parse(userStr) as User;
-  } catch {
-    return null;
-  }
+export const getCurrentUser = (portal: AuthPortal = detectAuthPortal()): User | null => {
+  migrateLegacyIfNeeded(portal);
+  return readUserFromKey(portalKeys(portal).user);
 };
 
-/**
- * Merge fields into the stored user session (e.g. refreshed profile name).
- */
-export const updateStoredUser = (patch: Partial<User>): User | null => {
-  const current = getCurrentUser();
+export const updateStoredUser = (patch: Partial<User>, portal: AuthPortal = detectAuthPortal()): User | null => {
+  const current = getCurrentUser(portal);
   if (!current) return null;
   const next = { ...current, ...patch };
-  localStorage.setItem(USER_KEY, JSON.stringify(next));
+  localStorage.setItem(portalKeys(portal).user, JSON.stringify(next));
   return next;
 };
 
-/**
- * Check if user is authenticated.
- */
-export const isAuthenticated = (): boolean => {
-  return !!getAccessToken();
+export const isAuthenticated = (portal: AuthPortal = detectAuthPortal()): boolean => {
+  return !!getAccessToken(portal);
 };
 
-/**
- * Get authorization header value.
- */
-export const getAuthHeader = (): string | null => {
-  const token = getAccessToken();
+export const getAuthHeader = (portal: AuthPortal = detectAuthPortal()): string | null => {
+  const token = getAccessToken(portal);
   return token ? `Bearer ${token}` : null;
 };
 
-/**
- * Clear invalid tokens when 401 is received.
- */
-export const clearInvalidTokens = (): void => {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+export const clearInvalidTokens = (portal: AuthPortal = detectAuthPortal()): void => {
+  logout(portal);
 };
 
-/**
- * Decode JWT token to get payload (without verification).
- * Returns null if token is invalid or cannot be decoded.
- */
 const decodeJWT = (token: string): any | null => {
   try {
     const base64Url = token.split('.')[1];
@@ -156,16 +191,11 @@ const decodeJWT = (token: string): any | null => {
         .join('')
     );
     return JSON.parse(jsonPayload);
-  } catch (error) {
+  } catch {
     return null;
   }
 };
 
-/**
- * Check if access token is expired or will expire soon.
- * @param bufferMinutes - Minutes before expiration to consider token as "expiring soon" (default: 5)
- * @returns true if token is expired or expiring soon
- */
 export const isTokenExpiredOrExpiringSoon = (bufferMinutes: number = 5): boolean => {
   const token = getAccessToken();
   if (!token) return true;
@@ -173,20 +203,16 @@ export const isTokenExpiredOrExpiringSoon = (bufferMinutes: number = 5): boolean
   const decoded = decodeJWT(token);
   if (!decoded || !decoded.exp) return true;
 
-  const expirationTime = decoded.exp * 1000; // Convert to milliseconds
+  const expirationTime = decoded.exp * 1000;
   const currentTime = Date.now();
-  const bufferTime = bufferMinutes * 60 * 1000; // Convert buffer to milliseconds
+  const bufferTime = bufferMinutes * 60 * 1000;
 
   return expirationTime - currentTime < bufferTime;
 };
 
-/**
- * Refresh access token using refresh token.
- * @returns Promise<{ access: string, refresh: string }> on success
- * @throws Error if refresh fails
- */
 export const refreshAccessToken = async (): Promise<{ access: string; refresh: string }> => {
-  const refreshToken = getRefreshToken();
+  const portal = detectAuthPortal();
+  const refreshToken = getRefreshToken(portal);
   if (!refreshToken) {
     throw new Error('No refresh token available');
   }
@@ -201,46 +227,38 @@ export const refreshAccessToken = async (): Promise<{ access: string; refresh: s
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ detail: 'Token refresh failed' }));
-    // If refresh token is invalid/expired, clear all tokens
     if (response.status === 401) {
-      clearInvalidTokens();
+      clearInvalidTokens(portal);
     }
     throw new Error(errorData.detail || errorData.error || 'Token refresh failed');
   }
 
   const data = await response.json();
-  
-  // Update stored tokens
+  const keys = portalKeys(portal);
+
   if (data.access) {
-    localStorage.setItem(ACCESS_TOKEN_KEY, data.access);
+    localStorage.setItem(keys.access, data.access);
   }
   if (data.refresh) {
-    localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh);
+    localStorage.setItem(keys.refresh, data.refresh);
   }
 
   return {
     access: data.access,
-    refresh: data.refresh || refreshToken, // Use new refresh token if provided, otherwise keep old one
+    refresh: data.refresh || refreshToken,
   };
 };
 
-/**
- * Refresh token proactively if it's expiring soon.
- * @returns Promise<boolean> - true if token was refreshed, false otherwise
- */
 export const refreshTokenIfNeeded = async (): Promise<boolean> => {
   if (!isTokenExpiredOrExpiringSoon()) {
-    return false; // Token is still valid
+    return false;
   }
 
   try {
     await refreshAccessToken();
-    return true; // Token was refreshed
+    return true;
   } catch (error) {
-    // Refresh failed - token might be expired
     console.warn('Failed to refresh token:', error);
     return false;
   }
 };
-
-
