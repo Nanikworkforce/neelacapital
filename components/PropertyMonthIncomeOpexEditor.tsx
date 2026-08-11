@@ -19,8 +19,13 @@ import {
   mergeConroeIncomeLines,
   mergeConroeOpexLines,
 } from '../utils/conroePnl2026';
+import {
+  mergeAvenueQFinancingLines,
+  mergeAvenueQIncomeLines,
+  mergeAvenueQOpexLines,
+} from '../utils/avenueQPnl2026';
 
-export type SheetPnlKind = 'bella' | 'tomball' | 'conroe';
+export type SheetPnlKind = 'bella' | 'tomball' | 'conroe' | 'avenueq';
 
 const mergeIncomeForSheet = (
   kind: SheetPnlKind,
@@ -30,6 +35,7 @@ const mergeIncomeForSheet = (
 ) => {
   if (kind === 'tomball') return mergeTomballIncomeLines(saved, month, useSheetDefaults);
   if (kind === 'conroe') return mergeConroeIncomeLines(saved, month, useSheetDefaults);
+  if (kind === 'avenueq') return mergeAvenueQIncomeLines(saved, month, useSheetDefaults);
   return mergeIncomeLines(saved, month, useSheetDefaults);
 };
 
@@ -41,6 +47,7 @@ const mergeOpexForSheet = (
 ) => {
   if (kind === 'tomball') return mergeTomballOpexLines(saved, month, useSheetDefaults);
   if (kind === 'conroe') return mergeConroeOpexLines(saved, month, useSheetDefaults);
+  if (kind === 'avenueq') return mergeAvenueQOpexLines(saved, month, useSheetDefaults);
   return mergeOpexLines(saved, month, useSheetDefaults);
 };
 
@@ -53,6 +60,7 @@ const mergeFinancingForSheet = (
 ) => {
   if (kind === 'tomball') return mergeTomballFinancingLines(saved, month, useSheetDefaults);
   if (kind === 'conroe') return mergeConroeFinancingLines(saved, month, useSheetDefaults);
+  if (kind === 'avenueq') return mergeAvenueQFinancingLines(saved, month, useSheetDefaults);
   return mergeFinancingLines(saved, overview, month, useSheetDefaults);
 };
 
@@ -129,6 +137,8 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
   onSaved,
 }) => {
   const sheetKind: SheetPnlKind = sheetKindProp;
+  const incomeSectionTitle = sheetKind === 'avenueq' ? 'INCOME — 4 Plex' : 'INCOME';
+  const displayUnitLabel = sheetKind === 'avenueq' ? (unitLabel === 'Door 1' ? '4-Plex' : unitLabel) : unitLabel;
   const [incomeLines, setIncomeLines] = useState<PnlLine[]>(() =>
     mergeIncomeForSheet(sheetKind, null, month, useSheetDefaults),
   );
@@ -386,20 +396,20 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
           <thead>
             <tr className="bg-slate-200">
               <th className="text-left px-2.5 sm:px-3 py-2 font-bold" colSpan={2}>
-                INCOME
+                {incomeSectionTitle}
               </th>
             </tr>
           </thead>
           <tbody>
             <tr className="border-t">
-              <td className="px-2.5 sm:px-3 py-2 italic text-amber-800 break-words">{unitLabel}</td>
+              <td className="px-2.5 sm:px-3 py-2 italic text-amber-800 break-words">{displayUnitLabel}</td>
               <td className={`px-2.5 sm:px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap ${moneyToneClass(summary.totalEffectiveIncome)}`}>
                 {formatMoneyPnL(summary.totalEffectiveIncome)}
               </td>
             </tr>
             {incomeLines.map((l) => (
               <tr key={l.key} className="border-t border-slate-100">
-                <td className="px-2.5 sm:px-3 py-2 pr-2 align-middle break-words leading-snug">{l.label}</td>
+                <td className={`px-2.5 sm:px-3 py-2 pr-2 align-middle break-words leading-snug ${l.accent ? 'italic text-amber-800' : ''}`}>{l.label}</td>
                 <td className="px-2 sm:px-3 py-1.5 text-right align-middle">
                   <input
                     type="number"

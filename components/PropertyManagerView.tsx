@@ -215,6 +215,7 @@ const PropertyManagerView: React.FC = () => {
   const [bellaPnlMonth, setBellaPnlMonth] = useState(1);
   const [tomballPnlMonth, setTomballPnlMonth] = useState(1);
   const [conroePnlMonth, setConroePnlMonth] = useState(1);
+  const [avenueQPnlMonth, setAvenueQPnlMonth] = useState(1);
   const [user, setUser] = useState(() => getCurrentUser('manager'));
 
   useEffect(() => {
@@ -1191,6 +1192,55 @@ const PropertyManagerView: React.FC = () => {
                     showPerformanceMetrics={false}
                     useSheetDefaults
                     sheetKind="conroe"
+                  />
+                </SectionCard>
+              );
+            })()}
+
+            {(() => {
+              const avenueQ = properties.find((p) => /avenue\s*q|ave\.?\s*q|aveq/i.test(p.name || ''));
+              if (!avenueQ) return null;
+              const monthNames = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December',
+              ];
+              return (
+                <SectionCard
+                  title="Avenue Q — monthly P&L inputs (4-plex)"
+                  action={
+                    <select
+                      value={avenueQPnlMonth}
+                      onChange={(e) => setAvenueQPnlMonth(Number(e.target.value))}
+                      className="w-full sm:w-auto min-h-[40px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-800"
+                    >
+                      {monthNames.map((name, i) => (
+                        <option key={name} value={i + 1}>
+                          {name} 2026
+                        </option>
+                      ))}
+                    </select>
+                  }
+                >
+                  <PropertyMonthIncomeOpexEditor
+                    key={`avenueq-${avenueQPnlMonth}`}
+                    propertyId={avenueQ.id}
+                    year={2026}
+                    month={avenueQPnlMonth}
+                    unitLabel="Door 1"
+                    monthTitle={`${monthNames[avenueQPnlMonth - 1]} 2026`}
+                    overview={{
+                      purchasePrice: 555000,
+                      downPayment: 145522.37,
+                      closingCost: 25693.33,
+                      landValue: 85000,
+                      depreciationYears: 27.5,
+                      loanAmount: 416250,
+                      interestRate: 0.07375,
+                      monthlyMortgagePayment: 3685.79,
+                    }}
+                    showPerformanceMetrics={false}
+                    useSheetDefaults
+                    sheetKind="avenueq"
                   />
                 </SectionCard>
               );

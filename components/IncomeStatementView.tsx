@@ -37,6 +37,14 @@ import {
   mergeConroeIncomeLines,
   mergeConroeOpexLines,
 } from '../utils/conroePnl2026';
+import {
+  AVENUE_Q_2026_YEARLY,
+  AVENUE_Q_OVERVIEW,
+  isAvenueQName,
+  mergeAvenueQFinancingLines,
+  mergeAvenueQIncomeLines,
+  mergeAvenueQOpexLines,
+} from '../utils/avenueQPnl2026';
 import PropertyMonthIncomeOpexEditor, { type SheetPnlKind } from './PropertyMonthIncomeOpexEditor';
 
 const isBellaJessName = (name: string) => /bella\s*jess/i.test(name || '');
@@ -48,6 +56,7 @@ const sheetKindForName = (name: string): SheetPnlKind | null => {
   if (isBellaJessName(name)) return 'bella';
   if (isTomballName(name)) return 'tomball';
   if (isConroeName(name)) return 'conroe';
+  if (isAvenueQName(name)) return 'avenueq';
   return null;
 };
 
@@ -229,6 +238,9 @@ function resolveEditablePropertyId(row: GroupedPropertyRow, properties: Property
   if (isConroeName(name)) {
     return properties.find((p) => isConroeName(p.name || ''))?.id || '';
   }
+  if (isAvenueQName(name)) {
+    return properties.find((p) => isAvenueQName(p.name || ''))?.id || '';
+  }
   for (const u of row.units || []) {
     const raw = String(u.propertyId || '').replace(/^prop-/, '');
     if (raw && !raw.startsWith('catalog-') && properties.some((p) => p.id === raw)) return raw;
@@ -252,6 +264,8 @@ function PropertyPnlDetail({
   setTomballMonthTotals,
   conroeMonthTotals,
   setConroeMonthTotals,
+  avenueQMonthTotals,
+  setAvenueQMonthTotals,
 }: {
   row: GroupedPropertyRow;
   year: number;
@@ -271,22 +285,30 @@ function PropertyPnlDetail({
   setConroeMonthTotals: React.Dispatch<
     React.SetStateAction<Partial<Record<number, { income: number; expenses: number; net: number }>>>
   >;
+  avenueQMonthTotals: Partial<Record<number, { income: number; expenses: number; net: number }>>;
+  setAvenueQMonthTotals: React.Dispatch<
+    React.SetStateAction<Partial<Record<number, { income: number; expenses: number; net: number }>>>
+  >;
 }) {
   const name = row.propertyName || row.groupKey || '';
   const sheetKind = sheetKindForName(name);
   const useSheet = !!sheetKind && year === 2026;
   const sheetYearly =
-    sheetKind === 'conroe'
-      ? CONROE_2026_YEARLY
-      : sheetKind === 'tomball'
-        ? TOMBALL_2026_YEARLY
-        : BELLA_JESS_2026_YEARLY;
+    sheetKind === 'avenueq'
+      ? AVENUE_Q_2026_YEARLY
+      : sheetKind === 'conroe'
+        ? CONROE_2026_YEARLY
+        : sheetKind === 'tomball'
+          ? TOMBALL_2026_YEARLY
+          : BELLA_JESS_2026_YEARLY;
   const sheetMonthTotals =
-    sheetKind === 'conroe'
-      ? conroeMonthTotals
-      : sheetKind === 'tomball'
-        ? tomballMonthTotals
-        : bellaMonthTotals;
+    sheetKind === 'avenueq'
+      ? avenueQMonthTotals
+      : sheetKind === 'conroe'
+        ? conroeMonthTotals
+        : sheetKind === 'tomball'
+          ? tomballMonthTotals
+          : bellaMonthTotals;
   const monthRows = useSheet
     ? applyMonthsToYearly(sheetYearly, sheetMonthTotals)
     : MONTHS.map((_, i) => {
@@ -303,13 +325,15 @@ function PropertyPnlDetail({
   const fin = row.financials;
   const propertyId = resolveEditablePropertyId(row, properties);
   const ovDefaults =
-    sheetKind === 'conroe'
-      ? CONROE_OVERVIEW
-      : sheetKind === 'tomball'
-        ? TOMBALL_OVERVIEW
-        : sheetKind === 'bella'
-          ? BELLA_JESS_OVERVIEW
-          : null;
+    sheetKind === 'avenueq'
+      ? AVENUE_Q_OVERVIEW
+      : sheetKind === 'conroe'
+        ? CONROE_OVERVIEW
+        : sheetKind === 'tomball'
+          ? TOMBALL_OVERVIEW
+          : sheetKind === 'bella'
+            ? BELLA_JESS_OVERVIEW
+            : null;
 
   const [ovPurchase, setOvPurchase] = useState(String(fin?.purchasePrice ?? ovDefaults?.purchasePrice ?? 0));
   const [ovDown, setOvDown] = useState(String(fin?.downPayment ?? ovDefaults?.downPayment ?? 0));
@@ -715,6 +739,8 @@ function PropertyPnlDetail({
                       setTomballMonthTotals((prev) => ({ ...prev, [selectedMonth]: totals }));
                     } else if (sheetKind === 'conroe') {
                       setConroeMonthTotals((prev) => ({ ...prev, [selectedMonth]: totals }));
+                    } else if (sheetKind === 'avenueq') {
+                      setAvenueQMonthTotals((prev) => ({ ...prev, [selectedMonth]: totals }));
                     }
                   }}
                 />
@@ -749,6 +775,10 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
   >({});
   /** Saved Conroe month totals — override yearly sheet rows when present. */
   const [conroeMonthTotals, setConroeMonthTotals] = useState<
+    Partial<Record<number, { income: number; expenses: number; net: number }>>
+  >({});
+  /** Saved Avenue Q month totals — override yearly sheet rows when present. */
+  const [avenueQMonthTotals, setAvenueQMonthTotals] = useState<
     Partial<Record<number, { income: number; expenses: number; net: number }>>
   >({});
   const [showAddExpense, setShowAddExpense] = useState(false);
@@ -792,6 +822,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
   const bellaPropertyId = properties.find((p) => isBellaJessName(p.name || ''))?.id || '';
   const tomballPropertyId = properties.find((p) => isTomballName(p.name || ''))?.id || '';
   const conroePropertyId = properties.find((p) => isConroeName(p.name || ''))?.id || '';
+  const avenueQPropertyId = properties.find((p) => isAvenueQName(p.name || ''))?.id || '';
 
   // Load Bella Jess Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
   useEffect(() => {
@@ -932,6 +963,52 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     };
   }, [year, conroePropertyId]);
 
+  // Load Avenue Q Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
+  useEffect(() => {
+    if (year !== 2026 || !avenueQPropertyId) {
+      setAvenueQMonthTotals({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await api.listPropertyMonthInputs({
+          property: avenueQPropertyId,
+          year: 2026,
+          unitLabel: 'Door 1',
+        });
+        if (cancelled) return;
+        const next: Partial<Record<number, { income: number; expenses: number; net: number }>> = {};
+        for (const row of rows) {
+          if (row.computed) {
+            next[row.month] = {
+              income: row.computed.totalEffectiveIncome,
+              expenses: row.computed.totalOpex,
+              net: row.computed.noi,
+            };
+            continue;
+          }
+          const s = computeMonthSummary(
+            mergeAvenueQIncomeLines(row.incomeLines, row.month),
+            mergeAvenueQOpexLines(row.opexLines, row.month),
+            mergeAvenueQFinancingLines(row.financingLines?.length ? row.financingLines : null, row.month),
+          );
+          next[row.month] = {
+            income: s.totalEffectiveIncome,
+            expenses: s.totalOpex,
+            net: s.noi,
+          };
+        }
+        setAvenueQMonthTotals(next);
+      } catch {
+        if (!cancelled) setAvenueQMonthTotals({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [year, avenueQPropertyId]);
+
   // Keep expense bell fresh; avoid re-running the heavy full P&L on a timer.
   usePollWhileVisible(async () => {
     setNotifTick((n) => n + 1);
@@ -1001,18 +1078,24 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     return sumYearlyRows(applyMonthsToYearly(CONROE_2026_YEARLY, conroeMonthTotals));
   }, [year, conroeMonthTotals]);
 
+  const avenueQYearSheet = useMemo(() => {
+    if (year !== 2026) return null;
+    return sumYearlyRows(applyMonthsToYearly(AVENUE_Q_2026_YEARLY, avenueQMonthTotals));
+  }, [year, avenueQMonthTotals]);
+
   const sheetPortfolioYear = useMemo(() => {
     if (year !== 2026) return null;
-    if (!bellaYearSheet && !tomballYearSheet && !conroeYearSheet) return null;
+    if (!bellaYearSheet && !tomballYearSheet && !conroeYearSheet && !avenueQYearSheet) return null;
     const b = bellaYearSheet || { income: 0, expenses: 0, net: 0 };
     const t = tomballYearSheet || { income: 0, expenses: 0, net: 0 };
     const c = conroeYearSheet || { income: 0, expenses: 0, net: 0 };
+    const a = avenueQYearSheet || { income: 0, expenses: 0, net: 0 };
     return {
-      income: b.income + t.income + c.income,
-      expenses: b.expenses + t.expenses + c.expenses,
-      net: b.net + t.net + c.net,
+      income: b.income + t.income + c.income + a.income,
+      expenses: b.expenses + t.expenses + c.expenses + a.expenses,
+      net: b.net + t.net + c.net + a.net,
     };
-  }, [year, bellaYearSheet, tomballYearSheet, conroeYearSheet]);
+  }, [year, bellaYearSheet, tomballYearSheet, conroeYearSheet, avenueQYearSheet]);
 
   const groupedProperties = useMemo(() => {
     if (!summary?.byProperty?.length) return [];
@@ -1057,6 +1140,16 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
           shortStayIncome: 0,
         };
       }
+      if (isAvenueQName(name) && avenueQYearSheet) {
+        return {
+          ...row,
+          totalIncome: avenueQYearSheet.income,
+          totalExpenses: avenueQYearSheet.expenses,
+          netIncome: avenueQYearSheet.net,
+          rentIncome: avenueQYearSheet.income,
+          shortStayIncome: 0,
+        };
+      }
       if (sheetPortfolioYear) {
         return {
           ...row,
@@ -1069,13 +1162,13 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       }
       return row;
     });
-  }, [summary, properties, bellaYearSheet, tomballYearSheet, conroeYearSheet, sheetPortfolioYear]);
+  }, [summary, properties, bellaYearSheet, tomballYearSheet, conroeYearSheet, avenueQYearSheet, sheetPortfolioYear]);
 
   const portfolioDisplay = useMemo(() => {
     if (!summary) {
       return { totalIncome: 0, totalExpenses: 0, netIncome: 0 };
     }
-    // Portfolio totals = Bella Jess + Tomball + Conroe sheet (no rent / other properties).
+    // Portfolio totals = sheet properties only (Bella + Tomball + Conroe + Avenue Q).
     if (sheetPortfolioYear) {
       return {
         ...summary.portfolio,
@@ -1380,6 +1473,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                         setTomballMonthTotals={setTomballMonthTotals}
                         conroeMonthTotals={conroeMonthTotals}
                         setConroeMonthTotals={setConroeMonthTotals}
+                        avenueQMonthTotals={avenueQMonthTotals}
+                        setAvenueQMonthTotals={setAvenueQMonthTotals}
                       />
                     </div>
                   )}
@@ -1506,6 +1601,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                               setTomballMonthTotals={setTomballMonthTotals}
                               conroeMonthTotals={conroeMonthTotals}
                               setConroeMonthTotals={setConroeMonthTotals}
+                              avenueQMonthTotals={avenueQMonthTotals}
+                              setAvenueQMonthTotals={setAvenueQMonthTotals}
                             />
                           </td>
                         </tr>
@@ -1622,9 +1719,13 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
             };
             return [withTimestamp, ...prev.filter((e) => e.id !== created.id)].slice(0, 50);
           });
-          // Bella Jess P&L is sheet-only — do not fold recorded expenses into its totals.
-          const isBellaExpense = /bella\s*jess/i.test(created.propertyName || '');
-          if (!isBellaExpense) {
+          // Sheet P&L properties are month-input only — do not fold recorded expenses into totals.
+          const isSheetExpense =
+            /bella\s*jess/i.test(created.propertyName || '') ||
+            (/tomball|tomabll/i.test(created.propertyName || '') && !/bella\s*jess/i.test(created.propertyName || '')) ||
+            /conroe/i.test(created.propertyName || '') ||
+            /avenue\s*q|ave\.?\s*q|aveq/i.test(created.propertyName || '');
+          if (!isSheetExpense) {
             setSummary((s) => {
               if (!s) return s;
               if (!existing) return applyExpenseDelta(s, created, created.amount);
