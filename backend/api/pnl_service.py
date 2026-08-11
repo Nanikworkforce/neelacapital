@@ -9,9 +9,9 @@ Per property / month:
 Financing (mortgage, depreciation) sits below NOI and is excluded from operating totals.
 Live rents and manager/admin expenses affect the income statement for most properties.
 
-Bella Jess, Tomball, Conroe, Avenue Q, Sherman, 70th Street, and Avenue H are sheet /
-PropertyMonthInput only — rent collections and recorded operating expenses are excluded from
-their Income Statement totals (2026 corrected yearly seeds).
+Bella Jess, Tomball, Conroe, Avenue Q, Sherman, 70th Street, Avenue H, Wooding, and
+Avenue F are sheet / PropertyMonthInput only — rent collections and recorded operating
+expenses are excluded from their Income Statement totals (2026 corrected yearly seeds).
 """
 import re
 from collections import defaultdict
@@ -139,6 +139,16 @@ AVENUE_H_2026_YEARLY = [
     (Decimal('850'), Decimal('1161.65'), Decimal('-311.65')),
 ] * 12
 
+# Corrected Wooding 2026 TEI / OpEx / NOI (matches utils/woodingPnl2026.ts — Jan detail × 12).
+WOODING_2026_YEARLY = [
+    (Decimal('0'), Decimal('100.11'), Decimal('-100.11')),
+] * 12
+
+# Corrected Avenue F 2026 TEI / OpEx / NOI (matches utils/avenueFPnl2026.ts — $30/mo all year).
+AVENUE_F_2026_YEARLY = [
+    (Decimal('0'), Decimal('30'), Decimal('-30')),
+] * 12
+
 
 def is_bella_jess_property(prop) -> bool:
     name = getattr(prop, 'name', None) or ''
@@ -179,6 +189,17 @@ def is_avenue_h_property(prop) -> bool:
     return bool(re.search(r'avenue\s*h|ave\.?\s*h|aveh', name, re.I))
 
 
+def is_wooding_property(prop) -> bool:
+    name = getattr(prop, 'name', None) or ''
+    return bool(re.search(r'wooding|wooden', name, re.I))
+
+
+def is_avenue_f_property(prop) -> bool:
+    """Avenue F sheet — must not match Avenue Q/H (matcher uses f)."""
+    name = getattr(prop, 'name', None) or ''
+    return bool(re.search(r'avenue\s*f|ave\.?\s*f|avef', name, re.I))
+
+
 def bella_jess_property_ids(properties) -> set:
     return {p.id for p in properties if is_bella_jess_property(p)}
 
@@ -207,6 +228,14 @@ def avenue_h_property_ids(properties) -> set:
     return {p.id for p in properties if is_avenue_h_property(p)}
 
 
+def wooding_property_ids(properties) -> set:
+    return {p.id for p in properties if is_wooding_property(p)}
+
+
+def avenue_f_property_ids(properties) -> set:
+    return {p.id for p in properties if is_avenue_f_property(p)}
+
+
 def sheet_pnl_property_ids(properties) -> set:
     """Properties that use Excel sheet / month-input totals only."""
     return (
@@ -217,6 +246,8 @@ def sheet_pnl_property_ids(properties) -> set:
         | sherman_property_ids(properties)
         | seventieth_property_ids(properties)
         | avenue_h_property_ids(properties)
+        | wooding_property_ids(properties)
+        | avenue_f_property_ids(properties)
     )
 
 
@@ -240,6 +271,10 @@ def build_sheet_seed_map(properties, year) -> dict:
             seed_map[prop.id] = SEVENTIETH_2026_YEARLY
         elif is_avenue_h_property(prop):
             seed_map[prop.id] = AVENUE_H_2026_YEARLY
+        elif is_wooding_property(prop):
+            seed_map[prop.id] = WOODING_2026_YEARLY
+        elif is_avenue_f_property(prop):
+            seed_map[prop.id] = AVENUE_F_2026_YEARLY
     return seed_map
 
 

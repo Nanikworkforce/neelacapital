@@ -69,6 +69,22 @@ import {
   mergeAvenueHIncomeLines,
   mergeAvenueHOpexLines,
 } from '../utils/avenueHPnl2026';
+import {
+  WOODING_2026_YEARLY,
+  WOODING_OVERVIEW,
+  isWoodingName,
+  mergeWoodingFinancingLines,
+  mergeWoodingIncomeLines,
+  mergeWoodingOpexLines,
+} from '../utils/woodingPnl2026';
+import {
+  AVENUE_F_2026_YEARLY,
+  AVENUE_F_OVERVIEW,
+  isAvenueFName,
+  mergeAvenueFFinancingLines,
+  mergeAvenueFIncomeLines,
+  mergeAvenueFOpexLines,
+} from '../utils/avenueFPnl2026';
 import PropertyMonthIncomeOpexEditor, { type SheetPnlKind } from './PropertyMonthIncomeOpexEditor';
 
 const isBellaJessName = (name: string) => /bella\s*jess/i.test(name || '');
@@ -84,6 +100,8 @@ const sheetKindForName = (name: string): SheetPnlKind | null => {
   if (isShermanName(name)) return 'sherman';
   if (isSeventiethName(name)) return 'seventieth';
   if (isAvenueHName(name)) return 'avenueh';
+  if (isWoodingName(name)) return 'wooding';
+  if (isAvenueFName(name)) return 'avenuef';
   return null;
 };
 
@@ -277,6 +295,12 @@ function resolveEditablePropertyId(row: GroupedPropertyRow, properties: Property
   if (isAvenueHName(name)) {
     return properties.find((p) => isAvenueHName(p.name || ''))?.id || '';
   }
+  if (isWoodingName(name)) {
+    return properties.find((p) => isWoodingName(p.name || ''))?.id || '';
+  }
+  if (isAvenueFName(name)) {
+    return properties.find((p) => isAvenueFName(p.name || ''))?.id || '';
+  }
   for (const u of row.units || []) {
     const raw = String(u.propertyId || '').replace(/^prop-/, '');
     if (raw && !raw.startsWith('catalog-') && properties.some((p) => p.id === raw)) return raw;
@@ -308,6 +332,10 @@ function PropertyPnlDetail({
   setSeventiethMonthTotals,
   avenueHMonthTotals,
   setAvenueHMonthTotals,
+  woodingMonthTotals,
+  setWoodingMonthTotals,
+  avenueFMonthTotals,
+  setAvenueFMonthTotals,
 }: {
   row: GroupedPropertyRow;
   year: number;
@@ -343,38 +371,54 @@ function PropertyPnlDetail({
   setAvenueHMonthTotals: React.Dispatch<
     React.SetStateAction<Partial<Record<number, { income: number; expenses: number; net: number }>>>
   >;
+  woodingMonthTotals: Partial<Record<number, { income: number; expenses: number; net: number }>>;
+  setWoodingMonthTotals: React.Dispatch<
+    React.SetStateAction<Partial<Record<number, { income: number; expenses: number; net: number }>>>
+  >;
+  avenueFMonthTotals: Partial<Record<number, { income: number; expenses: number; net: number }>>;
+  setAvenueFMonthTotals: React.Dispatch<
+    React.SetStateAction<Partial<Record<number, { income: number; expenses: number; net: number }>>>
+  >;
 }) {
   const name = row.propertyName || row.groupKey || '';
   const sheetKind = sheetKindForName(name);
   const useSheet = !!sheetKind && year === 2026;
   const sheetYearly =
-    sheetKind === 'avenueh'
-      ? AVENUE_H_2026_YEARLY
-      : sheetKind === 'seventieth'
-        ? SEVENTIETH_2026_YEARLY
-        : sheetKind === 'sherman'
-          ? SHERMAN_2026_YEARLY
-          : sheetKind === 'avenueq'
-            ? AVENUE_Q_2026_YEARLY
-            : sheetKind === 'conroe'
-              ? CONROE_2026_YEARLY
-              : sheetKind === 'tomball'
-                ? TOMBALL_2026_YEARLY
-                : BELLA_JESS_2026_YEARLY;
+    sheetKind === 'avenuef'
+      ? AVENUE_F_2026_YEARLY
+      : sheetKind === 'wooding'
+        ? WOODING_2026_YEARLY
+        : sheetKind === 'avenueh'
+          ? AVENUE_H_2026_YEARLY
+          : sheetKind === 'seventieth'
+            ? SEVENTIETH_2026_YEARLY
+            : sheetKind === 'sherman'
+              ? SHERMAN_2026_YEARLY
+              : sheetKind === 'avenueq'
+                ? AVENUE_Q_2026_YEARLY
+                : sheetKind === 'conroe'
+                  ? CONROE_2026_YEARLY
+                  : sheetKind === 'tomball'
+                    ? TOMBALL_2026_YEARLY
+                    : BELLA_JESS_2026_YEARLY;
   const sheetMonthTotals =
-    sheetKind === 'avenueh'
-      ? avenueHMonthTotals
-      : sheetKind === 'seventieth'
-        ? seventiethMonthTotals
-        : sheetKind === 'sherman'
-          ? shermanMonthTotals
-          : sheetKind === 'avenueq'
-            ? avenueQMonthTotals
-            : sheetKind === 'conroe'
-              ? conroeMonthTotals
-              : sheetKind === 'tomball'
-                ? tomballMonthTotals
-                : bellaMonthTotals;
+    sheetKind === 'avenuef'
+      ? avenueFMonthTotals
+      : sheetKind === 'wooding'
+        ? woodingMonthTotals
+        : sheetKind === 'avenueh'
+          ? avenueHMonthTotals
+          : sheetKind === 'seventieth'
+            ? seventiethMonthTotals
+            : sheetKind === 'sherman'
+              ? shermanMonthTotals
+              : sheetKind === 'avenueq'
+                ? avenueQMonthTotals
+                : sheetKind === 'conroe'
+                  ? conroeMonthTotals
+                  : sheetKind === 'tomball'
+                    ? tomballMonthTotals
+                    : bellaMonthTotals;
   const monthRows = useSheet
     ? applyMonthsToYearly(sheetYearly, sheetMonthTotals)
     : MONTHS.map((_, i) => {
@@ -391,21 +435,25 @@ function PropertyPnlDetail({
   const fin = row.financials;
   const propertyId = resolveEditablePropertyId(row, properties);
   const ovDefaults =
-    sheetKind === 'avenueh'
-      ? AVENUE_H_OVERVIEW
-      : sheetKind === 'seventieth'
-        ? SEVENTIETH_OVERVIEW
-        : sheetKind === 'sherman'
-          ? SHERMAN_OVERVIEW
-          : sheetKind === 'avenueq'
-            ? AVENUE_Q_OVERVIEW
-            : sheetKind === 'conroe'
-              ? CONROE_OVERVIEW
-              : sheetKind === 'tomball'
-                ? TOMBALL_OVERVIEW
-                : sheetKind === 'bella'
-                  ? BELLA_JESS_OVERVIEW
-                  : null;
+    sheetKind === 'avenuef'
+      ? AVENUE_F_OVERVIEW
+      : sheetKind === 'wooding'
+        ? WOODING_OVERVIEW
+        : sheetKind === 'avenueh'
+          ? AVENUE_H_OVERVIEW
+          : sheetKind === 'seventieth'
+            ? SEVENTIETH_OVERVIEW
+            : sheetKind === 'sherman'
+              ? SHERMAN_OVERVIEW
+              : sheetKind === 'avenueq'
+                ? AVENUE_Q_OVERVIEW
+                : sheetKind === 'conroe'
+                  ? CONROE_OVERVIEW
+                  : sheetKind === 'tomball'
+                    ? TOMBALL_OVERVIEW
+                    : sheetKind === 'bella'
+                      ? BELLA_JESS_OVERVIEW
+                      : null;
 
   const [ovPurchase, setOvPurchase] = useState(String(fin?.purchasePrice ?? ovDefaults?.purchasePrice ?? 0));
   const [ovDown, setOvDown] = useState(String(fin?.downPayment ?? ovDefaults?.downPayment ?? 0));
@@ -819,6 +867,10 @@ function PropertyPnlDetail({
                       setSeventiethMonthTotals((prev) => ({ ...prev, [selectedMonth]: totals }));
                     } else if (sheetKind === 'avenueh') {
                       setAvenueHMonthTotals((prev) => ({ ...prev, [selectedMonth]: totals }));
+                    } else if (sheetKind === 'wooding') {
+                      setWoodingMonthTotals((prev) => ({ ...prev, [selectedMonth]: totals }));
+                    } else if (sheetKind === 'avenuef') {
+                      setAvenueFMonthTotals((prev) => ({ ...prev, [selectedMonth]: totals }));
                     }
                   }}
                 />
@@ -871,6 +923,14 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
   const [avenueHMonthTotals, setAvenueHMonthTotals] = useState<
     Partial<Record<number, { income: number; expenses: number; net: number }>>
   >({});
+  /** Saved Wooding month totals — override yearly sheet rows when present. */
+  const [woodingMonthTotals, setWoodingMonthTotals] = useState<
+    Partial<Record<number, { income: number; expenses: number; net: number }>>
+  >({});
+  /** Saved Avenue F month totals — override yearly sheet rows when present. */
+  const [avenueFMonthTotals, setAvenueFMonthTotals] = useState<
+    Partial<Record<number, { income: number; expenses: number; net: number }>>
+  >({});
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [expenseSuccessPopup, setExpenseSuccessPopup] = useState<OperatingExpense | null>(null);
   const [expenseFeedback, setExpenseFeedback] = useState<string | null>(null);
@@ -916,6 +976,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
   const shermanPropertyId = properties.find((p) => isShermanName(p.name || ''))?.id || '';
   const seventiethPropertyId = properties.find((p) => isSeventiethName(p.name || ''))?.id || '';
   const avenueHPropertyId = properties.find((p) => isAvenueHName(p.name || ''))?.id || '';
+  const woodingPropertyId = properties.find((p) => isWoodingName(p.name || ''))?.id || '';
+  const avenueFPropertyId = properties.find((p) => isAvenueFName(p.name || ''))?.id || '';
 
   // Load Bella Jess Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
   useEffect(() => {
@@ -1240,6 +1302,98 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     };
   }, [year, avenueHPropertyId]);
 
+  // Load Wooding Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
+  useEffect(() => {
+    if (year !== 2026 || !woodingPropertyId) {
+      setWoodingMonthTotals({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await api.listPropertyMonthInputs({
+          property: woodingPropertyId,
+          year: 2026,
+          unitLabel: 'Door 1',
+        });
+        if (cancelled) return;
+        const next: Partial<Record<number, { income: number; expenses: number; net: number }>> = {};
+        for (const row of rows) {
+          if (row.computed) {
+            next[row.month] = {
+              income: row.computed.totalEffectiveIncome,
+              expenses: row.computed.totalOpex,
+              net: row.computed.noi,
+            };
+            continue;
+          }
+          const s = computeMonthSummary(
+            mergeWoodingIncomeLines(row.incomeLines, row.month),
+            mergeWoodingOpexLines(row.opexLines, row.month),
+            mergeWoodingFinancingLines(row.financingLines?.length ? row.financingLines : null, row.month),
+          );
+          next[row.month] = {
+            income: s.totalEffectiveIncome,
+            expenses: s.totalOpex,
+            net: s.noi,
+          };
+        }
+        setWoodingMonthTotals(next);
+      } catch {
+        if (!cancelled) setWoodingMonthTotals({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [year, woodingPropertyId]);
+
+  // Load Avenue F Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
+  useEffect(() => {
+    if (year !== 2026 || !avenueFPropertyId) {
+      setAvenueFMonthTotals({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await api.listPropertyMonthInputs({
+          property: avenueFPropertyId,
+          year: 2026,
+          unitLabel: 'Door 1',
+        });
+        if (cancelled) return;
+        const next: Partial<Record<number, { income: number; expenses: number; net: number }>> = {};
+        for (const row of rows) {
+          if (row.computed) {
+            next[row.month] = {
+              income: row.computed.totalEffectiveIncome,
+              expenses: row.computed.totalOpex,
+              net: row.computed.noi,
+            };
+            continue;
+          }
+          const s = computeMonthSummary(
+            mergeAvenueFIncomeLines(row.incomeLines, row.month),
+            mergeAvenueFOpexLines(row.opexLines, row.month),
+            mergeAvenueFFinancingLines(row.financingLines?.length ? row.financingLines : null, row.month),
+          );
+          next[row.month] = {
+            income: s.totalEffectiveIncome,
+            expenses: s.totalOpex,
+            net: s.noi,
+          };
+        }
+        setAvenueFMonthTotals(next);
+      } catch {
+        if (!cancelled) setAvenueFMonthTotals({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [year, avenueFPropertyId]);
+
   // Keep expense bell fresh; avoid re-running the heavy full P&L on a timer.
   usePollWhileVisible(async () => {
     setNotifTick((n) => n + 1);
@@ -1329,6 +1483,16 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     return sumYearlyRows(applyMonthsToYearly(AVENUE_H_2026_YEARLY, avenueHMonthTotals));
   }, [year, avenueHMonthTotals]);
 
+  const woodingYearSheet = useMemo(() => {
+    if (year !== 2026) return null;
+    return sumYearlyRows(applyMonthsToYearly(WOODING_2026_YEARLY, woodingMonthTotals));
+  }, [year, woodingMonthTotals]);
+
+  const avenueFYearSheet = useMemo(() => {
+    if (year !== 2026) return null;
+    return sumYearlyRows(applyMonthsToYearly(AVENUE_F_2026_YEARLY, avenueFMonthTotals));
+  }, [year, avenueFMonthTotals]);
+
   const sheetPortfolioYear = useMemo(() => {
     if (year !== 2026) return null;
     if (
@@ -1338,7 +1502,9 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       !avenueQYearSheet &&
       !shermanYearSheet &&
       !seventiethYearSheet &&
-      !avenueHYearSheet
+      !avenueHYearSheet &&
+      !woodingYearSheet &&
+      !avenueFYearSheet
     ) {
       return null;
     }
@@ -1349,10 +1515,12 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     const s = shermanYearSheet || { income: 0, expenses: 0, net: 0 };
     const sev = seventiethYearSheet || { income: 0, expenses: 0, net: 0 };
     const h = avenueHYearSheet || { income: 0, expenses: 0, net: 0 };
+    const w = woodingYearSheet || { income: 0, expenses: 0, net: 0 };
+    const f = avenueFYearSheet || { income: 0, expenses: 0, net: 0 };
     return {
-      income: b.income + t.income + c.income + a.income + s.income + sev.income + h.income,
-      expenses: b.expenses + t.expenses + c.expenses + a.expenses + s.expenses + sev.expenses + h.expenses,
-      net: b.net + t.net + c.net + a.net + s.net + sev.net + h.net,
+      income: b.income + t.income + c.income + a.income + s.income + sev.income + h.income + w.income + f.income,
+      expenses: b.expenses + t.expenses + c.expenses + a.expenses + s.expenses + sev.expenses + h.expenses + w.expenses + f.expenses,
+      net: b.net + t.net + c.net + a.net + s.net + sev.net + h.net + w.net + f.net,
     };
   }, [
     year,
@@ -1363,6 +1531,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     shermanYearSheet,
     seventiethYearSheet,
     avenueHYearSheet,
+    woodingYearSheet,
+    avenueFYearSheet,
   ]);
 
   const groupedProperties = useMemo(() => {
@@ -1375,7 +1545,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       if (aUnits !== bUnits) return aUnits - bUnits;
       return (a.propertyName || a.groupKey || '').localeCompare(b.propertyName || b.groupKey || '');
     });
-    // Sheet mode: only Bella Jess + Tomball + Conroe + Avenue Q + Sherman + 70th + Avenue H contribute; other properties forced to $0.
+    // Sheet mode: only Bella Jess + Tomball + Conroe + Avenue Q + Sherman + 70th + Avenue H + Wooding + Avenue F contribute; other properties forced to $0.
     return sorted.map((row) => {
       const name = row.propertyName || row.groupKey || '';
       if (isBellaJessName(name) && bellaYearSheet) {
@@ -1448,6 +1618,26 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
           shortStayIncome: 0,
         };
       }
+      if (isWoodingName(name) && woodingYearSheet) {
+        return {
+          ...row,
+          totalIncome: woodingYearSheet.income,
+          totalExpenses: woodingYearSheet.expenses,
+          netIncome: woodingYearSheet.net,
+          rentIncome: woodingYearSheet.income,
+          shortStayIncome: 0,
+        };
+      }
+      if (isAvenueFName(name) && avenueFYearSheet) {
+        return {
+          ...row,
+          totalIncome: avenueFYearSheet.income,
+          totalExpenses: avenueFYearSheet.expenses,
+          netIncome: avenueFYearSheet.net,
+          rentIncome: avenueFYearSheet.income,
+          shortStayIncome: 0,
+        };
+      }
       if (sheetPortfolioYear) {
         return {
           ...row,
@@ -1470,6 +1660,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     shermanYearSheet,
     seventiethYearSheet,
     avenueHYearSheet,
+    woodingYearSheet,
+    avenueFYearSheet,
     sheetPortfolioYear,
   ]);
 
@@ -1477,7 +1669,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     if (!summary) {
       return { totalIncome: 0, totalExpenses: 0, netIncome: 0 };
     }
-    // Portfolio totals = sheet properties only (Bella + Tomball + Conroe + Avenue Q + Sherman + 70th + Avenue H).
+    // Portfolio totals = sheet properties only (Bella + Tomball + Conroe + Avenue Q + Sherman + 70th + Avenue H + Wooding + Avenue F).
     if (sheetPortfolioYear) {
       return {
         ...summary.portfolio,
@@ -1790,6 +1982,10 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                         setSeventiethMonthTotals={setSeventiethMonthTotals}
                         avenueHMonthTotals={avenueHMonthTotals}
                         setAvenueHMonthTotals={setAvenueHMonthTotals}
+                        woodingMonthTotals={woodingMonthTotals}
+                        setWoodingMonthTotals={setWoodingMonthTotals}
+                        avenueFMonthTotals={avenueFMonthTotals}
+                        setAvenueFMonthTotals={setAvenueFMonthTotals}
                       />
                     </div>
                   )}
@@ -1924,6 +2120,10 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                               setSeventiethMonthTotals={setSeventiethMonthTotals}
                               avenueHMonthTotals={avenueHMonthTotals}
                               setAvenueHMonthTotals={setAvenueHMonthTotals}
+                              woodingMonthTotals={woodingMonthTotals}
+                              setWoodingMonthTotals={setWoodingMonthTotals}
+                              avenueFMonthTotals={avenueFMonthTotals}
+                              setAvenueFMonthTotals={setAvenueFMonthTotals}
                             />
                           </td>
                         </tr>

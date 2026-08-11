@@ -39,6 +39,16 @@ import {
   mergeAvenueHIncomeLines,
   mergeAvenueHOpexLines,
 } from '../utils/avenueHPnl2026';
+import {
+  mergeWoodingFinancingLines,
+  mergeWoodingIncomeLines,
+  mergeWoodingOpexLines,
+} from '../utils/woodingPnl2026';
+import {
+  mergeAvenueFFinancingLines,
+  mergeAvenueFIncomeLines,
+  mergeAvenueFOpexLines,
+} from '../utils/avenueFPnl2026';
 
 export type SheetPnlKind =
   | 'bella'
@@ -47,7 +57,9 @@ export type SheetPnlKind =
   | 'avenueq'
   | 'sherman'
   | 'seventieth'
-  | 'avenueh';
+  | 'avenueh'
+  | 'wooding'
+  | 'avenuef';
 
 const mergeIncomeForSheet = (
   kind: SheetPnlKind,
@@ -61,6 +73,8 @@ const mergeIncomeForSheet = (
   if (kind === 'sherman') return mergeShermanIncomeLines(saved, month, useSheetDefaults);
   if (kind === 'seventieth') return mergeSeventiethIncomeLines(saved, month, useSheetDefaults);
   if (kind === 'avenueh') return mergeAvenueHIncomeLines(saved, month, useSheetDefaults);
+  if (kind === 'wooding') return mergeWoodingIncomeLines(saved, month, useSheetDefaults);
+  if (kind === 'avenuef') return mergeAvenueFIncomeLines(saved, month, useSheetDefaults);
   return mergeIncomeLines(saved, month, useSheetDefaults);
 };
 
@@ -76,6 +90,8 @@ const mergeOpexForSheet = (
   if (kind === 'sherman') return mergeShermanOpexLines(saved, month, useSheetDefaults);
   if (kind === 'seventieth') return mergeSeventiethOpexLines(saved, month, useSheetDefaults);
   if (kind === 'avenueh') return mergeAvenueHOpexLines(saved, month, useSheetDefaults);
+  if (kind === 'wooding') return mergeWoodingOpexLines(saved, month, useSheetDefaults);
+  if (kind === 'avenuef') return mergeAvenueFOpexLines(saved, month, useSheetDefaults);
   return mergeOpexLines(saved, month, useSheetDefaults);
 };
 
@@ -92,6 +108,8 @@ const mergeFinancingForSheet = (
   if (kind === 'sherman') return mergeShermanFinancingLines(saved, month, useSheetDefaults);
   if (kind === 'seventieth') return mergeSeventiethFinancingLines(saved, month, useSheetDefaults);
   if (kind === 'avenueh') return mergeAvenueHFinancingLines(saved, month, useSheetDefaults);
+  if (kind === 'wooding') return mergeWoodingFinancingLines(saved, month, useSheetDefaults);
+  if (kind === 'avenuef') return mergeAvenueFFinancingLines(saved, month, useSheetDefaults);
   return mergeFinancingLines(saved, overview, month, useSheetDefaults);
 };
 
@@ -169,13 +187,15 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
 }) => {
   const sheetKind = (sheetKindProp || 'bella') as SheetPnlKind;
   const incomeSectionTitle =
-    sheetKind === 'avenueq' || sheetKind === 'avenueh' || sheetKind === 'seventieth'
+    sheetKind === 'avenueq' || sheetKind === 'avenueh' || sheetKind === 'seventieth' || sheetKind === 'avenuef'
       ? 'INCOME — 4 Plex'
       : sheetKind === 'sherman'
         ? 'INCOME — 6 Plex'
-        : 'INCOME';
+        : sheetKind === 'wooding'
+          ? 'INCOME — 3 Plex'
+          : 'INCOME';
   const displayUnitLabel =
-    sheetKind === 'avenueq' || sheetKind === 'avenueh' || sheetKind === 'seventieth'
+    sheetKind === 'avenueq' || sheetKind === 'avenueh' || sheetKind === 'seventieth' || sheetKind === 'avenuef'
       ? unitLabel === 'Door 1'
         ? '4-Plex'
         : unitLabel
@@ -183,7 +203,11 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
         ? unitLabel === 'Door 1'
           ? '6-Plex'
           : unitLabel
-        : unitLabel;
+        : sheetKind === 'wooding'
+          ? unitLabel === 'Door 1'
+            ? '3-Plex'
+            : unitLabel
+          : unitLabel;
   const [incomeLines, setIncomeLines] = useState<PnlLine[]>(() =>
     mergeIncomeForSheet(sheetKind, null, month, useSheetDefaults),
   );
