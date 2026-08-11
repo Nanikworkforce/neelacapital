@@ -24,8 +24,30 @@ import {
   mergeAvenueQIncomeLines,
   mergeAvenueQOpexLines,
 } from '../utils/avenueQPnl2026';
+import {
+  mergeShermanFinancingLines,
+  mergeShermanIncomeLines,
+  mergeShermanOpexLines,
+} from '../utils/shermanPnl2026';
+import {
+  mergeSeventiethFinancingLines,
+  mergeSeventiethIncomeLines,
+  mergeSeventiethOpexLines,
+} from '../utils/seventiethPnl2026';
+import {
+  mergeAvenueHFinancingLines,
+  mergeAvenueHIncomeLines,
+  mergeAvenueHOpexLines,
+} from '../utils/avenueHPnl2026';
 
-export type SheetPnlKind = 'bella' | 'tomball' | 'conroe' | 'avenueq';
+export type SheetPnlKind =
+  | 'bella'
+  | 'tomball'
+  | 'conroe'
+  | 'avenueq'
+  | 'sherman'
+  | 'seventieth'
+  | 'avenueh';
 
 const mergeIncomeForSheet = (
   kind: SheetPnlKind,
@@ -36,6 +58,9 @@ const mergeIncomeForSheet = (
   if (kind === 'tomball') return mergeTomballIncomeLines(saved, month, useSheetDefaults);
   if (kind === 'conroe') return mergeConroeIncomeLines(saved, month, useSheetDefaults);
   if (kind === 'avenueq') return mergeAvenueQIncomeLines(saved, month, useSheetDefaults);
+  if (kind === 'sherman') return mergeShermanIncomeLines(saved, month, useSheetDefaults);
+  if (kind === 'seventieth') return mergeSeventiethIncomeLines(saved, month, useSheetDefaults);
+  if (kind === 'avenueh') return mergeAvenueHIncomeLines(saved, month, useSheetDefaults);
   return mergeIncomeLines(saved, month, useSheetDefaults);
 };
 
@@ -48,6 +73,9 @@ const mergeOpexForSheet = (
   if (kind === 'tomball') return mergeTomballOpexLines(saved, month, useSheetDefaults);
   if (kind === 'conroe') return mergeConroeOpexLines(saved, month, useSheetDefaults);
   if (kind === 'avenueq') return mergeAvenueQOpexLines(saved, month, useSheetDefaults);
+  if (kind === 'sherman') return mergeShermanOpexLines(saved, month, useSheetDefaults);
+  if (kind === 'seventieth') return mergeSeventiethOpexLines(saved, month, useSheetDefaults);
+  if (kind === 'avenueh') return mergeAvenueHOpexLines(saved, month, useSheetDefaults);
   return mergeOpexLines(saved, month, useSheetDefaults);
 };
 
@@ -61,6 +89,9 @@ const mergeFinancingForSheet = (
   if (kind === 'tomball') return mergeTomballFinancingLines(saved, month, useSheetDefaults);
   if (kind === 'conroe') return mergeConroeFinancingLines(saved, month, useSheetDefaults);
   if (kind === 'avenueq') return mergeAvenueQFinancingLines(saved, month, useSheetDefaults);
+  if (kind === 'sherman') return mergeShermanFinancingLines(saved, month, useSheetDefaults);
+  if (kind === 'seventieth') return mergeSeventiethFinancingLines(saved, month, useSheetDefaults);
+  if (kind === 'avenueh') return mergeAvenueHFinancingLines(saved, month, useSheetDefaults);
   return mergeFinancingLines(saved, overview, month, useSheetDefaults);
 };
 
@@ -136,9 +167,23 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
   onSavingChange,
   onSaved,
 }) => {
-  const sheetKind: SheetPnlKind = sheetKindProp;
-  const incomeSectionTitle = sheetKind === 'avenueq' ? 'INCOME — 4 Plex' : 'INCOME';
-  const displayUnitLabel = sheetKind === 'avenueq' ? (unitLabel === 'Door 1' ? '4-Plex' : unitLabel) : unitLabel;
+  const sheetKind = (sheetKindProp || 'bella') as SheetPnlKind;
+  const incomeSectionTitle =
+    sheetKind === 'avenueq' || sheetKind === 'avenueh' || sheetKind === 'seventieth'
+      ? 'INCOME — 4 Plex'
+      : sheetKind === 'sherman'
+        ? 'INCOME — 6 Plex'
+        : 'INCOME';
+  const displayUnitLabel =
+    sheetKind === 'avenueq' || sheetKind === 'avenueh' || sheetKind === 'seventieth'
+      ? unitLabel === 'Door 1'
+        ? '4-Plex'
+        : unitLabel
+      : sheetKind === 'sherman'
+        ? unitLabel === 'Door 1'
+          ? '6-Plex'
+          : unitLabel
+        : unitLabel;
   const [incomeLines, setIncomeLines] = useState<PnlLine[]>(() =>
     mergeIncomeForSheet(sheetKind, null, month, useSheetDefaults),
   );

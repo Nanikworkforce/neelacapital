@@ -216,6 +216,9 @@ const PropertyManagerView: React.FC = () => {
   const [tomballPnlMonth, setTomballPnlMonth] = useState(1);
   const [conroePnlMonth, setConroePnlMonth] = useState(1);
   const [avenueQPnlMonth, setAvenueQPnlMonth] = useState(1);
+  const [shermanPnlMonth, setShermanPnlMonth] = useState(1);
+  const [seventiethPnlMonth, setSeventiethPnlMonth] = useState(1);
+  const [avenueHPnlMonth, setAvenueHPnlMonth] = useState(1);
   const [user, setUser] = useState(() => getCurrentUser('manager'));
 
   useEffect(() => {
@@ -1241,6 +1244,153 @@ const PropertyManagerView: React.FC = () => {
                     showPerformanceMetrics={false}
                     useSheetDefaults
                     sheetKind="avenueq"
+                  />
+                </SectionCard>
+              );
+            })()}
+
+            {(() => {
+              const sherman = properties.find((p) => /sherman/i.test(p.name || ''));
+              if (!sherman) return null;
+              const monthNames = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December',
+              ];
+              return (
+                <SectionCard
+                  title="Sherman St — monthly P&L inputs (6-plex)"
+                  action={
+                    <select
+                      value={shermanPnlMonth}
+                      onChange={(e) => setShermanPnlMonth(Number(e.target.value))}
+                      className="w-full sm:w-auto min-h-[40px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-800"
+                    >
+                      {monthNames.map((name, i) => (
+                        <option key={name} value={i + 1}>
+                          {name} 2026
+                        </option>
+                      ))}
+                    </select>
+                  }
+                >
+                  <PropertyMonthIncomeOpexEditor
+                    key={`sherman-${shermanPnlMonth}`}
+                    propertyId={sherman.id}
+                    year={2026}
+                    month={shermanPnlMonth}
+                    unitLabel="Door 1"
+                    monthTitle={`${monthNames[shermanPnlMonth - 1]} 2026`}
+                    overview={{
+                      purchasePrice: 205000,
+                      downPayment: 205000,
+                      closingCost: 5257,
+                      landValue: 0,
+                      depreciationYears: 27.5,
+                      loanAmount: 0,
+                      interestRate: 0,
+                      monthlyMortgagePayment: 0,
+                    }}
+                    showPerformanceMetrics={false}
+                    useSheetDefaults
+                    sheetKind="sherman"
+                  />
+                </SectionCard>
+              );
+            })()}
+
+            {(() => {
+              const seventieth = properties.find((p) => /70th/i.test(p.name || ''));
+              if (!seventieth) return null;
+              const monthNames = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December',
+              ];
+              return (
+                <SectionCard
+                  title="70th Street — monthly P&L inputs (4-plex)"
+                  action={
+                    <select
+                      value={seventiethPnlMonth}
+                      onChange={(e) => setSeventiethPnlMonth(Number(e.target.value))}
+                      className="w-full sm:w-auto min-h-[40px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-800"
+                    >
+                      {monthNames.map((name, i) => (
+                        <option key={name} value={i + 1}>
+                          {name} 2026
+                        </option>
+                      ))}
+                    </select>
+                  }
+                >
+                  <PropertyMonthIncomeOpexEditor
+                    key={`seventieth-${seventiethPnlMonth}`}
+                    propertyId={seventieth.id}
+                    year={2026}
+                    month={seventiethPnlMonth}
+                    unitLabel="Door 1"
+                    monthTitle={`${monthNames[seventiethPnlMonth - 1]} 2026`}
+                    overview={{
+                      purchasePrice: 274000,
+                      downPayment: 30000,
+                      closingCost: 0,
+                      landValue: 0,
+                      depreciationYears: 27.5,
+                      loanAmount: 274000,
+                      interestRate: 0.09,
+                      monthlyMortgagePayment: 3192,
+                    }}
+                    showPerformanceMetrics={false}
+                    useSheetDefaults
+                    sheetKind="seventieth"
+                  />
+                </SectionCard>
+              );
+            })()}
+
+            {(() => {
+              const avenueH = properties.find((p) => /avenue\s*h|ave\.?\s*h|aveh/i.test(p.name || ''));
+              if (!avenueH) return null;
+              const monthNames = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December',
+              ];
+              return (
+                <SectionCard
+                  title="Avenue H — monthly P&L inputs (4-plex)"
+                  action={
+                    <select
+                      value={avenueHPnlMonth}
+                      onChange={(e) => setAvenueHPnlMonth(Number(e.target.value))}
+                      className="w-full sm:w-auto min-h-[40px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-800"
+                    >
+                      {monthNames.map((name, i) => (
+                        <option key={name} value={i + 1}>
+                          {name} 2026
+                        </option>
+                      ))}
+                    </select>
+                  }
+                >
+                  <PropertyMonthIncomeOpexEditor
+                    key={`avenueh-${avenueHPnlMonth}`}
+                    propertyId={avenueH.id}
+                    year={2026}
+                    month={avenueHPnlMonth}
+                    unitLabel="Door 1"
+                    monthTitle={`${monthNames[avenueHPnlMonth - 1]} 2026`}
+                    overview={{
+                      purchasePrice: 300000,
+                      downPayment: 41513.32,
+                      closingCost: 0,
+                      landValue: 0,
+                      depreciationYears: 27.5,
+                      loanAmount: 275580.06,
+                      interestRate: 0.09,
+                      monthlyMortgagePayment: 2025,
+                    }}
+                    showPerformanceMetrics={false}
+                    useSheetDefaults
+                    sheetKind="avenueh"
                   />
                 </SectionCard>
               );

@@ -9,8 +9,9 @@ Per property / month:
 Financing (mortgage, depreciation) sits below NOI and is excluded from operating totals.
 Live rents and manager/admin expenses affect the income statement for most properties.
 
-Bella Jess, Tomball, Conroe, and Avenue Q are sheet / PropertyMonthInput only — rent collections and
-recorded operating expenses are excluded from their Income Statement totals (2026 corrected yearly seeds).
+Bella Jess, Tomball, Conroe, Avenue Q, Sherman, 70th Street, and Avenue H are sheet /
+PropertyMonthInput only — rent collections and recorded operating expenses are excluded from
+their Income Statement totals (2026 corrected yearly seeds).
 """
 import re
 from collections import defaultdict
@@ -101,6 +102,43 @@ AVENUE_Q_2026_YEARLY = [
     (Decimal('4200'), Decimal('30'), Decimal('4170')),
 ]
 
+# Corrected Sherman 2026 TEI / OpEx / NOI (matches utils/shermanPnl2026.ts).
+SHERMAN_2026_YEARLY = [
+    (Decimal('0'), Decimal('3657.57'), Decimal('-3657.57')),
+    (Decimal('0'), Decimal('310.92'), Decimal('-310.92')),
+    (Decimal('0'), Decimal('3250.92'), Decimal('-3250.92')),
+    (Decimal('0'), Decimal('285.36'), Decimal('-285.36')),
+    (Decimal('0'), Decimal('343.05'), Decimal('-343.05')),
+    (Decimal('0'), Decimal('2296.14'), Decimal('-2296.14')),
+    (Decimal('0'), Decimal('141.08'), Decimal('-141.08')),
+    (Decimal('0'), Decimal('60'), Decimal('-60')),
+    (Decimal('0'), Decimal('60'), Decimal('-60')),
+    (Decimal('0'), Decimal('60'), Decimal('-60')),
+    (Decimal('0'), Decimal('60'), Decimal('-60')),
+    (Decimal('0'), Decimal('60'), Decimal('-60')),
+]
+
+# Corrected 70th Street 2026 TEI / OpEx / NOI (matches utils/seventiethPnl2026.ts).
+SEVENTIETH_2026_YEARLY = [
+    (Decimal('0'), Decimal('30'), Decimal('-30')),
+    (Decimal('850'), Decimal('30'), Decimal('820')),
+    (Decimal('850'), Decimal('30'), Decimal('820')),
+    (Decimal('850'), Decimal('30'), Decimal('820')),
+    (Decimal('850'), Decimal('30'), Decimal('820')),
+    (Decimal('850'), Decimal('30'), Decimal('820')),
+    (Decimal('850'), Decimal('30'), Decimal('820')),
+    (Decimal('850'), Decimal('30'), Decimal('820')),
+    (Decimal('0'), Decimal('30'), Decimal('-30')),
+    (Decimal('850'), Decimal('30'), Decimal('820')),
+    (Decimal('850'), Decimal('30'), Decimal('820')),
+    (Decimal('850'), Decimal('30'), Decimal('820')),
+]
+
+# Corrected Avenue H 2026 TEI / OpEx / NOI (matches utils/avenueHPnl2026.ts — Jan detail × 12).
+AVENUE_H_2026_YEARLY = [
+    (Decimal('850'), Decimal('1161.65'), Decimal('-311.65')),
+] * 12
+
 
 def is_bella_jess_property(prop) -> bool:
     name = getattr(prop, 'name', None) or ''
@@ -125,6 +163,22 @@ def is_avenue_q_property(prop) -> bool:
     return bool(re.search(r'avenue\s*q|ave\.?\s*q|aveq', name, re.I))
 
 
+def is_sherman_property(prop) -> bool:
+    name = getattr(prop, 'name', None) or ''
+    return bool(re.search(r'sherman', name, re.I))
+
+
+def is_seventieth_property(prop) -> bool:
+    name = getattr(prop, 'name', None) or ''
+    return bool(re.search(r'70th', name, re.I))
+
+
+def is_avenue_h_property(prop) -> bool:
+    """Avenue H sheet — must not match Avenue Q (matcher uses h, not q)."""
+    name = getattr(prop, 'name', None) or ''
+    return bool(re.search(r'avenue\s*h|ave\.?\s*h|aveh', name, re.I))
+
+
 def bella_jess_property_ids(properties) -> set:
     return {p.id for p in properties if is_bella_jess_property(p)}
 
@@ -141,6 +195,18 @@ def avenue_q_property_ids(properties) -> set:
     return {p.id for p in properties if is_avenue_q_property(p)}
 
 
+def sherman_property_ids(properties) -> set:
+    return {p.id for p in properties if is_sherman_property(p)}
+
+
+def seventieth_property_ids(properties) -> set:
+    return {p.id for p in properties if is_seventieth_property(p)}
+
+
+def avenue_h_property_ids(properties) -> set:
+    return {p.id for p in properties if is_avenue_h_property(p)}
+
+
 def sheet_pnl_property_ids(properties) -> set:
     """Properties that use Excel sheet / month-input totals only."""
     return (
@@ -148,41 +214,43 @@ def sheet_pnl_property_ids(properties) -> set:
         | tomball_property_ids(properties)
         | conroe_property_ids(properties)
         | avenue_q_property_ids(properties)
+        | sherman_property_ids(properties)
+        | seventieth_property_ids(properties)
+        | avenue_h_property_ids(properties)
     )
 
 
-def _sheet_year_seed(
-    prop_id: int,
-    year: int,
-    bella_ids: set,
-    tomball_ids: set,
-    conroe_ids: set,
-    avenue_q_ids: set | None = None,
-):
-    avenue_q_ids = avenue_q_ids or set()
+def build_sheet_seed_map(properties, year) -> dict:
+    """Map property id → 12-month (TEI, OpEx, NOI) seed list for sheet P&L properties."""
+    if year != 2026:
+        return {}
+    seed_map = {}
+    for prop in properties:
+        if is_bella_jess_property(prop):
+            seed_map[prop.id] = BELLA_JESS_2026_YEARLY
+        elif is_tomball_property(prop):
+            seed_map[prop.id] = TOMBALL_2026_YEARLY
+        elif is_conroe_property(prop):
+            seed_map[prop.id] = CONROE_2026_YEARLY
+        elif is_avenue_q_property(prop):
+            seed_map[prop.id] = AVENUE_Q_2026_YEARLY
+        elif is_sherman_property(prop):
+            seed_map[prop.id] = SHERMAN_2026_YEARLY
+        elif is_seventieth_property(prop):
+            seed_map[prop.id] = SEVENTIETH_2026_YEARLY
+        elif is_avenue_h_property(prop):
+            seed_map[prop.id] = AVENUE_H_2026_YEARLY
+    return seed_map
+
+
+def _sheet_year_seed(prop_id: int, year: int, seed_map: dict):
     if year != 2026:
         return None
-    if prop_id in bella_ids:
-        return BELLA_JESS_2026_YEARLY
-    if prop_id in tomball_ids:
-        return TOMBALL_2026_YEARLY
-    if prop_id in conroe_ids:
-        return CONROE_2026_YEARLY
-    if prop_id in avenue_q_ids:
-        return AVENUE_Q_2026_YEARLY
-    return None
+    return seed_map.get(prop_id)
 
 
-def sheet_month_rows(
-    prop_id: int,
-    year: int,
-    bella_ids: set,
-    tomball_ids: set,
-    conroe_ids: set,
-    avenue_q_ids: set | None = None,
-):
+def sheet_month_rows(prop_id: int, year: int, seed_map: dict):
     """Return list of 12 (income, expenses, noi) Decimals for a sheet property."""
-    avenue_q_ids = avenue_q_ids or set()
     by_month = {}
     for row in PropertyMonthInput.objects.filter(property_id=prop_id, year=year).only(
         'month', 'computed', 'income_lines', 'opex_lines', 'financing_lines'
@@ -196,7 +264,7 @@ def sheet_month_rows(
             noi = Decimal(str(computed.get('noi', tei - opex) or 0))
             by_month[row.month] = (tei, opex, noi)
 
-    seeds = _sheet_year_seed(prop_id, year, bella_ids, tomball_ids, conroe_ids, avenue_q_ids)
+    seeds = _sheet_year_seed(prop_id, year, seed_map)
     rows = []
     for month in range(1, 13):
         if month in by_month:
@@ -208,15 +276,8 @@ def sheet_month_rows(
     return rows
 
 
-def sheet_year_totals(
-    prop_id: int,
-    year: int,
-    bella_ids: set,
-    tomball_ids: set,
-    conroe_ids: set,
-    avenue_q_ids: set | None = None,
-):
-    rows = sheet_month_rows(prop_id, year, bella_ids, tomball_ids, conroe_ids, avenue_q_ids)
+def sheet_year_totals(prop_id: int, year: int, seed_map: dict):
+    rows = sheet_month_rows(prop_id, year, seed_map)
     income = sum((r[0] for r in rows), Decimal('0'))
     expenses = sum((r[1] for r in rows), Decimal('0'))
     net = sum((r[2] for r in rows), Decimal('0'))
@@ -225,11 +286,13 @@ def sheet_year_totals(
 
 # Back-compat aliases used elsewhere / tests.
 def bella_jess_month_rows(prop_id: int, year: int):
-    return sheet_month_rows(prop_id, year, {prop_id}, set(), set(), set())
+    seed_map = {prop_id: BELLA_JESS_2026_YEARLY} if year == 2026 else {}
+    return sheet_month_rows(prop_id, year, seed_map)
 
 
 def bella_jess_year_totals(prop_id: int, year: int):
-    return sheet_year_totals(prop_id, year, {prop_id}, set(), set(), set())
+    seed_map = {prop_id: BELLA_JESS_2026_YEARLY} if year == 2026 else {}
+    return sheet_year_totals(prop_id, year, seed_map)
 
 IMPORT_TAG_PREFIX = 'excel-import-'
 IMPORT_TAG = 'excel-import-2026'
@@ -512,11 +575,8 @@ def compute_property_pnl(
     """
     property_ids = [p.id for p in properties]
     property_ids_set = set(property_ids)
-    bella_ids = bella_jess_property_ids(properties)
-    tomball_ids = tomball_property_ids(properties)
-    conroe_ids = conroe_property_ids(properties)
-    avenue_q_ids = avenue_q_property_ids(properties)
-    sheet_ids = bella_ids | tomball_ids | conroe_ids | avenue_q_ids
+    seed_map = build_sheet_seed_map(properties, year)
+    sheet_ids = sheet_pnl_property_ids(properties)
 
     tenant_prop_map, props_by_id = build_full_tenant_property_map(properties)
 
@@ -678,9 +738,7 @@ def compute_property_pnl(
         if sheet_ids:
             for p in properties:
                 if p.id in sheet_ids:
-                    inc, exp, _net = sheet_year_totals(
-                        p.id, year, bella_ids, tomball_ids, conroe_ids, avenue_q_ids
-                    )
+                    inc, exp, _net = sheet_year_totals(p.id, year, seed_map)
                     total_rent += inc
                     total_expenses += exp
         else:
@@ -714,9 +772,7 @@ def compute_property_pnl(
 
     for p in properties:
         if p.id in sheet_ids:
-            income, expenses, net = sheet_year_totals(
-                p.id, year, bella_ids, tomball_ids, conroe_ids, avenue_q_ids
-            )
+            income, expenses, net = sheet_year_totals(p.id, year, seed_map)
             rent = income
             short = Decimal('0')
         elif sheet_ids:
@@ -805,7 +861,7 @@ def compute_property_pnl(
     portfolio_net = portfolio_income - portfolio_expenses
 
     sheet_month_cache = {
-        sid: sheet_month_rows(sid, year, bella_ids, tomball_ids, conroe_ids, avenue_q_ids)
+        sid: sheet_month_rows(sid, year, seed_map)
         for sid in sheet_ids
     }
 
