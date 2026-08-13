@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { api } from '../services/api';
 import {
@@ -138,6 +138,46 @@ const pctToneClass = (value: number | null) => {
   return 'text-slate-700';
 };
 
+/** Excel-style OpEx: General Expenses → Unit N blocks (with Total/Unit). */
+type OpexSection =
+  | { kind: 'general'; lines: PnlLine[] }
+  | { kind: 'unit'; door: number; title: string; lines: PnlLine[] };
+
+const groupOpexByUnit = (lines: PnlLine[]): OpexSection[] => {
+  const general: PnlLine[] = [];
+  const byDoor = new Map<number, { title: string; lines: PnlLine[] }>();
+
+  for (const line of lines) {
+    const m = line.key.match(/_door_(\d+)$/);
+    if (!m) {
+      general.push({
+        ...line,
+        label: line.label.replace(/\s*\(General\)\s*$/i, '').trim() || line.label,
+      });
+      continue;
+    }
+    const door = Number(m[1]);
+    const dash = line.label.lastIndexOf(' — ');
+    const title = dash >= 0 ? line.label.slice(dash + 3).trim() : `Unit ${door}`;
+    const shortLabel = dash >= 0 ? line.label.slice(0, dash).trim() : line.label;
+    const entry = byDoor.get(door) ?? { title, lines: [] as PnlLine[] };
+    entry.title = title;
+    entry.lines.push({ ...line, label: shortLabel });
+    byDoor.set(door, entry);
+  }
+
+  const sections: OpexSection[] = [];
+  if (general.length) sections.push({ kind: 'general', lines: general });
+  for (const door of [...byDoor.keys()].sort((a, b) => a - b)) {
+    const u = byDoor.get(door)!;
+    sections.push({ kind: 'unit', door, title: u.title, lines: u.lines });
+  }
+  return sections;
+};
+
+const sumLineAmounts = (lines: PnlLine[]) =>
+  lines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+
 type Props = {
   propertyId: string;
   year: number;
@@ -238,6 +278,9 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
     cashOnCashPct: number | null;
   } | null>(null);
   const [dirty, setDirty] = useState(false);
+
+  const opexSections = useMemo(() => groupOpexByUnit(opexLines), [opexLines]);
+  const opexHasUnitBlocks = opexSections.some((s) => s.kind === 'unit');
 
   useEffect(() => {
     let cancelled = false;
@@ -521,22 +564,98 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
             </tr>
           </thead>
           <tbody>
-            {opexLines.map((l) => (
-              <tr key={l.key} className="border-t border-slate-100">
-                <td className={`px-2.5 sm:px-3 py-2 pr-2 align-middle break-words leading-snug ${l.accent ? 'italic text-amber-800' : ''}`}>{l.label}</td>
-                <td className="px-2 sm:px-3 py-1.5 text-right align-middle">
-                  <input
-                    type="number"
-                    step="0.01"
-                    inputMode="decimal"
-                    value={l.amount}
-                    onChange={(e) => setOpexAmount(l.key, e.target.value)}
-                    className={`w-full max-w-[7.25rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[40px] sm:min-h-[36px] ${moneyToneClass(l.amount)}`}
-                    disabled={loading || saving}
-                  />
-                </td>
-              </tr>
-            ))}
+            {opexHasUnitBlocks
+              ? opexSections.map((section) => {
+                  if (section.kind === 'general') {
+                    return (
+                      <React.Fragment key="opex-general">
+                        <tr className="border-t border-slate-200 bg-slate-100">
+                          <td className="px-2.5 sm:px-3 py-2 font-bold text-slate-800" colSpan={2}>
+                            General Expenses
+                          </td>
+                        </tr>
+                        {section.lines.map((l) => (
+                          <tr key={l.key} className="border-t border-slate-100">
+                            <td
+                              className={`px-2.5 sm:px-3 py-2 pr-2 align-middle break-words leading-snug ${l.accent ? 'italic text-amber-800' : ''}`}
+                            >
+                              {l.label}
+                            </td>
+                            <td className="px-2 sm:px-3 py-1.5 text-right align-middle">
+                              <input
+                                type="number"
+                                step="0.01"
+                                inputMode="decimal"
+                                value={l.amount}
+                                onChange={(e) => setOpexAmount(l.key, e.target.value)}
+                                className={`w-full max-w-[7.25rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[40px] sm:min-h-[36px] ${moneyToneClass(l.amount)}`}
+                                disabled={loading || saving}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  }
+                  const unitTotal = sumLineAmounts(section.lines);
+                  return (
+                    <React.Fragment key={`opex-unit-${section.door}`}>
+                      <tr className="border-t border-slate-200 bg-slate-100">
+                        <td className="px-2.5 sm:px-3 py-2 font-bold text-slate-800" colSpan={2}>
+                          {section.title}
+                        </td>
+                      </tr>
+                      {section.lines.map((l) => (
+                        <tr key={l.key} className="border-t border-slate-100">
+                          <td
+                            className={`px-2.5 sm:px-3 py-2 pr-2 pl-4 sm:pl-5 align-middle break-words leading-snug ${l.accent ? 'italic text-amber-800' : ''}`}
+                          >
+                            {l.label}
+                          </td>
+                          <td className="px-2 sm:px-3 py-1.5 text-right align-middle">
+                            <input
+                              type="number"
+                              step="0.01"
+                              inputMode="decimal"
+                              value={l.amount}
+                              onChange={(e) => setOpexAmount(l.key, e.target.value)}
+                              className={`w-full max-w-[7.25rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[40px] sm:min-h-[36px] ${moneyToneClass(l.amount)}`}
+                              disabled={loading || saving}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="border-t border-slate-200 bg-slate-50 font-semibold">
+                        <td className="px-2.5 sm:px-3 py-2 break-words leading-snug">Total/Unit</td>
+                        <td
+                          className={`px-2.5 sm:px-3 py-2 text-right tabular-nums whitespace-nowrap ${moneyToneClass(unitTotal)}`}
+                        >
+                          {formatMoneyPnL(unitTotal)}
+                        </td>
+                      </tr>
+                    </React.Fragment>
+                  );
+                })
+              : opexLines.map((l) => (
+                  <tr key={l.key} className="border-t border-slate-100">
+                    <td
+                      className={`px-2.5 sm:px-3 py-2 pr-2 align-middle break-words leading-snug ${l.accent ? 'italic text-amber-800' : ''}`}
+                    >
+                      {l.label}
+                    </td>
+                    <td className="px-2 sm:px-3 py-1.5 text-right align-middle">
+                      <input
+                        type="number"
+                        step="0.01"
+                        inputMode="decimal"
+                        value={l.amount}
+                        onChange={(e) => setOpexAmount(l.key, e.target.value)}
+                        className={`w-full max-w-[7.25rem] sm:max-w-[8.5rem] ml-auto block rounded-md border border-slate-200 px-2 py-1.5 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 min-h-[40px] sm:min-h-[36px] ${moneyToneClass(l.amount)}`}
+                        disabled={loading || saving}
+                      />
+                    </td>
+                  </tr>
+                ))}
             <tr className="border-t bg-emerald-50 font-bold">
               <td className="px-2.5 sm:px-3 py-2.5 break-words leading-snug">Total Operating Expenses</td>
               <td className={`px-2.5 sm:px-3 py-2.5 text-right tabular-nums whitespace-nowrap ${moneyToneClass(summary.totalOpex)}`}>
