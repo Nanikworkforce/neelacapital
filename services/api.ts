@@ -404,7 +404,15 @@ export const api = {
     const response = await fetchWithAuth(`${API_URL}/property-month-inputs/?${params}`, {
       headers: getHeaders(false, true),
     });
-    if (!response.ok) throw new Error('Failed to fetch month inputs');
+    if (!response.ok) {
+      // 404 usually means the backend deploy is behind (route not registered yet).
+      if (response.status === 404) {
+        const err = new Error('Month inputs API not available on server yet') as Error & { status?: number };
+        err.status = 404;
+        throw err;
+      }
+      throw new Error('Failed to fetch month inputs');
+    }
     const data = await response.json();
     const rows = Array.isArray(data) ? data : data.results || [];
     if (!rows.length) return null;
@@ -424,7 +432,14 @@ export const api = {
     const response = await fetchWithAuth(`${API_URL}/property-month-inputs/?${params}`, {
       headers: getHeaders(false, true),
     });
-    if (!response.ok) throw new Error('Failed to fetch month inputs');
+    if (!response.ok) {
+      if (response.status === 404) {
+        const err = new Error('Month inputs API not available on server yet') as Error & { status?: number };
+        err.status = 404;
+        throw err;
+      }
+      throw new Error('Failed to fetch month inputs');
+    }
     const data = await response.json();
     const rows = Array.isArray(data) ? data : data.results || [];
     return rows.map((row: any) => api.mapPropertyMonthInput(row));

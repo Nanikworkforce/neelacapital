@@ -277,7 +277,12 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
         }
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Failed to load month inputs');
+          // Sheet seeds still render — only surface a hard error when not using defaults.
+          if (useSheetDefaults) {
+            setError(null);
+          } else {
+            setError(e instanceof Error ? e.message : 'Failed to load month inputs');
+          }
           setIncomeLines(mergeIncomeForSheet(sheetKind, null, month, useSheetDefaults));
           setOpexLines(mergeOpexForSheet(sheetKind, null, month, useSheetDefaults));
           setFinancingLines(mergeFinancingForSheet(sheetKind, null, overview, month, useSheetDefaults));
