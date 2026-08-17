@@ -47,6 +47,12 @@ venv/
 *.xls
 *.xlsm
 *.xlsb
+*.csv
+
+# Local P&L dumps / one-off scratch scripts
+P&L data/
+_patch_yearly.py
+_*.py
 
 sqlite3.db
 sqlite3.db-journal
