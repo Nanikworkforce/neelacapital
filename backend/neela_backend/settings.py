@@ -134,6 +134,9 @@ WSGI_APPLICATION = 'neela_backend.wsgi.application'
 
 # Database Configuration: use SQLite locally when DATABASE_URL is not set
 _db_url = os.environ.get("DATABASE_URL")
+if _db_url and _db_url.startswith('mysql'):
+    import pymysql
+    pymysql.install_as_MySQLdb()
 if _db_url:
     DATABASES = {
         'default': dj_database_url.config(default=_db_url, conn_max_age=600)
