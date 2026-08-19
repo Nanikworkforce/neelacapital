@@ -7,7 +7,7 @@ import {
 import { FloatingPillSwitch } from './FloatingPillSwitch';
 import ViewportPortal from './ViewportPortal';
 import {
-  PORTFOLIO_DISPLAY_ORDER,
+  LISTINGS_DISPLAY_ORDER,
   getPropertyGroupKeyFromProperty,
   propertiesForPortfolioDisplay,
   sortPropertiesForPortfolioDisplay,
@@ -15,7 +15,7 @@ import {
 
 const QUICK_LOCATIONS = ['Downtown Houston', 'Houston Airport', 'Galleria', 'University of Houston'];
 
-const LISTING_AREAS = PORTFOLIO_DISPLAY_ORDER;
+const LISTING_AREAS = LISTINGS_DISPLAY_ORDER;
 
 interface ListingsProps {
   setView: (view: string) => void;
@@ -36,11 +36,13 @@ const ListingCard: React.FC<{
   const isComingSoon = listing.status === 'coming_soon';
   const isUnavailable = isOccupied || isComingSoon;
   const furnishingLabel = listing.furnishingType || (listing.furnishingsBreakdown && listing.furnishingsBreakdown.length > 0 ? 'Furnished' : null) || 'Unfurnished';
+  const [imageFailed, setImageFailed] = React.useState(false);
+  React.useEffect(() => { setImageFailed(false); }, [listing.image]);
   return (
   <div className="bg-white rounded-2xl shadow-lg shadow-slate-500/10 border-2 border-slate-200/60 overflow-hidden hover:shadow-2xl hover:shadow-indigo-500/20 transition-all duration-300 flex flex-col transform hover:-translate-y-1 group">
     <div className="relative h-64 group/image overflow-hidden">
-      {listing.image ? (
-      <img src={listing.image} alt={listing.title} className="w-full h-full object-cover transition-transform duration-700 group-hover/image:scale-110" />
+      {listing.image && !imageFailed ? (
+      <img src={listing.image} alt={listing.title} onError={() => setImageFailed(true)} className="w-full h-full object-cover transition-transform duration-700 group-hover/image:scale-110" />
       ) : (
         <div className="w-full h-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
           <Building2 className="w-20 h-20 text-slate-400" />

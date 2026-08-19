@@ -1,5 +1,6 @@
 import { Tenant, Payment, MaintenanceRequest, Listing, Property, LeaseSigningMetadata, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, IncomeStatementSummary, PropertyManagerProfile, CreatePropertyManagerInput, PropertyUnit, PropertyMonthInput, PropertyMonthInputLine } from '../types';
 import { getAuthHeader, clearInvalidTokens, refreshAccessToken, refreshTokenIfNeeded } from './auth';
+import { applyListingImages } from '../utils/listingImages';
 
 // In dev, use Vite proxy (/api → backend) unless VITE_API_URL is set explicitly.
 const BASE_URL = import.meta.env.VITE_API_URL
@@ -1022,7 +1023,7 @@ export const api = {
 
     if (!response.ok) throw new Error('Failed to fetch properties');
     const data = await response.json();
-    return data.map((item: any) => {
+    const mapped = data.map((item: any) => {
       // Handle display_image from serializer (returns uploaded file URL or external URL)
       const imageUrl = item.display_image || item.image || item.image_url || undefined;
       return {
@@ -1053,6 +1054,7 @@ export const api = {
         updatedAt: item.updated_at,
       };
     });
+    return applyListingImages(mapped);
   },
 
   createProperty: async (propertyData: Partial<Property>, imageFile?: File): Promise<Property> => {

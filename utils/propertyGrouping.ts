@@ -67,6 +67,19 @@ export const PORTFOLIO_DISPLAY_ORDER = [
   'Sherman St',
 ];
 
+/** Public home page: buildings with more doors first. */
+export const LISTINGS_DISPLAY_ORDER = [
+  'Sherman St',
+  'Avenue Q',
+  'Avenue H',
+  '70th Street',
+  'Avenue F',
+  'Wooding St',
+  'Bella Jess',
+  'Tomball',
+  'Conroe',
+];
+
 /** Building roll-up row (e.g. "Ave Q") vs a real unit row. */
 export function isBuildingRollup(prop: Property): boolean {
   return isLikelyPortfolioParent(prop, getPropertyGroupKeyFromProperty(prop));
