@@ -6,41 +6,16 @@ import {
 } from 'lucide-react';
 import { FloatingPillSwitch } from './FloatingPillSwitch';
 import ViewportPortal from './ViewportPortal';
+import {
+  PORTFOLIO_DISPLAY_ORDER,
+  getPropertyGroupKeyFromProperty,
+  propertiesForPortfolioDisplay,
+  sortPropertiesForPortfolioDisplay,
+} from '../utils/propertyGrouping';
 
 const QUICK_LOCATIONS = ['Downtown Houston', 'Houston Airport', 'Galleria', 'University of Houston'];
 
-const LISTING_AREAS = [
-  'Avenue Q',
-  'Sherman St',
-  'Avenue H',
-  '70th Street',
-  'Wooding St',
-  'Bella Jess Dr',
-  'Magnolia Dr',
-  'Westlock Dr',
-];
-
-/** Derive group heading from property: use property.area if it matches a known area, else detect from address/name/city/state. */
-function getAreaGroupForProperty(property: Property): string {
-  const text = [property.address, property.name, property.city, property.state]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  if (property.area?.trim()) {
-    const trimmed = property.area.trim();
-    const match = LISTING_AREAS.find(
-      (a) => a.toLowerCase() === trimmed.toLowerCase()
-    );
-    if (match) return match;
-  }
-  // Match known areas in address text (longer names first so "Avenue Q" doesn't match "Avenue H")
-  const byLength = [...LISTING_AREAS].sort((a, b) => b.length - a.length);
-  for (const area of byLength) {
-    if (text.includes(area.toLowerCase())) return area;
-  }
-  if (text.includes('wooding st.')) return 'Wooding St';
-  return 'Other';
-}
+const LISTING_AREAS = PORTFOLIO_DISPLAY_ORDER;
 
 interface ListingsProps {
   setView: (view: string) => void;
@@ -261,22 +236,15 @@ export const Listings: React.FC<ListingsProps> = ({ setView, setLoginType, handl
     if (which === 'area') { setAppliedArea(''); setFilterArea(''); }
   };
 
-  const areaOptions = useMemo(() => {
-    const fromProps = properties.map(p => p.area).filter((a): a is string => Boolean(a?.trim()));
-    return [...new Set([...LISTING_AREAS, ...fromProps])].sort((a, b) => a.localeCompare(b));
-  }, [properties]);
+  const areaOptions = LISTING_AREAS;
 
   const filteredListings = useMemo(() => {
-    let list = properties.map(p => ({ property: p, listing: propertyToListing(p) }));
+    const display = sortPropertiesForPortfolioDisplay(propertiesForPortfolioDisplay(properties));
+    let list = display.map(p => ({ property: p, listing: propertyToListing(p) }));
     if (appliedBeds != null) list = list.filter(({ property }) => Math.round(Number(property.bedrooms ?? 2)) === appliedBeds);
     if (appliedBaths != null) list = list.filter(({ property }) => Math.round(Number(property.bathrooms ?? 2)) === appliedBaths);
     if (appliedArea) {
-      const areaLower = appliedArea.toLowerCase();
-      list = list.filter(({ property }) => {
-        if (property.area && property.area.toLowerCase() === areaLower) return true;
-        const full = [property.address, property.name, property.city, property.state].filter(Boolean).join(' ').toLowerCase();
-        return full.includes(areaLower);
-      });
+      list = list.filter(({ property }) => getPropertyGroupKeyFromProperty(property) === appliedArea);
     }
     if (appliedNear && Object.keys(distanceMap).length === 0 && !geocoding) {
       const q = appliedNear.toLowerCase();
@@ -284,8 +252,6 @@ export const Listings: React.FC<ListingsProps> = ({ setView, setLoginType, handl
         [property.address, property.city, property.state].some(s => s && String(s).toLowerCase().includes(q))
       );
     }
-    const availabilityRank = (status?: string) => (status === 'vacant' ? 0 : status === 'coming_soon' ? 1 : 2);
-    list.sort((a, b) => availabilityRank(a.listing.status) - availabilityRank(b.listing.status));
     if (appliedNear && Object.keys(distanceMap).length > 0) {
       list.sort((a, b) => {
         const da = distanceMap[String(a.property.id)]?.distanceKm ?? Infinity;
@@ -299,16 +265,10 @@ export const Listings: React.FC<ListingsProps> = ({ setView, setLoginType, handl
   const listingsByArea = useMemo(() => {
     const byArea = new Map<string, typeof filteredListings>();
     for (const item of filteredListings) {
-      const area = getAreaGroupForProperty(item.property);
+      const area = getPropertyGroupKeyFromProperty(item.property);
       if (!byArea.has(area)) byArea.set(area, []);
       byArea.get(area)!.push(item);
     }
-    // Within each group: vacant first, then coming soon, then occupied
-    const vacantFirst = (a: typeof filteredListings[0], b: typeof filteredListings[0]) =>
-      (a.listing.status === 'vacant' ? 0 : a.listing.status === 'coming_soon' ? 1 : 2) -
-      (b.listing.status === 'vacant' ? 0 : b.listing.status === 'coming_soon' ? 1 : 2);
-    for (const arr of byArea.values()) arr.sort(vacantFirst);
-    // Order: Avenue Q, Sherman St, Avenue H, 70th Street, Wooding St, Bella Jess Dr, Magnolia Dr, Westlock Dr, then Other
     const order = [...LISTING_AREAS, 'Other'];
     const groups: { areaLabel: string; items: typeof filteredListings }[] = [];
     for (const area of order) {
@@ -481,7 +441,7 @@ export const Listings: React.FC<ListingsProps> = ({ setView, setLoginType, handl
               {listingsByArea.map(({ areaLabel, items }) => (
                 <section key={areaLabel} aria-labelledby={`heading-${areaLabel.replace(/\s+/g, '-')}`}>
                   <h3 id={`heading-${areaLabel.replace(/\s+/g, '-')}`} className="text-2xl font-bold text-slate-800 mb-6 pb-2 border-b border-slate-200">
-                    {areaLabel === 'Other' ? 'Other' : `Properties in ${areaLabel}`}
+                    {areaLabel}
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                     {items.map(({ property, listing }) => {

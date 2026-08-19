@@ -3,7 +3,7 @@ import { Tenant, TenantStatus } from '../types';
 import { api } from '../services/api';
 import { login, getCurrentUser, isAuthenticated, User as AuthUser, refreshTokenIfNeeded } from '../services/auth';
 import { 
-  Loader2, X, AlertCircle, Mail, Phone, Lock, Key, Building2, UserCheck, Eye, EyeOff, ArrowLeft
+  Loader2, X, AlertCircle, Mail, Phone, Lock, Key, Building2, UserCheck, Eye, EyeOff, Home
 } from 'lucide-react';
 import NeelaLogo from './NeelaLogo';
 import ViewportPortal from './ViewportPortal';
@@ -235,7 +235,20 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onBack, onStat
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 animate-fadeIn">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30 flex flex-col py-6 sm:py-10 px-4 sm:px-6 lg:px-8 animate-fadeIn">
+      <div className="w-full max-w-md mx-auto mb-6 sm:mb-8">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back to Home"
+          className="inline-flex items-center gap-2 py-2.5 px-4 rounded-xl text-sm font-bold text-indigo-700 bg-white/90 border-2 border-indigo-200 shadow-sm hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-4 focus:ring-indigo-500/30 transition-all"
+        >
+          <Home className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" aria-hidden />
+          <span>Back to Home</span>
+        </button>
+      </div>
+
+      <div className="flex-1 flex flex-col justify-center">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex flex-col items-center">
           <div className="p-4 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-3xl mb-6 shadow-xl shadow-indigo-500/20">
@@ -343,29 +356,6 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onBack, onStat
               </button>
             </div>
           </form>
-
-          <div className="mt-10">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t-2 border-slate-200" />
-              </div>
-              <div className="relative flex justify-center">
-                <span className="px-5 bg-white text-slate-500 text-sm font-semibold">Or</span>
-              </div>
-            </div>
-
-            <div className="mt-8">
-              <button
-                type="button"
-                onClick={onBack}
-                aria-label="Back to Home"
-                className="w-full flex justify-center items-center gap-2 py-3.5 sm:py-4 px-4 sm:px-6 border-2 border-slate-200 rounded-xl shadow-sm text-sm font-bold text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-300 focus:outline-none focus:ring-4 focus:ring-indigo-500/30 focus-visible:ring-4 transition-all duration-200 group transform hover:-translate-y-0.5"
-              >
-                <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 group-hover:-translate-x-0.5 transition-transform duration-200 flex-shrink-0" aria-hidden />
-                <span>Back to Home</span>
-              </button>
-            </div>
-          </div>
         </div>
         
         <div className="mt-10 text-center">
@@ -379,6 +369,7 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onBack, onStat
             </a>
           </p>
         </div>
+      </div>
       </div>
     </div>
   );

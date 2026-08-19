@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Building2, FileText, DollarSign, Palette, Save, Plus, Trash2, Upload,
   Check, AlertCircle, LayoutTemplate, Calendar, Home, Sliders, Mail, X, Loader2, UserCog
@@ -8,17 +8,14 @@ import { Property } from '../types';
 import Modal from './Modal';
 import ViewportPortal from './ViewportPortal';
 import PropertyManagersPanel from './PropertyManagersPanel';
+import {
+  PORTFOLIO_DISPLAY_ORDER,
+  getPropertyGroupKeyFromProperty,
+  propertiesForPortfolioDisplay,
+  sortPropertiesForPortfolioDisplay,
+} from '../utils/propertyGrouping';
 
-const PROPERTY_AREAS = [
-  'Avenue Q',
-  'Sherman St',
-  'Avenue H',
-  '70th Street',
-  'Wooding St',
-  'Bella Jess Dr',
-  'Magnolia Dr',
-  'Westlock Dr',
-];
+const PROPERTY_AREAS = PORTFOLIO_DISPLAY_ORDER;
 
 const SettingsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'properties' | 'managers' | 'templates' | 'finance' | 'branding'>('properties');
@@ -150,6 +147,26 @@ ________________________ Tenant`);
       return prev;
     });
   }, [properties.length]);
+
+  const displayProperties = useMemo(
+    () => sortPropertiesForPortfolioDisplay(propertiesForPortfolioDisplay(properties)),
+    [properties]
+  );
+
+  const settingsByBuilding = useMemo(() => {
+    const shown = displayProperties.slice(0, propertiesToShow);
+    const map = new Map<string, typeof shown>();
+    for (const p of shown) {
+      const k = getPropertyGroupKeyFromProperty(p);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(p);
+    }
+    const keys = [
+      ...PORTFOLIO_DISPLAY_ORDER.filter((k) => map.has(k)),
+      ...[...map.keys()].filter((k) => !PORTFOLIO_DISPLAY_ORDER.includes(k)),
+    ];
+    return keys.map((groupKey) => ({ groupKey, items: map.get(groupKey)! }));
+  }, [displayProperties, propertiesToShow]);
 
   const handleAddProperty = async () => {
     if (!addFormData.name.trim() || !addFormData.address.trim() || !addFormData.city.trim() || !addFormData.state.trim()) {
@@ -422,7 +439,10 @@ ________________________ Tenant`);
                         </div>
                       ) : (
                         <>
-                        {properties.slice(0, propertiesToShow).map(prop => (
+                        {settingsByBuilding.map(({ groupKey, items }) => (
+                          <div key={groupKey} className="space-y-2">
+                            <h4 className="text-sm font-bold text-slate-700 pt-2">{groupKey}</h4>
+                            {items.map(prop => (
                           <div key={prop.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 hover:border-indigo-200 transition-colors group">
                             <div className="flex items-center gap-4">
                               <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center border border-slate-200 text-slate-400">
@@ -460,15 +480,17 @@ ________________________ Tenant`);
                               </button>
                             </div>
                           </div>
+                            ))}
+                          </div>
                         ))}
-                        {properties.length > propertiesToShow && (
+                        {displayProperties.length > propertiesToShow && (
                           <div className="pt-3 text-center">
                             <button
                               type="button"
-                              onClick={() => setPropertiesToShow(prev => Math.min(prev + PROPERTIES_PAGE_SIZE, properties.length))}
+                              onClick={() => setPropertiesToShow(prev => Math.min(prev + PROPERTIES_PAGE_SIZE, displayProperties.length))}
                               className="px-4 py-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
                             >
-                              Load more ({properties.length - propertiesToShow} remaining)
+                              Load more ({displayProperties.length - propertiesToShow} remaining)
                             </button>
                           </div>
                         )}

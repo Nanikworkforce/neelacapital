@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { UserCog, Plus, Loader2, Mail, Phone, Building2, X } from 'lucide-react';
 import { api } from '../services/api';
 import { Property, PropertyManagerProfile } from '../types';
+import { groupPropertiesForSelect, getPropertyGroupKeyFromProperty, propertyIdsInGroup } from '../utils/propertyGrouping';
 
 const FALLBACK_PROPERTY_IMAGE =
   'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=800&q=80';
@@ -46,8 +47,19 @@ const PropertyManagersPanel: React.FC<PropertyManagersPanelProps> = ({ propertie
     loadManagers();
   }, []);
 
-  const toggleProperty = (ids: string[], id: string) =>
-    ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
+  const propertyGroups = useMemo(() => groupPropertiesForSelect(properties), [properties]);
+
+  const toggleGroup = (ids: string[], groupKey: string) => {
+    const groupIds = propertyIdsInGroup(properties, groupKey);
+    const allOn = groupIds.length > 0 && groupIds.every((id) => ids.includes(id));
+    if (allOn) return ids.filter((id) => !groupIds.includes(id));
+    return [...new Set([...ids, ...groupIds])];
+  };
+
+  const groupChecked = (ids: string[], groupKey: string) => {
+    const groupIds = propertyIdsInGroup(properties, groupKey);
+    return groupIds.length > 0 && groupIds.every((id) => ids.includes(id));
+  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,18 +188,18 @@ const PropertyManagersPanel: React.FC<PropertyManagersPanelProps> = ({ propertie
           <div>
             <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Assign properties</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto border border-slate-100 rounded-lg p-3 bg-slate-50">
-              {properties.length === 0 ? (
+              {propertyGroups.length === 0 ? (
                 <p className="text-sm text-slate-500 col-span-full">No properties available yet.</p>
               ) : (
-                properties.map((p) => (
-                  <label key={p.id} className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                propertyGroups.map((g) => (
+                  <label key={g.groupKey} className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={form.propertyIds.includes(p.id)}
-                      onChange={() => setForm((f) => ({ ...f, propertyIds: toggleProperty(f.propertyIds, p.id) }))}
+                      checked={groupChecked(form.propertyIds, g.groupKey)}
+                      onChange={() => setForm((f) => ({ ...f, propertyIds: toggleGroup(f.propertyIds, g.groupKey) }))}
                       className="rounded border-slate-300 text-indigo-600"
                     />
-                    <span className="truncate">{p.name}</span>
+                    <span className="truncate">{g.label}</span>
                   </label>
                 ))
               )}
@@ -250,15 +262,15 @@ const PropertyManagersPanel: React.FC<PropertyManagersPanelProps> = ({ propertie
                 <div className="p-5 bg-slate-50 border-b border-slate-100 space-y-3">
                   <p className="text-sm font-semibold text-slate-700">Select properties</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                    {properties.map((p) => (
-                      <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    {propertyGroups.map((g) => (
+                      <label key={g.groupKey} className="flex items-center gap-2 text-sm cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={editPropertyIds.includes(p.id)}
-                          onChange={() => setEditPropertyIds((ids) => toggleProperty(ids, p.id))}
+                          checked={groupChecked(editPropertyIds, g.groupKey)}
+                          onChange={() => setEditPropertyIds((ids) => toggleGroup(ids, g.groupKey))}
                           className="rounded border-slate-300 text-indigo-600"
                         />
-                        <span className="truncate">{p.name}</span>
+                        <span className="truncate">{g.label}</span>
                       </label>
                     ))}
                   </div>
@@ -276,29 +288,33 @@ const PropertyManagersPanel: React.FC<PropertyManagersPanelProps> = ({ propertie
               <div className="p-5">
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3 flex items-center gap-1.5">
                   <Building2 className="w-3.5 h-3.5" />
-                  Assigned properties ({manager.assignedProperties.length})
+                  Assigned properties ({new Set(manager.assignedProperties.map((p) => getPropertyGroupKeyFromProperty(p))).size})
                 </p>
                 {manager.assignedProperties.length === 0 ? (
                   <p className="text-sm text-slate-500">No properties assigned.</p>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {manager.assignedProperties.map((prop) => (
-                      <div key={prop.id} className="flex gap-3 rounded-lg border border-slate-100 p-2 bg-slate-50/80">
+                    {Array.from(new Set<string>(manager.assignedProperties.map((prop) => getPropertyGroupKeyFromProperty(prop)))).map((groupKey) => {
+                      const prop = manager.assignedProperties.find((p) => getPropertyGroupKeyFromProperty(p) === groupKey);
+                      if (!prop) return null;
+                      return (
+                      <div key={groupKey} className="flex gap-3 rounded-lg border border-slate-100 p-2 bg-slate-50/80">
                         <div className="w-14 h-14 rounded-lg overflow-hidden bg-slate-200 flex-shrink-0">
                           <img
                             src={prop.image || FALLBACK_PROPERTY_IMAGE}
-                            alt={prop.name}
+                            alt={groupKey}
                             className="w-full h-full object-cover"
                           />
                         </div>
                         <div className="min-w-0">
-                          <p className="font-semibold text-sm text-slate-800 truncate">{prop.name}</p>
+                          <p className="font-semibold text-sm text-slate-800 truncate">{groupKey}</p>
                           <p className="text-xs text-slate-500 truncate">
                             {prop.address}{prop.city ? `, ${prop.city}` : ''}
                           </p>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

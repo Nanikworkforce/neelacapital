@@ -54,6 +54,39 @@ export function portfolioUnitLabels(groupKey: string): string[] | null {
   return null;
 }
 
+/** Same order as Income Statement: singles first, then buildings with units. */
+export const PORTFOLIO_DISPLAY_ORDER = [
+  'Bella Jess',
+  'Tomball',
+  'Conroe',
+  'Wooding St',
+  'Avenue F',
+  '70th Street',
+  'Avenue H',
+  'Avenue Q',
+  'Sherman St',
+];
+
+/** Building roll-up row (e.g. "Ave Q") vs a real unit row. */
+export function isBuildingRollup(prop: Property): boolean {
+  return isLikelyPortfolioParent(prop, getPropertyGroupKeyFromProperty(prop));
+}
+
+/**
+ * Public listings / short stays / pickers: one card per unit on multi-door
+ * buildings, one card for Bella Jess / Tomball / Conroe. Drops parent duplicates.
+ */
+export function propertiesForPortfolioDisplay(properties: Property[]): Property[] {
+  return properties.filter((prop) => {
+    const groupKey = getPropertyGroupKeyFromProperty(prop);
+    const catalog = portfolioUnitLabels(groupKey);
+    const parent = isLikelyPortfolioParent(prop, groupKey);
+    if (catalog !== null && catalog.length === 0) return parent;
+    if (catalog !== null && catalog.length > 0) return !parent;
+    return !parent;
+  });
+}
+
 /** Multi-door buildings need unit (or building-wide) choice; single-door catalog skips that step. */
 export function groupNeedsUnitStep(groupKey: string, fallbackUnitCount = 0): boolean {
   const labels = portfolioUnitLabels(groupKey);
@@ -210,6 +243,52 @@ function unitSortKey(label: string): string {
   return m ? m[1].padStart(4, '0') : label;
 }
 
+export function sortPropertiesForPortfolioDisplay(list: Property[]): Property[] {
+  const groupRank = (key: string) => {
+    const i = PORTFOLIO_DISPLAY_ORDER.indexOf(key);
+    return i === -1 ? 999 : i;
+  };
+  const unitRank = (prop: Property, groupKey: string) => {
+    const catalog = portfolioUnitLabels(groupKey);
+    if (!catalog || catalog.length === 0) return 0;
+    const name = (prop.name || '').trim().toLowerCase();
+    const label = extractUnitLabel(prop.name, prop.address).toLowerCase();
+    const exact = catalog.findIndex((c) => {
+      const cl = c.toLowerCase();
+      return cl === name || cl === label;
+    });
+    if (exact >= 0) return exact;
+    const fuzzy = catalog.findIndex((c) => {
+      const cn = normalizeName(c);
+      const pn = normalizeName(prop.name);
+      return Boolean(cn && pn && (pn.includes(cn) || cn.includes(pn)));
+    });
+    return fuzzy >= 0 ? fuzzy : 50;
+  };
+  return [...list].sort((a, b) => {
+    const ka = getPropertyGroupKeyFromProperty(a);
+    const kb = getPropertyGroupKeyFromProperty(b);
+    const d = groupRank(ka) - groupRank(kb);
+    if (d !== 0) return d;
+    return unitRank(a, ka) - unitRank(b, kb);
+  });
+}
+
+export function groupPropertiesByBuilding(properties: Property[]): { groupKey: string; items: Property[] }[] {
+  const sorted = sortPropertiesForPortfolioDisplay(propertiesForPortfolioDisplay(properties));
+  const map = new Map<string, Property[]>();
+  for (const p of sorted) {
+    const k = getPropertyGroupKeyFromProperty(p);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k)!.push(p);
+  }
+  const keys = [
+    ...PORTFOLIO_DISPLAY_ORDER.filter((k) => map.has(k)),
+    ...[...map.keys()].filter((k) => !PORTFOLIO_DISPLAY_ORDER.includes(k)),
+  ];
+  return keys.map((groupKey) => ({ groupKey, items: map.get(groupKey)! }));
+}
+
 export type GroupedPropertyRow = IncomeStatementRow & { groupKey: string };
 
 export function groupIncomeStatementProperties(
@@ -355,6 +434,13 @@ export function groupIncomeStatementProperties(
       ? catalog.length
       : Math.max(g.unitsCount || 0, sortedUnits.length);
     return { ...g, units: sortedUnits, unitsCount };
+  }).sort((a, b) => {
+    const ia = PORTFOLIO_DISPLAY_ORDER.indexOf(a.groupKey);
+    const ib = PORTFOLIO_DISPLAY_ORDER.indexOf(b.groupKey);
+    const ra = ia === -1 ? 999 : ia;
+    const rb = ib === -1 ? 999 : ib;
+    if (ra !== rb) return ra - rb;
+    return a.groupKey.localeCompare(b.groupKey);
   });
 }
 
@@ -441,7 +527,20 @@ export function groupPropertiesForSelect(properties: Property[]): PropertyGroupO
     if (!existing.address && prop.address) existing.address = prop.address;
   }
 
-  return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  return Array.from(map.values()).sort((a, b) => {
+    const ia = PORTFOLIO_DISPLAY_ORDER.indexOf(a.groupKey);
+    const ib = PORTFOLIO_DISPLAY_ORDER.indexOf(b.groupKey);
+    const ra = ia === -1 ? 999 : ia;
+    const rb = ib === -1 ? 999 : ib;
+    if (ra !== rb) return ra - rb;
+    return a.label.localeCompare(b.label);
+  });
+}
+
+export function propertyIdsInGroup(properties: Property[], groupKey: string): string[] {
+  return properties
+    .filter((p) => getPropertyGroupKeyFromProperty(p) === groupKey)
+    .map((p) => p.id);
 }
 
 /**

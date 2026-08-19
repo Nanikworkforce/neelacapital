@@ -271,7 +271,7 @@ import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
 import ViewportPortal from './ViewportPortal';
 import { api } from '../services/api';
 import { formatDateMMDDYYYY, formatRelativeTimeAgo } from '../utils/date';
-import { CATEGORY_LABELS } from '../utils/propertyGrouping';
+import { CATEGORY_LABELS, PORTFOLIO_DISPLAY_ORDER, getPropertyGroupKeyFromProperty, propertiesForPortfolioDisplay, sortPropertiesForPortfolioDisplay } from '../utils/propertyGrouping';
 
 interface DashboardProps {
   tenants: Tenant[];
@@ -286,16 +286,7 @@ interface DashboardProps {
   onNavigateToIncomeStatement?: () => void;
 }
 
-const DASHBOARD_LISTING_AREAS = [
-  'Avenue Q',
-  'Sherman St',
-  'Avenue H',
-  '70th Street',
-  'Wooding St',
-  'Bella Jess Dr',
-  'Magnolia Dr',
-  'Westlock Dr',
-];
+const DASHBOARD_LISTING_AREAS = PORTFOLIO_DISPLAY_ORDER;
 
 const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenance, properties, onReviewApplications, onNavigateToSettings, onNavigateToTenants, onNavigateToPayments, onNavigateToMaintenance, onNavigateToIncomeStatement }) => {
   // Derived Metrics
@@ -410,26 +401,32 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
   const paymentTenantName = (p: Payment) =>
     p.tenantName || tenantsMap[String(p.tenantId)]?.name || 'Tenant';
 
-  const dashboardAreaOptions = useMemo(() => {
-    const fromProps = properties.map(p => p.area).filter((a): a is string => Boolean(a?.trim()));
-    return [...new Set([...DASHBOARD_LISTING_AREAS, ...fromProps])].sort((a, b) => a.localeCompare(b));
-  }, [properties]);
+  const dashboardAreaOptions = DASHBOARD_LISTING_AREAS;
 
   const filteredDashboardProperties = useMemo(() => {
-    let list = properties;
+    let list = sortPropertiesForPortfolioDisplay(propertiesForPortfolioDisplay(properties));
     if (appliedFilterBedrooms !== '') list = list.filter(p => Math.round(Number(p.bedrooms ?? 2)) === appliedFilterBedrooms);
     if (appliedFilterBathrooms !== '') list = list.filter(p => Math.round(Number(p.bathrooms ?? 2)) === appliedFilterBathrooms);
     if (appliedFilterStatus !== '') list = list.filter(p => (p.status ?? 'vacant') === appliedFilterStatus);
     if (appliedFilterArea) {
-      const areaLower = appliedFilterArea.toLowerCase();
-      list = list.filter(p => {
-        if (p.area && p.area.toLowerCase() === areaLower) return true;
-        const full = [p.address, p.name, p.city, p.state].filter(Boolean).join(' ').toLowerCase();
-        return full.includes(areaLower);
-      });
+      list = list.filter(p => getPropertyGroupKeyFromProperty(p) === appliedFilterArea);
     }
     return list;
   }, [properties, appliedFilterBedrooms, appliedFilterBathrooms, appliedFilterStatus, appliedFilterArea]);
+
+  const dashboardByBuilding = useMemo(() => {
+    const map = new Map<string, Property[]>();
+    for (const p of filteredDashboardProperties) {
+      const k = getPropertyGroupKeyFromProperty(p);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(p);
+    }
+    const keys = [
+      ...PORTFOLIO_DISPLAY_ORDER.filter((k) => map.has(k)),
+      ...[...map.keys()].filter((k) => !PORTFOLIO_DISPLAY_ORDER.includes(k)),
+    ];
+    return keys.map((groupKey) => ({ groupKey, items: map.get(groupKey)! }));
+  }, [filteredDashboardProperties]);
 
   useEffect(() => {
     setDashboardPropertiesToShow(DASHBOARD_PROPERTIES_PAGE_SIZE);
@@ -1249,8 +1246,18 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
-              {filteredDashboardProperties.slice(0, dashboardPropertiesToShow).map(prop => (
+            <div className="space-y-8">
+              {dashboardByBuilding.map(({ groupKey, items }) => {
+                const shownIds = new Set(
+                  filteredDashboardProperties.slice(0, dashboardPropertiesToShow).map((p) => p.id)
+                );
+                const visible = items.filter((p) => shownIds.has(p.id));
+                if (visible.length === 0) return null;
+                return (
+                <section key={groupKey}>
+                  <h4 className="text-base sm:text-lg font-bold text-slate-800 mb-3 pb-2 border-b border-slate-100">{groupKey}</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
+              {visible.map(prop => (
                 <div 
                   key={prop.id} 
                   className="group bg-gradient-to-b from-white to-slate-50 rounded-xl border border-slate-200 overflow-hidden hover:shadow-xl hover:border-slate-300 transition-all duration-300 min-w-0"
@@ -1302,6 +1309,10 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
                   </div>
                 </div>
               ))}
+                  </div>
+                </section>
+                );
+              })}
             </div>
             
             {filteredDashboardProperties.length > dashboardPropertiesToShow && (

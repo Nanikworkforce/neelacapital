@@ -7,6 +7,11 @@ import {
   Ban, RefreshCw, X, Filter, Home, Trash2
 } from 'lucide-react';
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
+import {
+  getPropertyGroupKeyFromProperty,
+  propertiesForPortfolioDisplay,
+  sortPropertiesForPortfolioDisplay,
+} from '../utils/propertyGrouping';
 
 type TabId = 'requests' | 'calendar' | 'pricing';
 
@@ -130,6 +135,11 @@ const ShortStaysView: React.FC = () => {
   const [pricingEdits, setPricingEdits] = useState<Record<string, Partial<Property>>>({});
   const [savingPropertyId, setSavingPropertyId] = useState<string | null>(null);
 
+  const displayProperties = useMemo(
+    () => sortPropertiesForPortfolioDisplay(propertiesForPortfolioDisplay(properties)),
+    [properties]
+  );
+
   const load = useCallback(async () => {
     try {
       setLoading(true);
@@ -140,7 +150,8 @@ const ShortStaysView: React.FC = () => {
       setBookings(bookingData);
       setProperties(propertyData);
       if (!calendarPropertyId && propertyData.length > 0) {
-        setCalendarPropertyId(propertyData[0].id);
+        const first = propertiesForPortfolioDisplay(propertyData)[0];
+        setCalendarPropertyId((first || propertyData[0]).id);
       }
     } catch (e) {
       console.error(e);
@@ -680,8 +691,8 @@ const ShortStaysView: React.FC = () => {
               onChange={(e) => setCalendarPropertyId(e.target.value)}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-6"
             >
-              {properties.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} — {p.address}</option>
+              {displayProperties.map((p) => (
+                <option key={p.id} value={p.id}>{getPropertyGroupKeyFromProperty(p)} — {p.name}</option>
               ))}
             </select>
             <AdminCalendar
@@ -766,7 +777,9 @@ const ShortStaysView: React.FC = () => {
       ) : (
         <div className="space-y-4">
           <p className="text-sm text-slate-500">Set nightly rates, cleaning fees, and toggle short-stay availability per property. Discounts: 3+ nights 5%, 7+ nights 10%, 14+ nights 15%.</p>
-          {properties.map((p) => {
+          {displayProperties.map((p, idx) => {
+            const groupKey = getPropertyGroupKeyFromProperty(p);
+            const prevKey = idx > 0 ? getPropertyGroupKeyFromProperty(displayProperties[idx - 1]) : null;
             const edits = getPropertyEdit(p);
             const enabled = edits.shortStayEnabled ?? p.shortStayEnabled !== false;
             const nightly = edits.shortStayNightlyRate ?? p.shortStayNightlyRate ?? p.effectiveNightlyRate ?? 165;
@@ -777,7 +790,11 @@ const ShortStaysView: React.FC = () => {
             const hasEdits = Object.keys(edits).length > 0;
 
             return (
-              <div key={p.id} className="bg-white rounded-xl border border-slate-200 p-5">
+              <div key={p.id} className="space-y-2">
+                {groupKey !== prevKey && (
+                  <h3 className="text-sm font-bold text-slate-700 pt-2">{groupKey}</h3>
+                )}
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                   <div>
                     <h3 className="font-bold text-slate-800">{p.name}</h3>
@@ -856,6 +873,7 @@ const ShortStaysView: React.FC = () => {
                     Save Pricing
                   </button>
                 )}
+              </div>
               </div>
             );
           })}

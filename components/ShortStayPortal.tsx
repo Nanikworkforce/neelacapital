@@ -9,8 +9,14 @@ import {
 } from 'lucide-react';
 import { FloatingPillSwitch } from './FloatingPillSwitch';
 import ViewportPortal from './ViewportPortal';
-import { shortStayArea, shortStayDescription, shortStayLocation, shortStayTitle } from '../utils/shortStayListings';
+import { shortStayDescription, shortStayLocation, shortStayTitle } from '../utils/shortStayListings';
 import { SEO_PAGES, setPageMeta, shortStayListingMeta } from '../utils/seo';
+import {
+  PORTFOLIO_DISPLAY_ORDER,
+  getPropertyGroupKeyFromProperty,
+  propertiesForPortfolioDisplay,
+  sortPropertiesForPortfolioDisplay,
+} from '../utils/propertyGrouping';
 
 const PAYMENT_OPTIONS = [
   { id: 'Zelle', label: 'Zelle', payTo: 'payments@neelacapital.com', desc: 'Bank transfer' },
@@ -32,12 +38,7 @@ const CANCELLATION_RULES = [
 
 type BookedRange = { checkIn: string; checkOut: string; status: string };
 
-const LISTING_AREAS = [
-  'East Houston', 'Southeast Houston', 'Inner Loop', 'North Houston',
-  'West Houston', 'Central Houston', 'South Houston', 'Medical Center Area',
-  'Greater Houston', 'East End', 'Near Downtown', 'Midtown Houston',
-  'Third Ward', 'Heights Area', 'Southwest Houston',
-];
+const LISTING_AREAS = PORTFOLIO_DISPLAY_ORDER;
 
 const PRICE_BUCKETS = [
   { id: '', label: 'Any price' },
@@ -49,9 +50,7 @@ const PRICE_BUCKETS = [
 type SortOption = 'price-asc' | 'price-desc' | 'beds-desc' | 'guests-desc';
 
 function getAreaForProperty(p: Property): string {
-  const guestArea = shortStayArea(p);
-  if (guestArea) return guestArea;
-  return 'Greater Houston';
+  return getPropertyGroupKeyFromProperty(p);
 }
 
 function matchesPriceBucket(rate: number, bucket: string): boolean {
@@ -390,7 +389,11 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
       try {
         setLoading(true);
         const data = await api.getProperties();
-        setProperties(data.filter((p) => p.shortStayEnabled !== false));
+        setProperties(
+          sortPropertiesForPortfolioDisplay(
+            propertiesForPortfolioDisplay(data.filter((p) => p.shortStayEnabled !== false))
+          )
+        );
       } catch {
         setProperties([]);
       } finally {
@@ -491,10 +494,7 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
   const checkInTime = quote?.check_in_time || (selectedProperty ? propertyCheckIn(selectedProperty) : '3:00 PM');
   const checkOutTime = quote?.check_out_time || (selectedProperty ? propertyCheckOut(selectedProperty) : '11:00 AM');
 
-  const areaOptions = useMemo(() => {
-    const fromProps = properties.map((p) => getAreaForProperty(p)).filter((a) => a !== 'Other');
-    return [...new Set([...LISTING_AREAS, ...fromProps])].sort((a, b) => a.localeCompare(b));
-  }, [properties]);
+  const areaOptions = LISTING_AREAS;
 
   const applyFilters = () => {
     setAppliedBeds(filterBeds > 0 ? filterBeds : null);
@@ -559,6 +559,20 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
     });
     return list;
   }, [properties, appliedBeds, appliedBaths, appliedArea, appliedPrice, appliedGuests, appliedSort]);
+
+  const staysByBuilding = useMemo(() => {
+    const map = new Map<string, Property[]>();
+    for (const p of filteredProperties) {
+      const k = getPropertyGroupKeyFromProperty(p);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(p);
+    }
+    const keys = [
+      ...PORTFOLIO_DISPLAY_ORDER.filter((k) => map.has(k)),
+      ...[...map.keys()].filter((k) => !PORTFOLIO_DISPLAY_ORDER.includes(k)),
+    ];
+    return keys.map((groupKey) => ({ groupKey, items: map.get(groupKey)! }));
+  }, [filteredProperties]);
 
   const hasActiveFilters = appliedBeds != null || appliedBaths != null || appliedArea || appliedPrice || appliedGuests != null;
 
@@ -1092,8 +1106,12 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
           <button type="button" onClick={clearFilters} className="text-amber-600 font-semibold hover:underline">Clear filters</button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
-          {filteredProperties.map((p) => (
+        <div className="space-y-10">
+          {staysByBuilding.map(({ groupKey, items }) => (
+            <section key={groupKey}>
+              <h3 className="text-xl font-bold text-slate-800 mb-4 pb-2 border-b border-slate-200">{groupKey}</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
+          {items.map((p) => (
             <div key={p.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-lg transition-shadow">
               <div className="relative h-48">
                 {p.image ? <img src={p.image} alt={shortStayTitle(p)} className="w-full h-full object-cover" /> : (
@@ -1122,6 +1140,9 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
                 </button>
               </div>
             </div>
+          ))}
+              </div>
+            </section>
           ))}
         </div>
       )}

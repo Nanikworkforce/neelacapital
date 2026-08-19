@@ -606,6 +606,17 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
            </div>
         </div>
           <div className="flex items-center gap-2 sm:gap-4">
+          {(view === 'check_status' || view === 'status_tracker') && (
+            <button
+              type="button"
+              onClick={() => { setView('listings'); setUserStatus('guest'); }}
+              aria-label="Back to Home"
+              className="inline-flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 focus:outline-none focus:ring-4 focus:ring-indigo-500/30 transition-all"
+            >
+              <Home className="w-4 h-4 flex-shrink-0" aria-hidden />
+              <span>Back to Home</span>
+            </button>
+          )}
           {userStatus !== 'guest' && currentUser && (
               <div className="flex items-center gap-3 sm:gap-6">
                 <div className="hidden md:block text-right">
