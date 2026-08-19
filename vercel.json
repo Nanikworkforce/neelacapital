@@ -2,7 +2,19 @@
   "services": {
     "web": {
       "root": ".",
-      "framework": "vite"
+      "framework": "vite",
+      "rewrites": [
+        { "source": "/admin", "destination": "/index.html" },
+        { "source": "/admin/(.*)", "destination": "/index.html" },
+        { "source": "/manager", "destination": "/index.html" },
+        { "source": "/manager/(.*)", "destination": "/index.html" },
+        { "source": "/tenant", "destination": "/index.html" },
+        { "source": "/tenant/(.*)", "destination": "/index.html" },
+        { "source": "/short-stays", "destination": "/index.html" },
+        { "source": "/short-stays/(.*)", "destination": "/index.html" },
+        { "source": "/sign-lease", "destination": "/index.html" },
+        { "source": "/reset-password/(.*)", "destination": "/index.html" }
+      ]
     }
   },
   "rewrites": [
