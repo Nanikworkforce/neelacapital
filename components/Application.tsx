@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ApplicationForm, Listing, Property, TenantStatus } from '../types';
 import { api } from '../services/api';
-import { ArrowLeft, Loader2, BedDouble, Bath, Plus, Trash2 } from 'lucide-react';
+import { Loader2, BedDouble, Bath, Plus, Trash2, Home } from 'lucide-react';
 import Modal from './Modal';
 import { folderImageForProperty } from '../utils/listingImages';
 
@@ -223,6 +223,7 @@ export const useApplication = (): UseApplicationReturn => {
 
   const handleApply = (listing: Listing, setView: (view: string) => void) => {
     setSelectedListing(listing);
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     setView('application');
     // Reset form state when opening application
     setApplicationError(null);
@@ -546,6 +547,12 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
   const [leaveNote, setLeaveNote] = useState<string | null>(null);
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    const t = window.setTimeout(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }), 0);
+    return () => window.clearTimeout(t);
+  }, [selectedListing?.id]);
+
   const stepRatiosRef = useRef<number[]>(new Array(APPLICATION_STEPS).fill(0));
 
   // Track which step is in view for step indicator
@@ -606,15 +613,17 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
   return (
     <div className="max-w-3xl mx-auto w-full px-4 md:px-8 py-10">
       <div className="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl shadow-indigo-500/10 border-2 border-slate-200/60 overflow-hidden">
-          <div className="p-8 border-b-2 border-slate-100 bg-gradient-to-r from-slate-50 via-white to-slate-50 flex items-center gap-5">
+          <div className="p-4 sm:p-6 border-b-2 border-slate-100 bg-gradient-to-r from-slate-50 via-white to-slate-50 flex flex-wrap items-center gap-3 sm:gap-5">
              <button 
+               type="button"
                onClick={handleBackToListings}
-               className="text-slate-500 hover:text-slate-900 hover:bg-slate-100 p-2.5 rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-               aria-label="Go back to listings"
+               className="inline-flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 focus:outline-none focus:ring-4 focus:ring-indigo-500/30 transition-all"
+               aria-label="Back to Home"
              >
-               <ArrowLeft className="w-5 h-5"/>
+               <Home className="w-4 h-4 flex-shrink-0" aria-hidden />
+               <span>Back to Home</span>
              </button>
-             <div className="flex-1">
+             <div className="flex-1 min-w-0">
                <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Application for {selectedListing?.title}</h2>
                <p className="text-sm text-slate-500 mt-1 font-medium">Complete all sections to submit your application</p>
                <p className="text-xs font-semibold text-indigo-600 mt-1.5">Step {currentStep} of {APPLICATION_STEPS}</p>

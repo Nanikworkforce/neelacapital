@@ -48,6 +48,12 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
   const [activeTab, setActiveTab] = useState<ResidentTab>('overview');
   const [showShortStayPromo, setShowShortStayPromo] = useState(false);
 
+  useEffect(() => {
+    if (view === 'application' || view === 'check_status' || view === 'status_tracker') {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }
+  }, [view]);
+
   const {
     loginType,
     setLoginType,
@@ -453,6 +459,7 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
   usePageMeta(SEO_PAGES.home);
 
   const handleApply = (listing: Listing) => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     handleApplyFromHook(listing, setView);
   };
 
@@ -606,7 +613,7 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
            </div>
         </div>
           <div className="flex items-center gap-2 sm:gap-4">
-          {(view === 'check_status' || view === 'status_tracker') && (
+          {(view === 'check_status' || view === 'status_tracker' || view === 'application') && (
             <button
               type="button"
               onClick={() => { setView('listings'); setUserStatus('guest'); }}
