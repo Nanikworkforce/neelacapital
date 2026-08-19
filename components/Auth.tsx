@@ -3,7 +3,7 @@ import { Tenant, TenantStatus } from '../types';
 import { api } from '../services/api';
 import { login, getCurrentUser, isAuthenticated, User as AuthUser, refreshTokenIfNeeded } from '../services/auth';
 import { 
-  Loader2, X, AlertCircle, Mail, Phone, Lock, Key, Building2, UserCheck, Eye, EyeOff, Home
+  Loader2, X, AlertCircle, Mail, Phone, Lock, Key, Building2, UserCheck, Eye, EyeOff
 } from 'lucide-react';
 import NeelaLogo from './NeelaLogo';
 import ViewportPortal from './ViewportPortal';
@@ -201,7 +201,7 @@ export interface CheckStatusViewProps {
   onStatusFound: (status: string, tenant: Tenant) => void;
 }
 
-export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onBack, onStatusFound }) => {
+export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onStatusFound }) => {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -235,38 +235,25 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onBack, onStat
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30 flex flex-col py-6 sm:py-10 px-4 sm:px-6 lg:px-8 animate-fadeIn">
-      <div className="w-full max-w-md mx-auto mb-6 sm:mb-8">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="Back to Home"
-          className="inline-flex items-center gap-2 py-2.5 px-4 rounded-xl text-sm font-bold text-indigo-700 bg-white/90 border-2 border-indigo-200 shadow-sm hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-4 focus:ring-indigo-500/30 transition-all"
-        >
-          <Home className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" aria-hidden />
-          <span>Back to Home</span>
-        </button>
-      </div>
-
-      <div className="flex-1 flex flex-col justify-center">
+    <div className="px-4 py-4 sm:py-6 animate-fadeIn">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex flex-col items-center">
-          <div className="p-4 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-3xl mb-6 shadow-xl shadow-indigo-500/20">
-            <UserCheck className="w-10 h-10 text-indigo-600" />
+          <div className="p-3 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-2xl mb-3 shadow-lg shadow-indigo-500/15">
+            <UserCheck className="w-8 h-8 text-indigo-600" />
           </div>
-          <h2 className="text-center text-4xl font-bold text-slate-900 tracking-tight">
+          <h2 className="text-center text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
             Check Application Status
           </h2>
-          <p className="mt-4 text-center text-slate-600 max-w-sm leading-relaxed text-base font-medium">
+          <p className="mt-2 text-center text-slate-600 max-w-sm leading-snug text-sm font-medium">
             Enter your email and phone number to track your progress
           </p>
         </div>
       </div>
 
-      <div className="mt-12 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white/95 backdrop-blur-md py-10 px-6 sm:px-12 shadow-2xl shadow-indigo-500/10 rounded-3xl border-2 border-slate-200/60">
-          <form className="space-y-8" onSubmit={handleCheck}>
-            <div className="space-y-3">
+      <div className="mt-5 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="bg-white/95 backdrop-blur-md py-6 px-5 sm:px-8 shadow-xl shadow-indigo-500/10 rounded-2xl border-2 border-slate-200/60">
+          <form className="space-y-4" onSubmit={handleCheck}>
+              <div className="space-y-1.5">
               <label htmlFor="email" className="block text-sm font-bold text-slate-700 flex items-center gap-2">
                 <Mail className="w-4 h-4 text-slate-400" />
                 Email Address
@@ -283,7 +270,7 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onBack, onStat
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="appearance-none block w-full pl-12 pr-4 py-4 border-2 border-slate-200 rounded-xl shadow-sm placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 sm:text-sm transition-all duration-300 hover:border-slate-300 bg-white text-slate-900"
+                  className="appearance-none block w-full pl-12 pr-4 py-2.5 border-2 border-slate-200 rounded-xl shadow-sm placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 sm:text-sm transition-all duration-300 hover:border-slate-300 bg-white text-slate-900"
                   placeholder="you@example.com"
                   autoFocus
                   aria-required="true"
@@ -292,7 +279,7 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onBack, onStat
               </div>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-1.5">
               <label htmlFor="phone" className="block text-sm font-bold text-slate-700 flex items-center gap-2">
                 <Phone className="w-4 h-4 text-slate-400" />
                 Phone Number
@@ -309,7 +296,7 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onBack, onStat
                   required
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="appearance-none block w-full pl-12 pr-4 py-4 border-2 border-slate-200 rounded-xl shadow-sm placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 sm:text-sm transition-all duration-300 hover:border-slate-300 bg-white text-slate-900"
+                  className="appearance-none block w-full pl-12 pr-4 py-2.5 border-2 border-slate-200 rounded-xl shadow-sm placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 sm:text-sm transition-all duration-300 hover:border-slate-300 bg-white text-slate-900"
                   placeholder="(555) 123-4567"
                   aria-required="true"
                   aria-invalid={error ? "true" : "false"}
@@ -318,24 +305,22 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onBack, onStat
             </div>
 
             {error && (
-              <div className="rounded-2xl bg-gradient-to-r from-red-50 via-red-100/50 to-red-50 border-2 border-red-200 p-5 animate-fadeIn shadow-lg shadow-red-500/10">
-                <div className="flex items-start gap-4">
-                  <div className="flex-shrink-0 mt-0.5">
-                    <AlertCircle className="h-6 w-6 text-red-600" />
-                  </div>
+              <div className="rounded-xl bg-red-50 border border-red-200 p-3">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
                   <div>
                     <h3 className="text-sm font-bold text-red-900">Unable to find application</h3>
-                    <p className="text-sm text-red-700 mt-1 leading-relaxed">{error}</p>
+                    <p className="text-sm text-red-700 mt-0.5">{error}</p>
                   </div>
                 </div>
               </div>
             )}
 
-            <div className="pt-4">
+            <div className="pt-1">
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full flex justify-center items-center gap-2 sm:gap-3 py-3.5 sm:py-4 px-4 border border-transparent rounded-lg sm:rounded-xl shadow-xl text-sm sm:text-base font-bold text-white bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-700 hover:shadow-2xl hover:shadow-indigo-500/30 focus:outline-none focus:ring-4 focus:ring-indigo-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 group relative overflow-hidden transform hover:-translate-y-0.5"
+                className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-700 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-indigo-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300"
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-700 via-blue-700 to-indigo-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 <span className="relative flex items-center gap-3">
@@ -358,7 +343,7 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onBack, onStat
           </form>
         </div>
         
-        <div className="mt-10 text-center">
+        <div className="mt-4 text-center">
           <p className="text-sm text-slate-600 font-medium">
             Having trouble? Contact support at{' '}
             <a 
@@ -369,7 +354,6 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onBack, onStat
             </a>
           </p>
         </div>
-      </div>
       </div>
     </div>
   );

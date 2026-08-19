@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { FloatingPillSwitch } from './FloatingPillSwitch';
 import ViewportPortal from './ViewportPortal';
+import NeelaLogo from './NeelaLogo';
 import { shortStayDescription, shortStayLocation, shortStayTitle } from '../utils/shortStayListings';
 import { SEO_PAGES, setPageMeta, shortStayListingMeta } from '../utils/seo';
 import {
@@ -560,20 +561,6 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
     return list;
   }, [properties, appliedBeds, appliedBaths, appliedArea, appliedPrice, appliedGuests, appliedSort]);
 
-  const staysByBuilding = useMemo(() => {
-    const map = new Map<string, Property[]>();
-    for (const p of filteredProperties) {
-      const k = getPropertyGroupKeyFromProperty(p);
-      if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push(p);
-    }
-    const keys = [
-      ...PORTFOLIO_DISPLAY_ORDER.filter((k) => map.has(k)),
-      ...[...map.keys()].filter((k) => !PORTFOLIO_DISPLAY_ORDER.includes(k)),
-    ];
-    return keys.map((groupKey) => ({ groupKey, items: map.get(groupKey)! }));
-  }, [filteredProperties]);
-
   const hasActiveFilters = appliedBeds != null || appliedBaths != null || appliedArea || appliedPrice || appliedGuests != null;
 
   const similarStays = useMemo(() => {
@@ -981,9 +968,12 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
         className="sticky top-4 z-30 mb-8"
       />
 
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900 mb-2">Short Stays & Airbnb-Style Getaways</h1>
-        <p className="text-slate-600">Browse properties and book your stay by the night.</p>
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-center gap-4">
+        <NeelaLogo variant="full" size="md" showGlow />
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">Short Stays & Airbnb-Style Getaways</h1>
+          <p className="text-slate-600">Browse properties and book your stay by the night.</p>
+        </div>
       </div>
 
       {!loading && properties.length > 0 && (
@@ -1106,12 +1096,8 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
           <button type="button" onClick={clearFilters} className="text-amber-600 font-semibold hover:underline">Clear filters</button>
         </div>
       ) : (
-        <div className="space-y-10">
-          {staysByBuilding.map(({ groupKey, items }) => (
-            <section key={groupKey}>
-              <h3 className="text-xl font-bold text-slate-800 mb-4 pb-2 border-b border-slate-200">{groupKey}</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
-          {items.map((p) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
+          {filteredProperties.map((p) => (
             <div key={p.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-lg transition-shadow">
               <div className="relative h-48">
                 {p.image ? <img src={p.image} alt={shortStayTitle(p)} className="w-full h-full object-cover" /> : (
@@ -1140,9 +1126,6 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
                 </button>
               </div>
             </div>
-          ))}
-              </div>
-            </section>
           ))}
         </div>
       )}
