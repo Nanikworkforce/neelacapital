@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import DashboardView from './components/DashboardView';
@@ -20,7 +20,7 @@ import { Tenant, Payment, MaintenanceRequest, Property } from './types';
 import { usePollWhileVisible } from './hooks/usePollWhileVisible';
 
 const App: React.FC = () => {
-  const adminPagePadding = 'px-3 py-4 sm:px-4 sm:py-5 md:px-4 md:py-5 lg:px-6 lg:py-6 xl:px-8 xl:py-8 pb-[max(1rem,env(safe-area-inset-bottom))]';
+  const adminPagePadding = 'px-3 pt-6 sm:px-4 sm:pt-7 md:px-4 lg:px-6 lg:pt-8 xl:px-8 xl:pt-8 pb-[max(1.25rem,env(safe-area-inset-bottom))]';
   const location = useLocation();
   const navigate = useNavigate();
   // Check if we're on a password reset page - Vercel deployment trigger
@@ -32,6 +32,7 @@ const App: React.FC = () => {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [tenantsInitialTab, setTenantsInitialTab] = useState<'residents' | 'applicants'>('residents');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const appScrollRef = useRef<HTMLDivElement>(null);
 
   // State for data
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -185,6 +186,10 @@ const App: React.FC = () => {
     setActiveTab('public-portal');
     setIsMobileMenuOpen(false);
   };
+
+  useEffect(() => {
+    appScrollRef.current?.scrollTo({ top: 0 });
+  }, [activeTab]);
 
   const refreshTenants = async () => {
     try {
@@ -398,7 +403,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex bg-gradient-to-br from-blue-50 via-purple-50/20 to-blue-50/20">
+    <div className="h-[100dvh] flex bg-gradient-to-br from-blue-50 via-purple-50/20 to-blue-50/20 overflow-hidden">
       {/* Overlay for mobile menu */}
       {isMobileMenuOpen && !isPublic && (
         <div
@@ -417,10 +422,10 @@ const App: React.FC = () => {
         />
       )}
 
-      <main className="flex-1 flex flex-col min-w-0 w-full min-h-screen lg:min-h-0 lg:h-screen overflow-hidden">
+      <main className="flex-1 flex flex-col min-w-0 w-full min-h-0 h-[100dvh] overflow-hidden">
         {/* Top Bar — tablets & small laptops use drawer; sidebar fixed from lg up */}
         {!isPublic && (
-          <div className="admin-mobile-header lg:hidden bg-white/95 backdrop-blur-md border-b border-slate-200/60 px-3 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between gap-2 sticky top-0 z-30 shadow-sm shadow-slate-500/5">
+          <div className="admin-mobile-header lg:hidden bg-white/95 backdrop-blur-md border-b border-slate-200/60 px-3 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between gap-2 sticky top-0 z-30 shadow-sm shadow-slate-500/5 safe-area-top">
             <div className="flex items-center min-w-0 flex-1 overflow-visible">
               <NeelaLogo variant="full" size="sm" className="shrink-0" />
             </div>
@@ -435,7 +440,7 @@ const App: React.FC = () => {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <div ref={appScrollRef} data-app-scroll className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
           {isPublic ? (
             <PublicPortal 
               onAdminLogin={handleAdminLogin} 

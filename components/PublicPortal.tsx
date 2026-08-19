@@ -49,6 +49,12 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
   const [showShortStayPromo, setShowShortStayPromo] = useState(false);
 
   useEffect(() => {
+    window.scrollTo({ top: 0 });
+    const scroller = document.querySelector('[data-app-scroll]');
+    if (scroller instanceof HTMLElement) scroller.scrollTo({ top: 0 });
+  }, [activeTab, view]);
+
+  useEffect(() => {
     if (view === 'application' || view === 'check_status' || view === 'status_tracker') {
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     }
@@ -599,7 +605,7 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
   };
 
   const LandingHeader = () => (
-    <header className="bg-gradient-to-b from-white via-white to-gray-50/50 backdrop-blur-xl border-b border-gray-200/30 sticky top-0 z-50 shadow-lg">
+    <header className="bg-gradient-to-b from-white via-white to-gray-50/50 backdrop-blur-xl border-b border-gray-200/30 sticky top-0 z-50 shadow-lg safe-area-top">
       <div className="w-full pl-2 pr-3 sm:pl-3 sm:pr-5 lg:pl-4 lg:pr-8">
         <div className="h-14 sm:h-16 flex items-center justify-between gap-3">
         <div 

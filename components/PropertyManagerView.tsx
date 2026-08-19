@@ -1866,7 +1866,7 @@ const PropertyManagerView: React.FC = () => {
               <button
                 key={id}
                 type="button"
-                onClick={() => { setActiveTab(id); setMobileOpen(false); }}
+                onClick={() => { setActiveTab(id); setMobileOpen(false); window.scrollTo({ top: 0 }); }}
                 className={`w-full flex items-center gap-3 px-4 py-3.5 sm:py-3 rounded-xl text-sm font-semibold transition-all duration-200 touch-manipulation min-h-[2.75rem] ${
                   isActive
                     ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white shadow-lg shadow-emerald-500/25'

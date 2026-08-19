@@ -1517,7 +1517,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     const h = avenueHYearSheet || { income: 0, expenses: 0, net: 0 };
     const w = woodingYearSheet || { income: 0, expenses: 0, net: 0 };
     const f = avenueFYearSheet || { income: 0, expenses: 0, net: 0 };
-    return {
+      return {
       income: b.income + t.income + c.income + a.income + s.income + sev.income + h.income + w.income + f.income,
       expenses: b.expenses + t.expenses + c.expenses + a.expenses + s.expenses + sev.expenses + h.expenses + w.expenses + f.expenses,
       net: b.net + t.net + c.net + a.net + s.net + sev.net + h.net + w.net + f.net,
@@ -1559,7 +1559,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
         };
       }
       if (isTomballName(name) && tomballYearSheet) {
-        return {
+      return {
           ...row,
           totalIncome: tomballYearSheet.income,
           totalExpenses: tomballYearSheet.expenses,
@@ -1569,7 +1569,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
         };
       }
       if (isConroeName(name) && conroeYearSheet) {
-        return {
+    return {
           ...row,
           totalIncome: conroeYearSheet.income,
           totalExpenses: conroeYearSheet.expenses,
@@ -1735,7 +1735,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     <div className="space-y-4 sm:space-y-6 lg:space-y-8 animate-fade-in pb-8 min-w-0 max-w-full overflow-x-hidden">
       <div className="relative z-20 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-indigo-700 via-purple-700 to-fuchsia-700 text-white p-4 sm:p-6 lg:p-8 shadow-2xl shadow-indigo-500/20">
         <div className="absolute inset-0 overflow-hidden rounded-2xl sm:rounded-3xl pointer-events-none">
-          <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1600&q=80')] opacity-15 bg-cover bg-center" />
+        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1600&q=80')] opacity-15 bg-cover bg-center" />
         </div>
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 sm:gap-6">
           <div className="min-w-0">
@@ -1771,7 +1771,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
               {showExpenseBell && (
                 <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-[min(22rem,calc(100vw-2.5rem))] max-h-96 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-50 text-left">
                   <div className="p-3 border-b border-slate-100 flex items-center justify-between gap-2 sticky top-0 bg-white">
-                    <p className="font-semibold text-sm text-slate-800">Manager expenses</p>
+                    <p className="font-semibold text-sm text-slate-800">Expenses</p>
                     {expenseNotifications.length > 0 && (
                       <button
                         type="button"
@@ -1785,7 +1785,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                     )}
                   </div>
                   {expenseNotifications.length === 0 ? (
-                    <p className="p-4 text-sm text-slate-500">No new property manager expenses in the last 24 hours.</p>
+                    <p className="p-4 text-sm text-slate-500">No new expenses.</p>
                   ) : (
                     expenseNotifications.map(({ expense: e, recordedAt }) => (
                       <div
@@ -1839,7 +1839,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-w-0">
         <div className="px-3 sm:px-5 py-3.5 bg-amber-600">
           <h3 className="font-bold text-white text-base sm:text-lg">Portfolio Summary — {year}</h3>
-        </div>
+            </div>
         <table className="w-full text-sm table-fixed">
           <colgroup>
             <col className="w-[58%]" />
@@ -1896,8 +1896,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                 {totalUnitsAcrossProperties > 0 && !expandedProperty ? ` · ${totalUnitsAcrossProperties} units` : ''}
               </p>
             </div>
+            </div>
           </div>
-        </div>
 
         {/* Mobile: stacked property cards */}
         <div className="md:hidden divide-y divide-slate-100">
@@ -1905,9 +1905,9 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
             <p className="px-4 py-10 text-center text-slate-500 text-sm">No properties found for {year}.</p>
           ) : (
             visibleProperties.map((row) => {
-              const expanded = expandedProperty === row.groupKey;
+            const expanded = expandedProperty === row.groupKey;
               const unitCount = row.units?.length || row.unitsCount || 0;
-              return (
+            return (
                 <div key={`m-${row.groupKey}`} className={expanded ? 'bg-indigo-50/40' : 'bg-white'}>
                   <div className="px-3 py-3.5">
                     <button
@@ -1923,12 +1923,12 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                           {unitCount > 0 && (
                             <p className="text-[11px] text-slate-500 mt-0.5">
                               {unitCount} unit{unitCount === 1 ? '' : 's'}
-                            </p>
-                          )}
-                        </div>
+                          </p>
+                        )}
+                      </div>
                         <span className="text-slate-400 flex-shrink-0 mt-0.5">
                           {expanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-                        </span>
+                                </span>
                       </div>
                       <div className="mt-2.5 grid grid-cols-3 gap-1.5 sm:gap-2">
                         <div className="rounded-lg bg-slate-50 border border-slate-100 px-1.5 sm:px-2 py-1.5 min-w-0">
@@ -1950,14 +1950,14 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                           </p>
                         </div>
                       </div>
-                    </button>
-                    <button
-                      type="button"
+                          </button>
+                              <button
+                                type="button"
                       onClick={() => openPropertyMonthly(row)}
                       className="mt-2.5 w-full inline-flex items-center justify-center rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-3 py-2 min-h-[40px]"
                     >
                       View breakdown
-                    </button>
+                              </button>
                   </div>
                   {expanded && (
                     <div className="px-3 pb-4 border-t border-indigo-100/80 pt-3">
@@ -1987,24 +1987,24 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                         avenueFMonthTotals={avenueFMonthTotals}
                         setAvenueFMonthTotals={setAvenueFMonthTotals}
                       />
-                    </div>
-                  )}
+                            </div>
+                          )}
                 </div>
               );
             })
-          )}
+                      )}
           {hiddenPropertyCount > 0 && (
             <div className="px-3 py-3">
-              <button
-                type="button"
+                        <button
+                          type="button"
                 onClick={viewMoreProperties}
                 className="w-full rounded-xl border border-indigo-300 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-3 py-2.5 min-h-[44px] shadow-sm"
-              >
+                        >
                 View more properties ({hiddenPropertyCount})
-              </button>
-            </div>
+                        </button>
+                    </div>
           )}
-        </div>
+                </div>
 
         {/* Desktop: Excel-style table */}
         <div className="hidden md:block overflow-x-auto overscroll-x-contain">
@@ -2023,15 +2023,15 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                 <th className="text-right font-semibold px-2 lg:px-4 py-3">NOI</th>
                 <th className="text-center font-semibold px-2 lg:px-3 py-3 whitespace-nowrap">Monthly</th>
                 <th className="text-center font-semibold px-2 lg:px-3 py-3 w-10 lg:w-12"> </th>
-              </tr>
-            </thead>
-            <tbody>
+                              </tr>
+                            </thead>
+                            <tbody>
               {visibleProperties.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                     No properties found for {year}.
-                  </td>
-                </tr>
+                                  </td>
+                                </tr>
               ) : (
                 visibleProperties.map((row) => {
                   const expanded = expandedProperty === row.groupKey;
@@ -2057,13 +2057,13 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                               </p>
                             )}
                           </div>
-                        </td>
+                                </td>
                         <td
                           className={`px-4 py-3 text-right tabular-nums font-medium whitespace-nowrap cursor-pointer ${moneyToneClass(row.totalIncome)}`}
                           onClick={() => togglePropertyExpand(row)}
                         >
                           {formatMoneyPnL(row.totalIncome)}
-                        </td>
+                                </td>
                         <td
                           className={`px-4 py-3 text-right tabular-nums font-medium whitespace-nowrap cursor-pointer ${moneyToneClass(row.totalExpenses)}`}
                           onClick={() => togglePropertyExpand(row)}
@@ -2094,8 +2094,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                           onClick={() => togglePropertyExpand(row)}
                         >
                           {expanded ? <ChevronUp className="w-4 h-4 inline-block" /> : <ChevronDown className="w-4 h-4 inline-block" />}
-                        </td>
-                      </tr>
+                                </td>
+                              </tr>
                       {expanded && (
                         <tr className="border-t border-indigo-100 bg-slate-50/60">
                           <td colSpan={6} className="px-3 sm:px-4 py-3 sm:py-4">
@@ -2136,15 +2136,15 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
           </table>
           {hiddenPropertyCount > 0 && (
             <div className="px-4 py-3 border-t border-slate-100">
-              <button
-                type="button"
+          <button
+            type="button"
                 onClick={viewMoreProperties}
                 className="rounded-xl border border-indigo-300 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 min-h-[40px] shadow-sm"
-              >
+          >
                 View more properties ({hiddenPropertyCount})
-              </button>
+          </button>
             </div>
-          )}
+        )}
         </div>
       </div>
       )}
@@ -2247,12 +2247,12 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
             /conroe/i.test(created.propertyName || '') ||
             /avenue\s*q|ave\.?\s*q|aveq/i.test(created.propertyName || '');
           if (!isSheetExpense) {
-            setSummary((s) => {
-              if (!s) return s;
-              if (!existing) return applyExpenseDelta(s, created, created.amount);
-              let next = applyExpenseDelta(s, existing, -existing.amount);
-              return applyExpenseDelta(next, created, created.amount);
-            });
+          setSummary((s) => {
+            if (!s) return s;
+            if (!existing) return applyExpenseDelta(s, created, created.amount);
+            let next = applyExpenseDelta(s, existing, -existing.amount);
+            return applyExpenseDelta(next, created, created.amount);
+          });
           }
           setExpenseSuccessPopup(created);
           setExpenseFeedback(
