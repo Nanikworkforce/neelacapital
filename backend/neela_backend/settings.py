@@ -139,8 +139,9 @@ if _db_url and _db_url.startswith('mysql'):
     pymysql.install_as_MySQLdb()
 if _db_url:
     DATABASES = {
-        'default': dj_database_url.config(default=_db_url, conn_max_age=600)
+        'default': dj_database_url.config(default=_db_url, conn_max_age=60)
     }
+    DATABASES['default']['CONN_HEALTH_CHECKS'] = True
 else:
     DATABASES = {
         'default': {
