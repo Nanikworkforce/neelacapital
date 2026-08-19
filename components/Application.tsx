@@ -3,6 +3,7 @@ import { ApplicationForm, Listing, Property, TenantStatus } from '../types';
 import { api } from '../services/api';
 import { ArrowLeft, Loader2, BedDouble, Bath, Plus, Trash2 } from 'lucide-react';
 import Modal from './Modal';
+import { folderImageForProperty } from '../utils/listingImages';
 
 export interface UseApplicationReturn {
   // Application state
@@ -195,13 +196,11 @@ export const useApplication = (): UseApplicationReturn => {
   const propertyToListing = (property: Property): Listing => {
     // Handle image URL - display_image from serializer should be a full URL
     // If it's still relative, prepend API base URL
-    let imageUrl = property.image || '';
-    if (imageUrl && !imageUrl.startsWith('http')) {
-      // const API_BASE = import.meta.env.VITE_API_URL || 'https://neela-backend-96ia.onrender.com';
+    let imageUrl = folderImageForProperty(property) || property.image || '';
+    const isSiteAsset = imageUrl.startsWith('/property-images/') || imageUrl.startsWith('/assets/');
+    if (imageUrl && !imageUrl.startsWith('http') && !isSiteAsset) {
       const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      // Remove /api from the end if present
       const baseUrl = API_BASE.replace(/\/api$/, '');
-      // Ensure imageUrl starts with / for proper concatenation
       imageUrl = `${baseUrl}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
     }
 

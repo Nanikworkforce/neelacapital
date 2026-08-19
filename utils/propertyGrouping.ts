@@ -473,10 +473,11 @@ export type PropertyGroupOption = {
 
 /** Prefer portfolio parent (building roll-up) as the expense property target. */
 function isLikelyPortfolioParent(prop: Property, groupKey: string): boolean {
+  const rawName = (prop.name || '').trim();
+  if (/unit\s*[-–]?\s*[a-z0-9]/i.test(rawName) || /door\s*\d+/i.test(rawName)) return false;
   const name = normalizeName(prop.name);
-  const area = normalizeName(prop.area);
   const key = normalizeName(groupKey);
-  if (name === key || area === key) return true;
+  if (name === key) return true;
   const short: Record<string, string> = {
     aveq: 'avenueq',
     sherman: 'shermanst',
