@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Invoice</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #4f46e5;
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 5px 5px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .content {
+            background-color: #f9fafb;
+            padding: 30px;
+            border: 1px solid #e5e7eb;
+        }
+        .invoice-box {
+            background-color: white;
+            padding: 25px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border: 2px solid #e5e7eb;
+        }
+        .invoice-box h2 {
+            color: #4f46e5;
+            margin-top: 0;
+            border-bottom: 2px solid #4f46e5;
+            padding-bottom: 10px;
+        }
+        .amount {
+            font-size: 32px;
+            font-weight: bold;
+            color: #4f46e5;
+            text-align: center;
+            padding: 20px;
+            background-color: #eef2ff;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            font-weight: bold;
+            color: #6b7280;
+        }
+        .button {
+            display: inline-block;
+            background-color: #10b981;
+            color: white;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+            text-align: center;
+        }
+        .button:hover {
+            background-color: #059669;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+            font-size: 12px;
+        }
+        .due-date {
+            background-color: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>💰 Payment Invoice</h1>
+    </div>
+    <div class="content">
+        <p>Dear {{ tenant_name }},</p>
+        
+        <p>A new invoice has been generated for your account.</p>
+        
+        <div class="invoice-box">
+            <h2>Invoice Details</h2>
+            
+            <div class="amount">${{ amount }}</div>
+            
+            <div class="info-row">
+                <span class="info-label">Payment Type:</span>
+                <span>{{ payment_type }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Due Date:</span>
+                <span>{{ due_date|date:"F d, Y" }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Status:</span>
+                <span>{{ status }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Property Unit:</span>
+                <span>{{ property_unit }}</span>
+            </div>
+            {% if reference %}
+            <div class="info-row">
+                <span class="info-label">Reference:</span>
+                <span>{{ reference }}</span>
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="due-date">
+            <strong>⚠️ Payment Due:</strong> {{ due_date|date:"F d, Y" }}
+        </div>
+        
+        <p>Please make your payment by the due date to avoid late fees.</p>
+        
+        <div style="text-align: center;">
+            <a href="{{ payment_url }}" class="button">Pay Now</a>
+        </div>
+        
+        <p>If you have any questions about this invoice, please contact the property management office.</p>
+        
+        <p>Thank you,<br><strong>Neela Property Management Team</strong></p>
+    </div>
+    <div class="footer">
+        <p>This is an automated email from Neela Tenant Management System.</p>
+    </div>
+</body>
+</html>
+

@@ -1,0 +1,57 @@
+# Dependencies & builds
+node_modules/
+dist/
+dist-ssr/
+**/node_modules/
+**/dist/
+Neela-Tenant-App-2/Neela-frontend/
+
+# Env / secrets — never commit
+.env
+.env.*
+!.env.example
+!**/.env.example
+Neela-Tenant-App-2/.env
+Neela-Tenant-App-2/.env.local
+Neela-Tenant-App-2/.env.production
+Neela-Tenant-App-2/backend/.env
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/venv/
+**/.venv/
+**/staticfiles/
+**/*.sqlite3
+db.sqlite3
+
+# Logs & editor
+logs/
+*.log
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Large local-only media / scratch
+Property Images*/
+**/Property Images*/
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+P&L data/
+_*.py
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Nested git leftovers
+**/.git-portal-backup/
+.git-portal-backup/

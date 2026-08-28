@@ -1,0 +1,31 @@
+name: Deploy frontend to Hostinger
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build production frontend
+        run: npm ci && npm run build
+        env:
+          VITE_API_URL: https://neela-backend-dfmg.onrender.com
+
+      - name: Upload dist to Hostinger
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.6
+        with:
+          server: 212.85.29.170
+          username: u295735675.portal.neelacapital.com
+          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+          local-dir: ./dist/
+          server-dir: public_html/
+          dangerous-clean-slate: true

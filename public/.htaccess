@@ -1,0 +1,20 @@
+Options -MultiViews
+RewriteEngine On
+RewriteBase /
+
+# Admin & property manager (portal SPA at site root paths)
+RewriteRule ^admin/?$ /portal/index.html [L]
+RewriteRule ^admin/.*$ /portal/index.html [L]
+RewriteRule ^manager/?$ /portal/index.html [L]
+RewriteRule ^manager/.*$ /portal/index.html [L]
+
+# Portal SPA under /portal
+RewriteCond %{REQUEST_URI} ^/portal
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^portal(?:/.*)?$ /portal/index.html [L]
+
+# Main marketing site SPA
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]

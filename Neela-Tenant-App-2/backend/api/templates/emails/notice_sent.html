@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Legal Notice</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #ef4444;
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 5px 5px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .content {
+            background-color: #f9fafb;
+            padding: 30px;
+            border: 1px solid #e5e7eb;
+        }
+        .notice-box {
+            background-color: #fee2e2;
+            border: 2px solid #ef4444;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .notice-box h2 {
+            color: #991b1b;
+            margin: 0 0 10px 0;
+        }
+        .info-box {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .info-box h3 {
+            color: #4f46e5;
+            margin-top: 0;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📋 Legal Notice</h1>
+    </div>
+    <div class="content">
+        <p>Dear {{ tenant_name }},</p>
+        
+        <div class="notice-box">
+            <h2>Important Notice</h2>
+            <p style="color: #991b1b; margin: 0;">A legal notice has been sent to you regarding your tenancy.</p>
+        </div>
+        
+        <div class="info-box">
+            <h3>Notice Details</h3>
+            <p><strong>Notice Type:</strong> {{ notice_type }}</p>
+            <p><strong>Property Unit:</strong> {{ property_unit }}</p>
+            <p><strong>Date Sent:</strong> {{ sent_date|date:"F d, Y" }}</p>
+        </div>
+        
+        <p>A PDF copy of this notice is attached to this email. Please review it carefully and take any required action within the specified timeframe.</p>
+        
+        <p>If you have any questions about this notice, please contact the property management office immediately.</p>
+        
+        <p>Best regards,<br><strong>Neela Property Management Team</strong></p>
+    </div>
+    <div class="footer">
+        <p>This is an automated email from Neela Tenant Management System.</p>
+        <p>Please review the attached notice carefully.</p>
+    </div>
+</body>
+</html>
+

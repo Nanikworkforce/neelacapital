@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lease Ready for Signing</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #6366f1;
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 5px 5px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .content {
+            background-color: #f9fafb;
+            padding: 30px;
+            border: 1px solid #e5e7eb;
+        }
+        .info-box {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #6366f1;
+        }
+        .info-box h3 {
+            color: #6366f1;
+            margin-top: 0;
+        }
+        .button {
+            display: inline-block;
+            background-color: #6366f1;
+            color: white;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+            text-align: center;
+        }
+        .button:hover {
+            background-color: #4f46e5;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📄 Lease Ready for Signing</h1>
+    </div>
+    <div class="content">
+        <p>Dear {{ tenant_name }},</p>
+        
+        <p>Your lease agreement has been prepared and is ready for your review and signature.</p>
+        
+        <div class="info-box">
+            <h3>Lease Details</h3>
+            <p><strong>Property Unit:</strong> {{ property_unit }}</p>
+            <p><strong>Lease Type:</strong> {{ lease_type }}</p>
+            {% if rent_amount %}
+            <p><strong>Monthly Rent:</strong> ${{ rent_amount }}</p>
+            {% endif %}
+        </div>
+        
+        <p>Please review the lease agreement carefully. Once you're ready, you can sign it electronically right inside the Neela tenant portal — no account or login required.</p>
+
+        <div style="text-align: center;">
+            <a href="{{ signing_url }}" class="button">Review &amp; Sign Lease</a>
+        </div>
+
+        <p style="font-size: 13px; color: #6b7280;">Or copy this link into your browser:<br>{{ signing_url }}</p>
+
+        <p><strong>Important:</strong> This link expires in 7 days. Please review all terms and conditions before signing. If you have any questions, contact the property management office before signing.</p>
+        
+        <p>Best regards,<br><strong>Neela Property Management Team</strong></p>
+    </div>
+    <div class="footer">
+        <p>This is an automated email from Neela Tenant Management System.</p>
+    </div>
+</body>
+</html>
+

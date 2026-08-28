@@ -1,0 +1,1982 @@
+import { Tenant, Payment, MaintenanceRequest, Listing, Property, LeaseSigningMetadata, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, IncomeStatementSummary, PropertyManagerProfile, CreatePropertyManagerInput, PropertyUnit, PropertyMonthInput, PropertyMonthInputLine, Inquiry } from '../types';
+import { getAuthHeader, clearInvalidTokens, refreshAccessToken, refreshTokenIfNeeded } from './auth';
+import { applyListingImages } from '../utils/listingImages';
+
+// In dev, use Vite proxy (/api → backend) unless VITE_API_URL is set explicitly.
+const BASE_URL = import.meta.env.VITE_API_URL
+  || (import.meta.env.DEV ? '' : 'http://localhost:8000');
+const API_URL = `${BASE_URL}/api`;
+
+function parseApiErrorBody(data: unknown, fallback: string): string {
+  if (!data || typeof data !== 'object') return fallback;
+  const err = data as Record<string, unknown>;
+  if (typeof err.error === 'string') return err.error;
+  if (typeof err.detail === 'string') return err.detail;
+  if (Array.isArray(err.detail) && err.detail.length > 0) return String(err.detail[0]);
+  const firstField = Object.values(err).find((v) => Array.isArray(v) && v.length > 0);
+  if (Array.isArray(firstField)) return String(firstField[0]);
+  return fallback;
+}
+
+// Track if we're currently refreshing to avoid multiple simultaneous refresh attempts
+let isRefreshing = false;
+let refreshPromise: Promise<void> | null = null;
+
+/**
+ * Helper function to get headers with authentications.
+ * @param includeContentType - Whether to include Content-Type headers
+ * @param includeAuth - Whether to include Authorization header (default: true)
+ */
+const getHeaders = (includeContentType: boolean = true, includeAuth: boolean = true): HeadersInit => {
+  const headers: HeadersInit = {};
+  if (includeContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (includeAuth) {
+    const authHeader = getAuthHeader();
+    if (authHeader) {
+      headers['Authorization'] = authHeader;
+    }
+  }
+  return headers;
+};
+
+/**
+ * Wrapper for fetch that automatically handles token refresh on 401 errors.
+ * Proactively refreshes tokens if they're expiring soon.
+ */
+const fetchWithAuth = async (
+  url: string,
+  options: RequestInit = {},
+  retryOn401: boolean = true
+): Promise<Response> => {
+  // Proactively refresh token if it's expiring soon (before making the request)
+  if (options.headers && 'Authorization' in (options.headers as any)) {
+    await refreshTokenIfNeeded();
+  }
+
+  // Make the initial request
+  let response = await fetch(url, options);
+
+  // If we get a 401 and retry is enabled, try to refresh token and retry
+  if (response.status === 401 && retryOn401 && options.headers && 'Authorization' in (options.headers as any)) {
+    // Check if we're already refreshing
+    if (isRefreshing && refreshPromise) {
+      // Wait for the ongoing refresh to complete
+      await refreshPromise;
+      // Retry the request with new token
+      const newHeaders = { ...options.headers };
+      const authHeader = getAuthHeader();
+      if (authHeader) {
+        (newHeaders as any)['Authorization'] = authHeader;
+      }
+      response = await fetch(url, { ...options, headers: newHeaders });
+    } else {
+      // Start refresh process
+      isRefreshing = true;
+      refreshPromise = (async () => {
+        try {
+          await refreshAccessToken();
+        } catch (error) {
+          // Refresh failed - clear tokens and let the 401 propagate
+          clearInvalidTokens();
+          throw error;
+        } finally {
+          isRefreshing = false;
+          refreshPromise = null;
+        }
+      })();
+
+      try {
+        await refreshPromise;
+        // Retry the request with new token
+        const newHeaders = { ...options.headers };
+        const authHeader = getAuthHeader();
+        if (authHeader) {
+          (newHeaders as any)['Authorization'] = authHeader;
+        }
+        response = await fetch(url, { ...options, headers: newHeaders });
+      } catch (error) {
+        // Refresh failed - return original 401 response
+        return response;
+      }
+    }
+  }
+
+  return response;
+};
+
+export const api = {
+  mapOperatingExpense: (item: any): OperatingExpense => ({
+    id: String(item.id),
+    property: item.property != null ? String(item.property) : null,
+    propertyName: item.property_name || '',
+    unit: item.unit != null ? String(item.unit) : null,
+    unitLabel: item.unit_label || '',
+    amount: parseFloat(item.amount),
+    category: item.category,
+    visibility: item.visibility,
+    date: item.date,
+    notes: item.notes || '',
+    createdByName: item.created_by_name || '',
+    createdByIsManager: !!item.created_by_is_manager,
+    createdAt: item.created_at,
+  }),
+
+  getTenants: async (): Promise<Tenant[]> => {
+    const response = await fetchWithAuth(`${API_URL}/tenants/`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) throw new Error('Failed to fetch tenants');
+    const data = await response.json();
+    // Map backend fields to frontend types if necessary (e.g. snake_case to camelCase)
+    // Django Rest Framework defaults to snake_case, but our types are camelCase.
+    // We need to map them or configure DRF to use camelCase.
+    // For now, let's map manually to be safe and explicit.
+    return data.map((item: any) => ({
+      ...item,
+      id: String(item.id), // Ensure ID is always a string
+      propertyUnit: item.property_unit,
+      leaseStart: item.lease_start,
+      leaseEnd: item.lease_end,
+      rentAmount: parseFloat(item.rent_amount),
+      deposit: parseFloat(item.deposit),
+      balance: parseFloat(item.balance),
+      creditScore: item.credit_score,
+      backgroundCheckStatus: item.background_check_status,
+      applicationData: item.application_data,
+      leaseStatus: item.lease_status,
+      signedLeaseUrl: item.signed_lease_url,
+      photoIdFiles: item.photo_id_files || [],
+      incomeVerificationFiles: item.income_verification_files || [],
+      backgroundCheckFiles: item.background_check_files || []
+    }));
+  },
+
+  getPayments: async (): Promise<Payment[]> => {
+    const response = await fetchWithAuth(`${API_URL}/payments/`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) throw new Error('Failed to fetch payments');
+    const data = await response.json();
+    return data.map((item: any) => ({
+      ...item,
+      id: String(item.id),
+      tenantId: String(item.tenant?.id ?? item.tenant ?? ''),
+      tenantName: item.tenant_name || undefined,
+      tenantPropertyUnit: item.tenant_property_unit || undefined,
+      amount: parseFloat(item.amount),
+      proofOfPaymentFiles: item.proof_of_payment_files || [],
+    }));
+  },
+
+  createPayment: async (paymentData: Partial<Payment> & { proofFiles?: File[] }): Promise<Payment & { invoice_email_sent?: boolean }> => {
+    const hasProofFiles = paymentData.proofFiles && paymentData.proofFiles.length > 0;
+    
+    let body: FormData | string;
+    let headers: HeadersInit;
+    
+    if (hasProofFiles) {
+      const formData = new FormData();
+      formData.append('tenant', paymentData.tenantId!);
+      formData.append('amount', String(paymentData.amount ?? 0));
+      formData.append('date', paymentData.date!);
+      formData.append('status', paymentData.status ?? 'Pending');
+      formData.append('type', paymentData.type ?? 'Rent');
+      formData.append('method', paymentData.method!);
+      if (paymentData.reference) formData.append('reference', paymentData.reference);
+      paymentData.proofFiles!.forEach((file: File) => {
+        formData.append('proof_of_payment_files_upload', file);
+      });
+      body = formData;
+      headers = getHeaders(false);
+    } else {
+      const backendData = {
+        tenant: paymentData.tenantId,
+        amount: paymentData.amount?.toString(),
+        date: paymentData.date,
+        status: paymentData.status,
+        type: paymentData.type,
+        method: paymentData.method,
+        reference: paymentData.reference || null,
+      };
+      body = JSON.stringify(backendData);
+      headers = getHeaders();
+    }
+    
+    const response = await fetchWithAuth(`${API_URL}/payments/`, {
+      method: 'POST',
+      headers,
+      body,
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to create payment' }));
+      throw new Error(error.detail || error.message || 'Failed to create payment');
+    }
+    
+    const data = await response.json();
+    return {
+      ...data,
+      id: String(data.id),
+      tenantId: String(data.tenant),
+      amount: parseFloat(data.amount),
+      invoice_email_sent: data.invoice_email_sent,
+    };
+  },
+
+  updatePayment: async (id: string, paymentData: Partial<Payment>): Promise<Payment> => {
+    const backendData: any = {};
+    if (paymentData.tenantId) backendData.tenant = paymentData.tenantId;
+    if (paymentData.amount !== undefined) backendData.amount = paymentData.amount.toString();
+    if (paymentData.date) backendData.date = paymentData.date;
+    if (paymentData.status) backendData.status = paymentData.status;
+    if (paymentData.type) backendData.type = paymentData.type;
+    if (paymentData.method) backendData.method = paymentData.method;
+    if (paymentData.reference !== undefined) backendData.reference = paymentData.reference || null;
+    
+    const response = await fetchWithAuth(`${API_URL}/payments/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(backendData),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to update payment' }));
+      throw new Error(error.detail || error.message || 'Failed to update payment');
+    }
+    
+    const data = await response.json();
+    return {
+      ...data,
+      id: String(data.id),
+      tenantId: String(data.tenant),
+      amount: parseFloat(data.amount),
+    };
+  },
+
+  deletePayment: async (id: string): Promise<void> => {
+    const response = await fetchWithAuth(`${API_URL}/payments/${id}/`, {
+      method: 'DELETE',
+      headers: getHeaders(false),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to delete payment' }));
+      throw new Error(error.detail || error.message || 'Failed to delete payment');
+    }
+  },
+
+  getIncomeStatement: async (year?: number, options?: { summary?: boolean }): Promise<IncomeStatementSummary> => {
+    const params = new URLSearchParams();
+    if (year) params.set('year', String(year));
+    if (options?.summary) params.set('summary', '1');
+    const query = params.toString();
+    const response = await fetchWithAuth(`${API_URL}/payments/income-statement/${query ? `?${query}` : ''}`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => null);
+      throw new Error(parseApiErrorBody(errBody, 'Failed to fetch income statement'));
+    }
+    const data = await response.json();
+    return {
+      year: data.year,
+      isAdminView: data.is_admin_view !== false,
+      portfolio: {
+        rentIncome: parseFloat(data.portfolio?.rent_income || 0),
+        shortStayIncome: parseFloat(data.portfolio?.short_stay_income || 0),
+        totalIncome: parseFloat(data.portfolio?.total_income || 0),
+        totalExpenses: parseFloat(data.portfolio?.total_expenses || 0),
+        netIncome: parseFloat(data.portfolio?.net_income || 0),
+      },
+      byProperty: (data.by_property || []).map((row: any) => ({
+        propertyId: String(row.property_id),
+        propertyName: row.property_name,
+        address: row.address,
+        city: row.city,
+        state: row.state,
+        unitsCount: row.units_count,
+        imageUrl: row.image_url,
+        rentIncome: parseFloat(row.rent_income || 0),
+        shortStayIncome: parseFloat(row.short_stay_income || 0),
+        totalIncome: parseFloat(row.total_income || 0),
+        totalExpenses: parseFloat(row.total_expenses || 0),
+        netIncome: parseFloat(row.net_income || 0),
+        units: (row.units || []).map((u: any) => ({
+          unitId: String(u.unit_id),
+          propertyId: String(u.property_id),
+          label: u.label,
+          monthlyRent: parseFloat(u.monthly_rent || 0),
+          status: u.status,
+          rentIncome: parseFloat(u.rent_income || 0),
+          totalExpenses: parseFloat(u.total_expenses || 0),
+          netIncome: parseFloat(u.net_income || 0),
+        })),
+        financials: row.financials ? {
+          purchasePrice: row.financials.purchase_price || 0,
+          downPayment: row.financials.down_payment || 0,
+          closingCost: row.financials.closing_cost || 0,
+          loanAmount: row.financials.loan_amount || 0,
+          interestRate: row.financials.interest_rate || 0,
+          loanTermYears: row.financials.loan_term_years,
+          monthlyMortgagePayment: row.financials.monthly_mortgage_payment || 0,
+          landValue: row.financials.land_value || 0,
+          annualDepreciationYears: row.financials.annual_depreciation_years || 27.5,
+          escrowNotes: row.financials.escrow_notes || '',
+        } : null,
+        monthly: (row.monthly || []).map((m: any) => ({
+          month: m.month,
+          income: parseFloat(m.income || 0),
+          expenses: parseFloat(m.expenses || 0),
+          net: parseFloat(m.net || 0),
+        })),
+      })),
+      byUnit: (data.by_unit || []).map((u: any) => ({
+        unitId: String(u.unit_id),
+        propertyId: String(u.property_id),
+        label: u.label,
+        monthlyRent: parseFloat(u.monthly_rent || 0),
+        status: u.status,
+        rentIncome: parseFloat(u.rent_income || 0),
+        totalExpenses: parseFloat(u.total_expenses || 0),
+        netIncome: parseFloat(u.net_income || 0),
+      })),
+      expensesByCategory: Object.entries(data.expenses_by_category || {}).reduce((acc, [k, v]) => {
+        acc[k] = parseFloat(String(v || 0));
+        return acc;
+      }, {} as Record<string, number>),
+      monthly: (data.monthly || []).map((m: any) => ({
+        month: Number(m.month),
+        income: parseFloat(m.income || 0),
+        expenses: parseFloat(m.expenses || 0),
+        net: parseFloat(m.net || 0),
+      })),
+    };
+  },
+
+  mapPropertyMonthInput: (row: any): PropertyMonthInput => {
+    const c = row.computed && typeof row.computed === 'object' ? row.computed : null;
+    return {
+      id: String(row.id),
+      property: String(row.property),
+      propertyName: row.property_name || undefined,
+      unit: row.unit != null ? String(row.unit) : null,
+      unitLabel: String(row.unit_label || 'Door 1'),
+      year: Number(row.year),
+      month: Number(row.month),
+      incomeLines: Array.isArray(row.income_lines) ? row.income_lines : [],
+      opexLines: Array.isArray(row.opex_lines) ? row.opex_lines : [],
+      financingLines: Array.isArray(row.financing_lines) ? row.financing_lines : [],
+      computed: c
+        ? {
+            totalEffectiveIncome: parseFloat(c.total_effective_income ?? 0),
+            totalOpex: parseFloat(c.total_opex ?? 0),
+            mortgageInterest: parseFloat(c.mortgage_interest ?? 0),
+            principalRepayment: parseFloat(c.principal_repayment ?? 0),
+            noi: parseFloat(c.noi ?? 0),
+            cashFlowBeforeTax: parseFloat(c.cash_flow_before_tax ?? 0),
+            annualDepreciation: parseFloat(c.annual_depreciation ?? 0),
+            depreciation: parseFloat(c.depreciation ?? 0),
+            netProfit: parseFloat(c.net_profit ?? 0),
+            cashInvested: parseFloat(c.cash_invested ?? 0),
+            capRatePct: c.cap_rate_pct == null ? null : parseFloat(c.cap_rate_pct),
+            cashOnCashPct: c.cash_on_cash_pct == null ? null : parseFloat(c.cash_on_cash_pct),
+          }
+        : null,
+      updatedBy: row.updated_by != null ? Number(row.updated_by) : null,
+      updatedByName: row.updated_by_name || null,
+      updatedAt: row.updated_at || undefined,
+      createdAt: row.created_at || undefined,
+    };
+  },
+
+  getPropertyMonthInput: async (opts: {
+    property: string;
+    year: number;
+    month: number;
+    unitLabel?: string;
+  }): Promise<PropertyMonthInput | null> => {
+    const params = new URLSearchParams({
+      property: opts.property,
+      year: String(opts.year),
+      month: String(opts.month),
+      unit_label: opts.unitLabel || 'Door 1',
+    });
+    const response = await fetchWithAuth(`${API_URL}/property-month-inputs/?${params}`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) {
+      // 404 usually means the backend deploy is behind (route not registered yet).
+      if (response.status === 404) {
+        const err = new Error('Month inputs API not available on server yet') as Error & { status?: number };
+        err.status = 404;
+        throw err;
+      }
+      throw new Error('Failed to fetch month inputs');
+    }
+    const data = await response.json();
+    const rows = Array.isArray(data) ? data : data.results || [];
+    if (!rows.length) return null;
+    return api.mapPropertyMonthInput(rows[0]);
+  },
+
+  listPropertyMonthInputs: async (opts: {
+    property: string;
+    year: number;
+    unitLabel?: string;
+  }): Promise<PropertyMonthInput[]> => {
+    const params = new URLSearchParams({
+      property: opts.property,
+      year: String(opts.year),
+      unit_label: opts.unitLabel || 'Door 1',
+    });
+    const response = await fetchWithAuth(`${API_URL}/property-month-inputs/?${params}`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) {
+      if (response.status === 404) {
+        const err = new Error('Month inputs API not available on server yet') as Error & { status?: number };
+        err.status = 404;
+        throw err;
+      }
+      throw new Error('Failed to fetch month inputs');
+    }
+    const data = await response.json();
+    const rows = Array.isArray(data) ? data : data.results || [];
+    return rows.map((row: any) => api.mapPropertyMonthInput(row));
+  },
+
+  upsertPropertyMonthInput: async (payload: {
+    property: string;
+    year: number;
+    month: number;
+    unitLabel?: string;
+    incomeLines?: PropertyMonthInputLine[];
+    opexLines?: PropertyMonthInputLine[];
+    financingLines?: PropertyMonthInputLine[];
+  }): Promise<PropertyMonthInput> => {
+    const response = await fetchWithAuth(`${API_URL}/property-month-inputs/upsert/`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        property: payload.property,
+        year: payload.year,
+        month: payload.month,
+        unit_label: payload.unitLabel || 'Door 1',
+        income_lines: payload.incomeLines,
+        opex_lines: payload.opexLines,
+        financing_lines: payload.financingLines,
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(parseApiErrorBody(err, 'Failed to save month inputs'));
+    }
+    return api.mapPropertyMonthInput(await response.json());
+  },
+
+  upsertPropertyFinancials: async (
+    propertyId: string,
+    payload: {
+      purchasePrice?: number;
+      downPayment?: number;
+      closingCost?: number;
+      loanAmount?: number;
+      interestRate?: number;
+      loanTermYears?: number | null;
+      monthlyMortgagePayment?: number;
+      landValue?: number;
+      annualDepreciationYears?: number;
+      escrowNotes?: string;
+    },
+  ): Promise<import('../types').PropertyFinancials> => {
+    const response = await fetchWithAuth(`${API_URL}/properties/${propertyId}/financials/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        purchase_price: payload.purchasePrice,
+        down_payment: payload.downPayment,
+        closing_cost: payload.closingCost,
+        loan_amount: payload.loanAmount,
+        interest_rate: payload.interestRate,
+        loan_term_years: payload.loanTermYears,
+        monthly_mortgage_payment: payload.monthlyMortgagePayment,
+        land_value: payload.landValue,
+        annual_depreciation_years: payload.annualDepreciationYears,
+        escrow_notes: payload.escrowNotes,
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(parseApiErrorBody(err, 'Failed to save property overview'));
+    }
+    const row = await response.json();
+    return {
+      purchasePrice: parseFloat(row.purchase_price || 0),
+      downPayment: parseFloat(row.down_payment || 0),
+      closingCost: parseFloat(row.closing_cost || 0),
+      loanAmount: parseFloat(row.loan_amount || 0),
+      interestRate: parseFloat(row.interest_rate || 0),
+      loanTermYears: row.loan_term_years ?? null,
+      monthlyMortgagePayment: parseFloat(row.monthly_mortgage_payment || 0),
+      landValue: parseFloat(row.land_value || 0),
+      annualDepreciationYears: parseFloat(row.annual_depreciation_years || 27.5),
+      escrowNotes: row.escrow_notes || '',
+    };
+  },
+
+  getOperatingExpenses: async (opts?: { year?: number; limit?: number }): Promise<OperatingExpense[]> => {
+    const params = new URLSearchParams();
+    if (opts?.year) params.set('year', String(opts.year));
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    const query = params.toString();
+    const response = await fetchWithAuth(`${API_URL}/operating-expenses/${query ? `?${query}` : ''}`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) throw new Error('Failed to fetch operating expenses');
+    const data = await response.json();
+    return data.map((item: any) => api.mapOperatingExpense(item));
+  },
+
+  createOperatingExpense: async (payload: {
+    property?: string;
+    unit?: string;
+    amount: number;
+    category: OperatingExpense['category'];
+    date: string;
+    notes?: string;
+    visibility?: OperatingExpense['visibility'];
+  }): Promise<OperatingExpense> => {
+    const response = await fetchWithAuth(`${API_URL}/operating-expenses/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        property: payload.property || null,
+        unit: payload.unit || null,
+        amount: payload.amount,
+        category: payload.category,
+        date: payload.date,
+        notes: payload.notes || '',
+        visibility: payload.visibility || 'operating',
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(parseApiErrorBody(err, 'Failed to create expense'));
+    }
+    const data = await response.json();
+    return api.mapOperatingExpense(data);
+  },
+
+  updateOperatingExpense: async (
+    id: string,
+    payload: {
+      property?: string | null;
+      unit?: string | null;
+      amount?: number;
+      category?: OperatingExpense['category'];
+      date?: string;
+      notes?: string;
+      visibility?: OperatingExpense['visibility'];
+    },
+  ): Promise<OperatingExpense> => {
+    const body: Record<string, unknown> = {};
+    if (payload.property !== undefined) body.property = payload.property || null;
+    if (payload.unit !== undefined) body.unit = payload.unit || null;
+    if (payload.amount !== undefined) body.amount = payload.amount;
+    if (payload.category !== undefined) body.category = payload.category;
+    if (payload.date !== undefined) body.date = payload.date;
+    if (payload.notes !== undefined) body.notes = payload.notes;
+    if (payload.visibility !== undefined) body.visibility = payload.visibility;
+    const response = await fetchWithAuth(`${API_URL}/operating-expenses/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(parseApiErrorBody(err, 'Failed to update expense'));
+    }
+    const data = await response.json();
+    return api.mapOperatingExpense(data);
+  },
+
+  getPropertyUnits: async (propertyId: string): Promise<PropertyUnit[]> => {
+    const params = new URLSearchParams({ property: propertyId });
+    const response = await fetchWithAuth(`${API_URL}/property-units/?${params}`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) throw new Error('Failed to fetch property units');
+    const data = await response.json();
+    const rows = Array.isArray(data) ? data : (data.results || []);
+    return rows.map((item: any) => ({
+      id: String(item.id),
+      property: String(item.property),
+      propertyName: item.property_name || '',
+      label: item.label,
+      monthlyRent: parseFloat(item.monthly_rent || 0),
+      status: item.status || 'vacant',
+      sortOrder: item.sort_order ?? 0,
+    }));
+  },
+
+  sendPaymentReceipt: async (paymentId: string): Promise<{ status: string; message: string; receipt_email_sent?: boolean }> => {
+    const response = await fetchWithAuth(`${API_URL}/payments/${paymentId}/send-receipt/`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to send receipt email' }));
+      throw new Error(error.detail || error.message || 'Failed to send receipt email');
+    }
+    return await response.json();
+  },
+
+  sendPaymentReminder: async (paymentId: string): Promise<{ status: string; message: string; reminder_email_sent?: boolean }> => {
+    const response = await fetchWithAuth(`${API_URL}/payments/${paymentId}/send-reminder/`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to send rent reminder' }));
+      throw new Error(error.detail || error.message || error.error || 'Failed to send rent reminder');
+    }
+    return await response.json();
+  },
+
+  sendTenantRentNotice: async (
+    tenantId: string,
+    noticeType: 'Rent Reminder' | 'Notice of Late Rent' = 'Notice of Late Rent',
+  ): Promise<{ status: string; message: string; notice_email_sent?: boolean }> => {
+    const response = await fetchWithAuth(`${API_URL}/tenants/${tenantId}/send-rent-notice/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ notice_type: noticeType }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to send notice' }));
+      throw new Error(error.detail || error.message || error.error || 'Failed to send notice');
+    }
+    return await response.json();
+  },
+
+  sendTenantMessage: async (
+    tenantId: string,
+    message: string,
+    subject?: string,
+  ): Promise<{ status: string; message: string }> => {
+    const response = await fetchWithAuth(`${API_URL}/tenants/${tenantId}/send-message/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ message, subject: subject || 'Message from your property manager' }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to send message' }));
+      throw new Error(error.detail || error.message || error.error || 'Failed to send message');
+    }
+    return await response.json();
+  },
+
+  markPaymentReceived: async (
+    paymentId: string,
+    method: 'Cash' | 'Zelle' | 'Check' | 'Money Order',
+    reference?: string,
+  ): Promise<Payment> => {
+    return api.updatePayment(paymentId, { status: 'Paid', method, reference: reference || undefined });
+  },
+
+  recordTenantPayment: async (input: {
+    tenantId: string;
+    amount: number;
+    method: 'Cash' | 'Zelle' | 'Check' | 'Money Order';
+    type?: Payment['type'];
+    reference?: string;
+    date?: string;
+  }): Promise<Payment> => {
+    return api.createPayment({
+      tenantId: input.tenantId,
+      amount: input.amount,
+      status: 'Paid',
+      method: input.method,
+      type: input.type || 'Rent',
+      reference: input.reference,
+      date: input.date || new Date().toISOString().slice(0, 10),
+    });
+  },
+
+  getMaintenanceRequests: async (): Promise<MaintenanceRequest[]> => {
+    try {
+      const response = await fetchWithAuth(`${API_URL}/maintenance/`, {
+        headers: getHeaders(false, true),
+      });
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown error');
+        throw new Error(`Failed to fetch maintenance requests: ${response.status} ${errorText}`);
+      }
+      const data = await response.json();
+      // Handle case where data might be null or not an array
+      if (!data || !Array.isArray(data)) {
+        return [];
+      }
+      return data.map((item: any) => ({
+        ...item,
+        id: String(item.id), // Ensure ID is always a string
+        tenantId: String(item.tenant), // Convert tenant ForeignKey ID to string
+        createdAt: item.created_at,
+        assignedTo: item.assigned_to,
+        completionAttachments: item.completion_attachments || [],
+        images: item.images || [],
+        updates: item.updates || []
+      }));
+    } catch (error: any) {
+      // If it's already our error, rethrow it
+      if (error.message?.includes('Failed to fetch maintenance requests')) {
+        throw error;
+      }
+      // Otherwise wrap it
+      throw new Error(`Failed to fetch maintenance requests: ${error.message || 'Network error'}`);
+    }
+  },
+
+  mapInquiryFromBackend: (item: any): Inquiry => ({
+    id: String(item.id),
+    firstName: item.first_name || '',
+    lastName: item.last_name || '',
+    email: item.email || '',
+    phone: item.phone || '',
+    message: item.message || '',
+    source: item.source === 'portal' ? 'portal' : 'website',
+    status: (item.status as Inquiry['status']) || 'new',
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+  }),
+
+  getInquiries: async (): Promise<Inquiry[]> => {
+    const response = await fetchWithAuth(`${API_URL}/inquiries/`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error');
+      throw new Error(`Failed to fetch inquiries: ${response.status} ${errorText}`);
+    }
+    const data = await response.json();
+    if (!data || !Array.isArray(data)) return [];
+    return data.map(api.mapInquiryFromBackend);
+  },
+
+  createInquiry: async (payload: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    message: string;
+    phone?: string;
+    source?: 'website' | 'portal';
+  }): Promise<Inquiry> => {
+    const response = await fetch(`${API_URL}/inquiries/`, {
+      method: 'POST',
+      headers: getHeaders(true, false),
+      body: JSON.stringify({
+        first_name: payload.firstName,
+        last_name: payload.lastName,
+        email: payload.email,
+        message: payload.message,
+        phone: payload.phone || '',
+        source: payload.source || 'website',
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Failed to send inquiry' }));
+      throw new Error(error.error || error.detail || 'Failed to send inquiry');
+    }
+    return api.mapInquiryFromBackend(await response.json());
+  },
+
+  updateInquiry: async (id: string, updates: Partial<Pick<Inquiry, 'status'>>): Promise<Inquiry> => {
+    const response = await fetchWithAuth(`${API_URL}/inquiries/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(true, true),
+      body: JSON.stringify({
+        ...(updates.status ? { status: updates.status } : {}),
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to update inquiry' }));
+      throw new Error(error.detail || error.error || 'Failed to update inquiry');
+    }
+    return api.mapInquiryFromBackend(await response.json());
+  },
+
+  getListings: async (): Promise<Listing[]> => {
+    const response = await fetch(`${API_URL}/listings/`, {
+      headers: getHeaders(false),
+    });
+    if (!response.ok) throw new Error('Failed to fetch listings');
+    const data = await response.json();
+    return data.map((item: any) => ({
+      ...item,
+      price: parseFloat(item.price),
+      baths: parseFloat(item.baths)
+    }));
+  },
+
+  // Helper function to map frontend camelCase to backend snake_case
+  mapTenantToBackend: (tenant: Partial<Tenant>): any => {
+    // Convert empty strings to null for dates
+    const leaseStart = tenant.leaseStart && tenant.leaseStart.trim() !== '' ? tenant.leaseStart : null;
+    const leaseEnd = tenant.leaseEnd && tenant.leaseEnd.trim() !== '' ? tenant.leaseEnd : null;
+    
+    return {
+      name: tenant.name,
+      email: tenant.email,
+      phone: tenant.phone,
+      status: tenant.status,
+      property_unit: tenant.propertyUnit,
+      lease_start: leaseStart,
+      lease_end: leaseEnd,
+      rent_amount: tenant.rentAmount?.toString(),
+      deposit: tenant.deposit?.toString(),
+      // balance is auto-calculated on the backend, don't send it
+      credit_score: tenant.creditScore || null,
+      background_check_status: tenant.backgroundCheckStatus || null,
+      application_data: tenant.applicationData || null,
+      lease_status: tenant.leaseStatus || null,
+      signed_lease_url: tenant.signedLeaseUrl || null,
+    };
+  },
+
+  createTenant: async (tenantData: any): Promise<Tenant> => {
+    // Check if we have files to upload
+    const hasFiles = (tenantData.photoIdFiles && tenantData.photoIdFiles.length > 0) ||
+                     (tenantData.incomeVerificationFiles && tenantData.incomeVerificationFiles.length > 0) ||
+                     tenantData.backgroundCheckFile;
+    
+    let body: FormData | string;
+    let headers: HeadersInit;
+    
+    if (hasFiles) {
+      // Use FormData for file upload
+      const formData = new FormData();
+      
+      // Add basic tenant fields
+      formData.append('name', tenantData.name || '');
+      formData.append('email', tenantData.email || '');
+      formData.append('phone', tenantData.phone || '');
+      formData.append('status', tenantData.status || 'Applicant');
+      formData.append('property_unit', tenantData.propertyUnit || '');
+      formData.append('rent_amount', String(tenantData.rentAmount || 0));
+      formData.append('deposit', String(tenantData.deposit || 0));
+      // balance is auto-calculated on the backend, don't send it
+      
+      // Add application data as JSON string
+      if (tenantData.applicationData) {
+        formData.append('application_data', JSON.stringify(tenantData.applicationData));
+      }
+      
+      // Add file uploads
+      if (tenantData.photoIdFiles && tenantData.photoIdFiles.length > 0) {
+        tenantData.photoIdFiles.forEach((file: File) => {
+          formData.append('photo_id_files_upload', file);
+        });
+      }
+      
+      if (tenantData.incomeVerificationFiles && tenantData.incomeVerificationFiles.length > 0) {
+        tenantData.incomeVerificationFiles.forEach((file: File) => {
+          formData.append('income_verification_files_upload', file);
+        });
+      }
+      
+      if (tenantData.backgroundCheckFile) {
+        formData.append('background_check_files_upload', tenantData.backgroundCheckFile);
+      }
+      
+      body = formData;
+      headers = {}; // Don't set Content-Type for FormData, browser will set it with boundary
+    } else {
+      // Use JSON for regular submission without files
+      const backendData = api.mapTenantToBackend(tenantData);
+      body = JSON.stringify(backendData);
+      headers = getHeaders();
+    }
+    
+    const response = await fetch(`${API_URL}/tenants/`, {
+      method: 'POST',
+      headers,
+      body,
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Failed to create tenant' }));
+      // Handle Django REST Framework error format
+      const errorMessage = errorData.detail || errorData.message || 
+        (errorData.non_field_errors && errorData.non_field_errors[0]) ||
+        (typeof errorData === 'object' && Object.keys(errorData).length > 0 
+          ? JSON.stringify(errorData) 
+          : 'Application Failed');
+      throw new Error(errorMessage);
+    }
+    
+    const data = await response.json();
+    // Map backend response to frontend format
+    return {
+      ...data,
+      id: String(data.id),
+      propertyUnit: data.property_unit,
+      leaseStart: data.lease_start,
+      leaseEnd: data.lease_end,
+      rentAmount: parseFloat(data.rent_amount),
+      deposit: parseFloat(data.deposit),
+      balance: parseFloat(data.balance),
+      creditScore: data.credit_score,
+      backgroundCheckStatus: data.background_check_status,
+      applicationData: data.application_data,
+      leaseStatus: data.lease_status,
+      signedLeaseUrl: data.signed_lease_url,
+    };
+  },
+
+  updateTenant: async (id: string, tenantData: Partial<Tenant>): Promise<Tenant> => {
+    const backendData = api.mapTenantToBackend(tenantData);
+    const response = await fetchWithAuth(`${API_URL}/tenants/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(backendData),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to update tenant' }));
+      throw new Error(error.detail || error.message || 'Failed to update tenant');
+    }
+    const data = await response.json();
+    console.log('API updateTenant response:', data);
+    console.log('Parsed balance:', parseFloat(data.balance));
+    // Map backend response to frontend format
+    return {
+      ...data,
+      id: String(data.id), // Ensure ID is always a string
+      propertyUnit: data.property_unit,
+      leaseStart: data.lease_start,
+      leaseEnd: data.lease_end,
+      rentAmount: parseFloat(data.rent_amount),
+      deposit: parseFloat(data.deposit),
+      balance: parseFloat(data.balance),
+      creditScore: data.credit_score,
+      backgroundCheckStatus: data.background_check_status,
+      applicationData: data.application_data,
+      leaseStatus: data.lease_status,
+      signedLeaseUrl: data.signed_lease_url,
+    };
+  },
+
+  deleteTenant: async (id: string): Promise<void> => {
+    const response = await fetch(`${API_URL}/tenants/${id}/`, {
+      method: 'DELETE',
+      headers: getHeaders(false),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to delete tenant' }));
+      throw new Error(error.detail || error.message || 'Failed to delete tenant');
+    }
+  },
+
+  // Helper function to map frontend camelCase to backend snake_case for maintenance requests
+  mapMaintenanceToBackend: (request: Partial<MaintenanceRequest>): any => {
+    return {
+      tenant: request.tenantId,
+      category: request.category,
+      description: request.description,
+      status: request.status,
+      priority: request.priority,
+      images: request.images || [],
+      updates: request.updates || [],
+      assigned_to: request.assignedTo || null,
+      completion_attachments: request.completionAttachments || [],
+    };
+  },
+
+  createMaintenanceRequest: async (requestData: Partial<MaintenanceRequest>): Promise<MaintenanceRequest> => {
+    const backendData = api.mapMaintenanceToBackend(requestData);
+    const response = await fetch(`${API_URL}/maintenance/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(backendData),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to create maintenance request' }));
+      throw new Error(error.detail || error.message || 'Failed to create maintenance request');
+    }
+    const data = await response.json();
+    // Map backend response to frontend format
+    return {
+      ...data,
+      id: String(data.id),
+      tenantId: String(data.tenant),
+      createdAt: data.created_at,
+      assignedTo: data.assigned_to,
+      completionAttachments: data.completion_attachments || [],
+      images: data.images || [],
+      updates: data.updates || []
+    };
+  },
+
+  updateMaintenanceRequest: async (id: string, requestData: Partial<MaintenanceRequest>): Promise<MaintenanceRequest> => {
+    const backendData = api.mapMaintenanceToBackend(requestData);
+    const response = await fetch(`${API_URL}/maintenance/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(backendData),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to update maintenance request' }));
+      throw new Error(error.detail || error.message || 'Failed to update maintenance request');
+    }
+    const data = await response.json();
+    // Map backend response to frontend format
+    return {
+      ...data,
+      id: String(data.id),
+      tenantId: String(data.tenant),
+      createdAt: data.created_at,
+      assignedTo: data.assigned_to,
+      completionAttachments: data.completion_attachments || [],
+      images: data.images || [],
+      updates: data.updates || []
+    };
+  },
+
+  deleteMaintenanceRequest: async (id: string): Promise<void> => {
+    const response = await fetch(`${API_URL}/maintenance/${id}/`, {
+      method: 'DELETE',
+      headers: getHeaders(false),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to delete maintenance request' }));
+      throw new Error(error.detail || error.message || 'Failed to delete maintenance request');
+    }
+  },
+
+  getManagerMe: async (): Promise<{
+    role: string;
+    managed_property_ids: string[];
+    phone?: string;
+    user?: { id: number; email: string; first_name: string; last_name: string };
+  }> => {
+    const response = await fetchWithAuth(`${API_URL}/manager/me/`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) {
+      throw new Error(parseApiErrorBody(await response.json().catch(() => null), 'Failed to load manager profile'));
+    }
+    const data = await response.json();
+    const u = data.user as Record<string, unknown> | undefined;
+    return {
+      role: String(data.role || ''),
+      managed_property_ids: ((data.managed_property_ids as Array<string | number>) || []).map(String),
+      phone: data.phone ? String(data.phone) : undefined,
+      user: u
+        ? {
+            id: Number(u.id),
+            email: String(u.email || ''),
+            first_name: String(u.first_name || ''),
+            last_name: String(u.last_name || ''),
+          }
+        : undefined,
+    };
+  },
+
+  // Property CRUD operations
+  getProperties: async (): Promise<Property[]> => {
+    const hasAuth = !!getAuthHeader();
+    const response = hasAuth
+      ? await fetchWithAuth(`${API_URL}/properties/`, { headers: getHeaders(false, true) })
+      : await fetch(`${API_URL}/properties/`, { headers: getHeaders(false, false) });
+
+    if (!response.ok) throw new Error('Failed to fetch properties');
+    const data = await response.json();
+    const mapped = data.map((item: any) => {
+      // Handle display_image from serializer (returns uploaded file URL or external URL)
+      const imageUrl = item.display_image || item.image || item.image_url || undefined;
+      return {
+        ...item,
+        id: String(item.id), // Ensure ID is always a string
+        price: item.price ? parseFloat(item.price) : undefined,
+        image: imageUrl,
+        status: (item.status === 'occupied' || item.status === 'coming_soon' ? item.status : 'vacant') as 'vacant' | 'occupied' | 'coming_soon',
+        furnishingType: item.furnishing_type || undefined,
+        furnishingsBreakdown: item.furnishings_breakdown || [],
+        area: item.area || undefined,
+        shortStayEnabled: item.short_stay_enabled !== false,
+        shortStayNightlyRate: item.short_stay_nightly_rate != null ? parseFloat(item.short_stay_nightly_rate) : undefined,
+        shortStayMaxGuests: item.short_stay_max_guests ?? undefined,
+        effectiveNightlyRate: item.effective_nightly_rate != null ? parseFloat(item.effective_nightly_rate) : undefined,
+        effectiveMaxGuests: item.effective_max_guests ?? undefined,
+        effectiveCleaningFee: item.effective_cleaning_fee != null ? parseFloat(item.effective_cleaning_fee) : undefined,
+        shortStayCheckInTime: item.effective_check_in_time || item.short_stay_check_in_time || undefined,
+        shortStayCheckOutTime: item.effective_check_out_time || item.short_stay_check_out_time || undefined,
+        effectiveCheckInTime: item.effective_check_in_time || undefined,
+        effectiveCheckOutTime: item.effective_check_out_time || undefined,
+        shortStayCleaningFee: item.short_stay_cleaning_fee != null ? parseFloat(item.short_stay_cleaning_fee) : 75,
+        shortStayListingTitle: item.guest_listing_title || item.short_stay_listing_title || undefined,
+        shortStayListingDescription: item.guest_listing_description || item.short_stay_listing_description || undefined,
+        shortStayListingArea: item.guest_listing_area || item.short_stay_listing_area || undefined,
+        shortStayListingLocation: item.guest_listing_location || undefined,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+      };
+    });
+    return applyListingImages(mapped);
+  },
+
+  createProperty: async (propertyData: Partial<Property>, imageFile?: File): Promise<Property> => {
+    let body: FormData | string;
+    let headers: HeadersInit;
+
+    if (imageFile) {
+      // Use FormData for file upload
+      const formData = new FormData();
+      formData.append('name', propertyData.name || '');
+      formData.append('address', propertyData.address || '');
+      formData.append('city', propertyData.city || '');
+      formData.append('state', propertyData.state || '');
+      if (propertyData.area !== undefined && propertyData.area !== null) formData.append('area', propertyData.area);
+      formData.append('units', String(propertyData.units || 1));
+      if (propertyData.price !== undefined) formData.append('price', String(propertyData.price));
+      formData.append('bedrooms', String(propertyData.bedrooms || 2));
+      formData.append('bathrooms', String(propertyData.bathrooms || 2));
+      formData.append('square_footage', String(propertyData.square_footage || 1000));
+      formData.append('status', propertyData.status === 'occupied' || propertyData.status === 'coming_soon' ? propertyData.status : 'vacant');
+      if (propertyData.furnishingType) formData.append('furnishing_type', propertyData.furnishingType);
+      if (propertyData.furnishingsBreakdown?.length) formData.append('furnishings_breakdown', JSON.stringify(propertyData.furnishingsBreakdown));
+      formData.append('image', imageFile);
+      formData.append('image_url', ''); // Clear URL when uploading file
+      body = formData;
+      headers = {}; // Don't set Content-Type, browser will set it with boundary
+    } else {
+      // Use JSON for URL or no image
+      body = JSON.stringify({
+        name: propertyData.name,
+        address: propertyData.address,
+        city: propertyData.city,
+        state: propertyData.state,
+        area: propertyData.area !== undefined && propertyData.area !== null ? propertyData.area : null,
+        units: propertyData.units || 1,
+        price: propertyData.price !== undefined ? propertyData.price : null,
+        bedrooms: propertyData.bedrooms || 2,
+        bathrooms: propertyData.bathrooms || 2,
+        square_footage: propertyData.square_footage || 1000,
+        status: propertyData.status === 'occupied' || propertyData.status === 'coming_soon' ? propertyData.status : 'vacant',
+        furnishing_type: propertyData.furnishingType || null,
+        furnishings_breakdown: propertyData.furnishingsBreakdown || [],
+        image_url: propertyData.image || null, // Use image_url for URL input
+      });
+      headers = {
+        'Content-Type': 'application/json',
+      };
+    }
+
+    const authHeader = getAuthHeader();
+    if (authHeader && typeof headers === 'object' && !Array.isArray(headers)) {
+      headers['Authorization'] = authHeader;
+    }
+    
+    const response = await fetch(`${API_URL}/properties/`, {
+      method: 'POST',
+      headers,
+      body,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to create property' }));
+      throw new Error(error.detail || error.message || 'Failed to create property');
+    }
+    const data = await response.json();
+    // Handle display_image from serializer (returns uploaded file URL or external URL)
+    const imageUrl = data.display_image || data.image || data.image_url || undefined;
+    return {
+      ...data,
+      id: String(data.id),
+      price: data.price ? parseFloat(data.price) : undefined,
+      image: imageUrl,
+      status: (data.status === 'occupied' || data.status === 'coming_soon' ? data.status : 'vacant') as 'vacant' | 'occupied' | 'coming_soon',
+      furnishingType: data.furnishing_type || undefined,
+      furnishingsBreakdown: data.furnishings_breakdown || [],
+      area: data.area || undefined,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  },
+
+  updateProperty: async (id: string, propertyData: Partial<Property>, imageFile?: File): Promise<Property> => {
+    let body: FormData | string;
+    let headers: HeadersInit;
+
+    if (imageFile) {
+      // Use FormData for file upload
+      const formData = new FormData();
+      if (propertyData.name) formData.append('name', propertyData.name);
+      if (propertyData.address) formData.append('address', propertyData.address);
+      if (propertyData.city) formData.append('city', propertyData.city);
+      if (propertyData.state) formData.append('state', propertyData.state);
+      if (propertyData.area !== undefined) formData.append('area', propertyData.area ?? '');
+      if (propertyData.units !== undefined) formData.append('units', String(propertyData.units));
+      if (propertyData.price !== undefined) formData.append('price', String(propertyData.price));
+      if (propertyData.bedrooms !== undefined) formData.append('bedrooms', String(propertyData.bedrooms));
+      if (propertyData.bathrooms !== undefined) formData.append('bathrooms', String(propertyData.bathrooms));
+      if (propertyData.square_footage !== undefined) formData.append('square_footage', String(propertyData.square_footage));
+      if (propertyData.furnishingType !== undefined) formData.append('furnishing_type', propertyData.furnishingType);
+      if (propertyData.furnishingsBreakdown !== undefined) formData.append('furnishings_breakdown', JSON.stringify(propertyData.furnishingsBreakdown));
+      if (propertyData.status !== undefined) formData.append('status', propertyData.status === 'occupied' || propertyData.status === 'coming_soon' ? propertyData.status : 'vacant');
+      formData.append('image', imageFile);
+      formData.append('image_url', ''); // Clear URL when uploading file
+      body = formData;
+      headers = {}; // Don't set Content-Type, browser will set it with boundary
+    } else {
+      // Use JSON for URL or no image
+      const jsonData: any = {};
+      if (propertyData.name !== undefined) jsonData.name = propertyData.name;
+      if (propertyData.address !== undefined) jsonData.address = propertyData.address;
+      if (propertyData.city !== undefined) jsonData.city = propertyData.city;
+      if (propertyData.state !== undefined) jsonData.state = propertyData.state;
+      if (propertyData.area !== undefined) jsonData.area = propertyData.area;
+      if (propertyData.units !== undefined) jsonData.units = propertyData.units;
+      if (propertyData.price !== undefined) jsonData.price = propertyData.price;
+      if (propertyData.bedrooms !== undefined) jsonData.bedrooms = propertyData.bedrooms;
+      if (propertyData.bathrooms !== undefined) jsonData.bathrooms = propertyData.bathrooms;
+      if (propertyData.square_footage !== undefined) jsonData.square_footage = propertyData.square_footage;
+      if (propertyData.status !== undefined) jsonData.status = propertyData.status === 'occupied' || propertyData.status === 'coming_soon' ? propertyData.status : 'vacant';
+      if (propertyData.image !== undefined) {
+        jsonData.image_url = propertyData.image || null; // Use image_url for URL input
+      }
+      if (propertyData.furnishingType !== undefined) jsonData.furnishing_type = propertyData.furnishingType;
+      if (propertyData.furnishingsBreakdown !== undefined) jsonData.furnishings_breakdown = propertyData.furnishingsBreakdown;
+      if (propertyData.shortStayEnabled !== undefined) jsonData.short_stay_enabled = propertyData.shortStayEnabled;
+      if (propertyData.shortStayNightlyRate !== undefined) jsonData.short_stay_nightly_rate = propertyData.shortStayNightlyRate;
+      if (propertyData.shortStayMaxGuests !== undefined) jsonData.short_stay_max_guests = propertyData.shortStayMaxGuests;
+      if (propertyData.shortStayCheckInTime !== undefined) jsonData.short_stay_check_in_time = propertyData.shortStayCheckInTime;
+      if (propertyData.shortStayCheckOutTime !== undefined) jsonData.short_stay_check_out_time = propertyData.shortStayCheckOutTime;
+      if (propertyData.shortStayCleaningFee !== undefined) jsonData.short_stay_cleaning_fee = propertyData.shortStayCleaningFee;
+      body = JSON.stringify(jsonData);
+      headers = {
+        'Content-Type': 'application/json',
+      };
+    }
+
+    const authHeader = getAuthHeader();
+    if (authHeader && typeof headers === 'object' && !Array.isArray(headers)) {
+      headers['Authorization'] = authHeader;
+    }
+    
+    const response = await fetch(`${API_URL}/properties/${id}/`, {
+      method: 'PATCH',
+      headers,
+      body,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to update property' }));
+      throw new Error(error.detail || error.message || 'Failed to update property');
+    }
+    const data = await response.json();
+    // Handle display_image from serializer (returns uploaded file URL or external URL)
+    const imageUrl = data.display_image || data.image || data.image_url || undefined;
+    return {
+      ...data,
+      id: String(data.id),
+      price: data.price ? parseFloat(data.price) : undefined,
+      image: imageUrl,
+      status: (data.status === 'occupied' || data.status === 'coming_soon' ? data.status : 'vacant') as 'vacant' | 'occupied' | 'coming_soon',
+      furnishingType: data.furnishing_type || undefined,
+      furnishingsBreakdown: data.furnishings_breakdown || [],
+      area: data.area || undefined,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  },
+
+  deleteProperty: async (id: string): Promise<void> => {
+    const response = await fetch(`${API_URL}/properties/${id}/`, {
+      method: 'DELETE',
+      headers: getHeaders(false),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to delete property' }));
+      throw new Error(error.detail || error.message || 'Failed to delete property');
+    }
+  },
+
+  // Lease Template APIs
+  getLeaseTemplates: async (): Promise<any[]> => {
+    const response = await fetch(`${API_URL}/lease-templates/`, {
+      headers: getHeaders(false, false),
+    });
+    if (!response.ok) throw new Error('Failed to fetch lease templates');
+    return await response.json();
+  },
+
+  createLeaseTemplate: async (templateData: { name: string; content: string; is_active?: boolean }): Promise<any> => {
+    const response = await fetch(`${API_URL}/lease-templates/`, {
+      method: 'POST',
+      headers: getHeaders(true, false), // Public endpoint, no auth needed
+      body: JSON.stringify(templateData),
+    });
+    if (!response.ok) throw new Error('Failed to create lease template');
+    return await response.json();
+  },
+
+  // Lease Generation API
+  generateLease: async (tenantId: string, templateId?: string, customContent?: string): Promise<any> => {
+    const body: any = {
+      tenant_id: tenantId,
+    };
+    if (templateId) {
+      body.template_id = templateId;
+    }
+    if (customContent) {
+      body.custom_content = customContent;
+    }
+    const response = await fetch(`${API_URL}/legal-documents/generate_lease/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to generate lease' }));
+      throw new Error(error.detail || error.message || 'Failed to generate lease');
+    }
+    return await response.json();
+  },
+
+  // Update legal document (e.g. for manual signing)
+  updateLegalDocument: async (id: string, data: any): Promise<any> => {
+    const response = await fetchWithAuth(`${API_URL}/legal-documents/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to update legal document' }));
+      throw new Error(error.detail || error.message || 'Failed to update legal document');
+    }
+    return await response.json();
+  },
+
+  // Send lease via in-house signing (generates a one-time token link and emails tenant)
+  sendLeaseInhouse: async (legalDocumentId: string): Promise<any> => {
+    const response = await fetchWithAuth(
+      `${API_URL}/legal-documents/${legalDocumentId}/send_lease_inhouse/`,
+      {
+        method: 'POST',
+        headers: getHeaders(true, true),
+      }
+    );
+    if (!response.ok) {
+      let error: any = { detail: 'Failed to send lease' };
+      try { error = await response.json(); } catch { /* keep default */ }
+      throw new Error(error.error || error.detail || error.message || 'Failed to send lease');
+    }
+    return await response.json();
+  },
+
+
+  // Get legal documents for a tenant (uses auth and same API base URL)
+  getLegalDocuments: async (tenantId?: string): Promise<any[]> => {
+    let url = `${API_URL}/legal-documents/`;
+    if (tenantId) {
+      url += `?tenant=${tenantId}`;
+    }
+    const response = await fetchWithAuth(url, {
+      headers: getHeaders(false),
+    });
+    if (!response.ok) throw new Error('Failed to fetch legal documents');
+    const data = await response.json();
+    return data.map((item: any) => ({
+      ...item,
+      id: String(item.id),
+      tenantId: String(item.tenant),
+      pdfUrl: item.pdf_url,
+      signedPdfUrl: item.signed_pdf_url,
+      signedAt: item.signed_at,
+    }));
+  },
+
+  // Fetch lease/legal document PDF with auth (for viewing in portal without 401)
+  getLegalDocumentPdfAsBlob: async (documentId: string): Promise<Blob> => {
+    const response = await fetchWithAuth(`${API_URL}/legal-documents/${documentId}/pdf/`, {
+      headers: getHeaders(false),
+    });
+    if (!response.ok) throw new Error('Failed to load PDF');
+    return response.blob();
+  },
+
+  // In-house e-signing: fetch PDF URL + normalized field definitions
+  getLeaseSigningMetadata: async (documentId: string): Promise<LeaseSigningMetadata> => {
+    const response = await fetchWithAuth(
+      `${API_URL}/legal-documents/${documentId}/signing_metadata/`,
+      {
+        method: 'GET',
+        headers: getHeaders(false, false),
+      }
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to load signing metadata' }));
+      throw new Error(error.detail || error.error || error.message || 'Failed to load signing metadata');
+    }
+    const data = await response.json();
+    return {
+      id: String(data.id),
+      tenantId: String(data.tenant_id),
+      type: data.type,
+      status: data.status,
+      pdfUrl: data.pdf_url,
+      fields: (data.fields || []).map((f: any) => ({
+        id: String(f.id),
+        type: f.type,
+        label: f.label,
+        page: Number(f.page || 1),
+        x: Number(f.x),
+        y: Number(f.y),
+        width: Number(f.width),
+        height: Number(f.height),
+        required: !!f.required,
+      })),
+    };
+  },
+
+  // Submit signed lease: send values + field definitions; backend stamps PDF and stores it
+  submitSignedLease: async (
+    documentId: string,
+    payload: { values: Record<string, string | boolean>; fields: { id: string; type: string; page: number; x: number; y: number; width: number; height: number }[] }
+  ): Promise<{ pdf_url: string; status: string; signed_at: string | null }> => {
+    const response = await fetchWithAuth(
+      `${API_URL}/legal-documents/${documentId}/submit_signed/`,
+      {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ values: payload.values, fields: payload.fields }),
+      }
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Failed to submit signed lease' }));
+      throw new Error(error.error || error.detail || error.message || 'Failed to submit signed lease');
+    }
+    const data = await response.json();
+    return {
+      pdf_url: data.pdf_url,
+      status: data.status,
+      signed_at: data.signed_at ?? null,
+    };
+  },
+
+  // Generate and send legal notice to tenant
+  generateLegalNotice: async (tenantId: string, noticeType: string): Promise<any> => {
+    const response = await fetchWithAuth(`${API_URL}/legal-documents/generate_notice/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        tenant_id: tenantId,
+        notice_type: noticeType,
+      }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to generate and send notice' }));
+      throw new Error(error.detail || error.message || 'Failed to generate and send notice');
+    }
+    
+    const data = await response.json();
+    return {
+      ...data,
+      id: String(data.id),
+      tenantId: String(data.tenant),
+      pdfUrl: data.pdf_url,
+      notice_email_sent: data.notice_email_sent,
+    };
+  },
+
+  // Send an existing legal document PDF as a tenant legal notice (no e-sign provider).
+  sendNoticeEmail: async (
+    legalDocumentId: string,
+    payload: { deliveryMethod: string; noticeType: string; trackingNumber?: string }
+  ): Promise<any> => {
+    const response = await fetchWithAuth(
+      `${API_URL}/legal-documents/${legalDocumentId}/send_notice_email/`,
+      {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          delivery_method: payload.deliveryMethod,
+          notice_type: payload.noticeType,
+          tracking_number: payload.trackingNumber,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to send notice email' }));
+      throw new Error(error.detail || error.message || error.error || 'Failed to send notice email');
+    }
+
+    const data = await response.json();
+    return {
+      ...data,
+      id: String(data.id),
+      tenantId: String(data.tenant),
+      pdfUrl: data.pdf_url,
+    };
+  },
+
+  // Check Application Status
+  checkApplicationStatus: async (email: string, phone: string): Promise<any> => {
+    const response = await fetch(`${API_URL}/tenants/check_status/`, {
+      method: 'POST',
+      headers: getHeaders(true, false), // Public endpoint
+      body: JSON.stringify({ email, phone }),
+    });
+    if (!response.ok) {
+      if (response.status === 404) return null; // Not found
+      // Try to parse error message from response
+      let errorMessage = 'Failed to check status';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch {
+        // If response is not JSON, use default message
+      }
+      throw new Error(errorMessage);
+    }
+    return await response.json();
+  },
+
+  // Get current user's tenant
+  getMyTenant: async (): Promise<Tenant> => {
+    const response = await fetchWithAuth(`${API_URL}/tenants/me/`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) {
+      // If 401 after refresh attempt, clear invalid tokens - user is not authenticated
+      if (response.status === 401) {
+        clearInvalidTokens();
+        const error = await response.json().catch(() => ({ detail: 'Not authenticated' }));
+        throw new Error(error.detail || error.message || 'Not authenticated');
+      }
+      const error = await response.json().catch(() => ({ detail: 'Failed to fetch tenant' }));
+      throw new Error(error.detail || error.message || 'Failed to fetch tenant');
+    }
+    const data = await response.json();
+    // Map backend response to frontend format
+    return {
+      ...data,
+      id: String(data.id),
+      propertyUnit: data.property_unit,
+      leaseStart: data.lease_start,
+      leaseEnd: data.lease_end,
+      rentAmount: parseFloat(data.rent_amount),
+      deposit: parseFloat(data.deposit),
+      balance: parseFloat(data.balance),
+      creditScore: data.credit_score,
+      backgroundCheckStatus: data.background_check_status,
+      applicationData: data.application_data,
+      leaseStatus: data.lease_status,
+      signedLeaseUrl: data.signed_lease_url,
+    };
+  },
+
+  // Contact Manager (email-only)
+  sendContactManagerMessage: async (payload: { message: string; tenant_id?: string; sender_name?: string; sender_email?: string; }): Promise<{ status: string }> => {
+    const response = await fetchWithAuth(`${API_URL}/contact-manager/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Failed to send message' }));
+      throw new Error(error.error || error.detail || 'Failed to send message');
+    }
+    return await response.json();
+  },
+
+  mapShortStayBooking: (item: any): ShortStayBooking => ({
+    id: String(item.id),
+    property: String(item.property),
+    propertyName: item.property_name,
+    propertyAddress: item.property_address,
+    guestName: item.guest_name,
+    guestEmail: item.guest_email,
+    guestPhone: item.guest_phone,
+    checkIn: item.check_in,
+    checkOut: item.check_out,
+    numGuests: item.num_guests,
+    nights: item.nights,
+    nightlyRate: parseFloat(item.nightly_rate),
+    discountPercent: parseFloat(item.discount_percent),
+    cleaningFee: item.cleaning_fee != null ? parseFloat(item.cleaning_fee) : undefined,
+    totalAmount: parseFloat(item.total_amount),
+    paymentMethod: item.payment_method || '',
+    status: item.status,
+    proofOfPaymentFiles: item.proof_of_payment_files || [],
+    guestIdFiles: item.guest_id_files || [],
+    notes: item.notes || '',
+    accessPin: item.access_pin || '',
+    createdAt: item.created_at,
+  }),
+
+  getShortStayDocumentUrl: (bookingId: string, path: string, filename?: string, download = false) => {
+    const base = (import.meta as any).env?.VITE_API_URL || 'http://127.0.0.1:8000';
+    const params = new URLSearchParams({ path });
+    if (filename) params.set('filename', filename);
+    if (download) params.set('download', '1');
+    return `${base.replace(/\/+$/, '')}/api/short-stay-bookings/${bookingId}/document/?${params}`;
+  },
+
+  getShortStayBookings: async (): Promise<ShortStayBooking[]> => {
+    const response = await fetchWithAuth(`${API_URL}/short-stay-bookings/`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) throw new Error('Failed to fetch short-stay bookings');
+    const data = await response.json();
+    return data.map((item: any) => api.mapShortStayBooking(item));
+  },
+
+  createShortStayBooking: async (payload: {
+    propertyId: string;
+    guestName: string;
+    guestEmail: string;
+    guestPhone: string;
+    checkIn: string;
+    checkOut: string;
+    numGuests: number;
+    paymentMethod: string;
+    notes?: string;
+    proofFiles?: File[];
+    idFiles?: File[];
+  }): Promise<ShortStayBooking> => {
+    const formData = new FormData();
+    formData.append('property', payload.propertyId);
+    formData.append('guest_name', payload.guestName);
+    formData.append('guest_email', payload.guestEmail);
+    formData.append('guest_phone', payload.guestPhone);
+    formData.append('check_in', payload.checkIn);
+    formData.append('check_out', payload.checkOut);
+    formData.append('num_guests', String(payload.numGuests));
+    formData.append('payment_method', payload.paymentMethod);
+    if (payload.notes) formData.append('notes', payload.notes);
+    payload.proofFiles?.forEach((file) => formData.append('proof_of_payment_files_upload', file));
+    payload.idFiles?.forEach((file) => formData.append('guest_id_files_upload', file));
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+    let response: Response;
+    try {
+      response = await fetch(`${API_URL}/short-stay-bookings/`, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        throw new Error('Submission timed out — try smaller photos or check your connection.');
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Failed to submit booking' }));
+      const msg = typeof error === 'object'
+        ? (error.detail || error.error || Object.values(error).flat().join(' '))
+        : 'Failed to submit booking';
+      throw new Error(String(msg));
+    }
+    const data = await response.json();
+    if (data.property_name != null) {
+      return api.mapShortStayBooking(data);
+    }
+    return {
+      id: String(data.id),
+      property: String(data.property),
+      guestName: data.guest_name || '',
+      guestEmail: '',
+      guestPhone: '',
+      checkIn: data.check_in,
+      checkOut: data.check_out,
+      numGuests: 0,
+      nights: 0,
+      nightlyRate: 0,
+      discountPercent: 0,
+      totalAmount: parseFloat(data.total_amount) || 0,
+      paymentMethod: '',
+      status: data.status,
+      proofOfPaymentFiles: [],
+      guestIdFiles: [],
+      notes: '',
+      accessPin: '',
+      createdAt: '',
+    };
+  },
+
+  updateShortStayBooking: async (id: string, updates: { status?: string; notes?: string }): Promise<ShortStayBooking> => {
+    const response = await fetchWithAuth(`${API_URL}/short-stay-bookings/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(updates),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.status?.[0] || err.detail || err.error || 'Failed to update booking');
+    }
+    const data = await response.json();
+    if (data.property_name != null) {
+      return api.mapShortStayBooking(data);
+    }
+    return {
+      id: String(data.id),
+      status: data.status,
+      accessPin: data.access_pin || '',
+      notes: data.notes || '',
+    } as ShortStayBooking;
+  },
+
+  checkShortStayAvailability: async (propertyId: string, checkIn: string, checkOut: string): Promise<boolean> => {
+    const params = new URLSearchParams({ property_id: propertyId, check_in: checkIn, check_out: checkOut });
+    const response = await fetch(`${API_URL}/short-stay-bookings/check-availability/?${params}`);
+    if (!response.ok) throw new Error('Failed to check availability');
+    const data = await response.json();
+    return !!data.available;
+  },
+
+  getShortStayQuote: async (
+    propertyId: string,
+    checkIn: string,
+    checkOut: string,
+    numGuests = 1,
+    signal?: AbortSignal,
+  ) => {
+    const params = new URLSearchParams({
+      property_id: propertyId,
+      check_in: checkIn,
+      check_out: checkOut,
+      num_guests: String(numGuests),
+    });
+    const timeoutMs = 20000;
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
+    const onExternalAbort = () => timeoutController.abort();
+    signal?.addEventListener('abort', onExternalAbort);
+
+    let response: Response;
+    try {
+      response = await fetch(`${API_URL}/short-stay-bookings/quote/?${params}`, {
+        signal: timeoutController.signal,
+      });
+    } catch (e) {
+      if (signal?.aborted) {
+        throw new Error('Quote request cancelled');
+      }
+      if (timeoutController.signal.aborted) {
+        throw new Error('Quote request timed out. Make sure the backend is running (py manage.py runserver).');
+      }
+      throw new Error('Could not reach the server. Start the backend at http://127.0.0.1:8000');
+    } finally {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', onExternalAbort);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
+    const data = isJson ? await response.json().catch(() => null) : null;
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(
+          'Short-stay quote API not found. Run the backend locally or deploy the latest backend code.',
+        );
+      }
+      const message = parseApiErrorBody(data, 'Failed to get quote');
+      throw new Error(message);
+    }
+
+    if (!data) {
+      throw new Error('Invalid response from quote service');
+    }
+    return data;
+  },
+
+  getShortStayBookedDates: async (propertyId: string): Promise<{
+    bookings: { id?: number; checkIn: string; checkOut: string; status: string; guestName?: string }[];
+    blocked: { id: number; startDate: string; endDate: string; reason: string }[];
+  }> => {
+    const params = new URLSearchParams({ property_id: propertyId });
+    const response = await fetch(`${API_URL}/short-stay-bookings/booked-dates/?${params}`);
+    if (!response.ok) throw new Error('Failed to fetch booked dates');
+    const data = await response.json();
+    return {
+      bookings: (data.bookings || []).map((b: any) => ({
+        id: b.id,
+        checkIn: b.check_in,
+        checkOut: b.check_out,
+        status: b.status,
+        guestName: b.guest_name,
+      })),
+      blocked: (data.blocked || []).map((b: any) => ({
+        id: b.id,
+        startDate: b.start_date,
+        endDate: b.end_date,
+        reason: b.reason || '',
+      })),
+    };
+  },
+
+  getShortStayBlocks: async (propertyId?: string): Promise<ShortStayBlockedDate[]> => {
+    const params = propertyId ? `?property_id=${propertyId}` : '';
+    const response = await fetchWithAuth(`${API_URL}/short-stay-blocks/${params}`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) throw new Error('Failed to fetch blocked dates');
+    const data = await response.json();
+    return data.map((item: any) => ({
+      id: String(item.id),
+      property: String(item.property),
+      propertyName: item.property_name,
+      startDate: item.start_date,
+      endDate: item.end_date,
+      reason: item.reason || '',
+      createdAt: item.created_at,
+    }));
+  },
+
+  createShortStayBlock: async (payload: {
+    propertyId: string;
+    startDate: string;
+    endDate: string;
+    reason?: string;
+  }): Promise<ShortStayBlockedDate> => {
+    const response = await fetchWithAuth(`${API_URL}/short-stay-blocks/`, {
+      method: 'POST',
+      headers: getHeaders(true, true),
+      body: JSON.stringify({
+        property: payload.propertyId,
+        start_date: payload.startDate,
+        end_date: payload.endDate,
+        reason: payload.reason || '',
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.end_date?.[0] || err.detail || 'Failed to block dates');
+    }
+    const item = await response.json();
+    return {
+      id: String(item.id),
+      property: String(item.property),
+      propertyName: item.property_name,
+      startDate: item.start_date,
+      endDate: item.end_date,
+      reason: item.reason || '',
+      createdAt: item.created_at,
+    };
+  },
+
+  deleteShortStayBlock: async (id: string): Promise<void> => {
+    const response = await fetchWithAuth(`${API_URL}/short-stay-blocks/${id}/`, {
+      method: 'DELETE',
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) throw new Error('Failed to remove blocked dates');
+  },
+
+  getPropertyManagers: async (): Promise<PropertyManagerProfile[]> => {
+    const response = await fetchWithAuth(`${API_URL}/property-managers/`, {
+      headers: getHeaders(false, true),
+    });
+    if (!response.ok) throw new Error(parseApiErrorBody(await response.json().catch(() => null), 'Failed to fetch property managers'));
+    const data = await response.json();
+    const rows = Array.isArray(data) ? data : data.results || [];
+    return rows.map((row: Record<string, unknown>) => ({
+      id: String(row.id),
+      user: Number(row.user),
+      userEmail: String(row.user_email || ''),
+      userName: String(row.user_name || ''),
+      phone: String(row.phone || ''),
+      propertyIds: ((row.property_ids as number[]) || []).map(String),
+      assignedProperties: ((row.assigned_properties as Record<string, unknown>[]) || []).map((p) => ({
+        id: String(p.id),
+        name: String(p.name || ''),
+        address: String(p.address || ''),
+        city: String(p.city || ''),
+        state: String(p.state || ''),
+        image: (p.image as string) || null,
+      })),
+      createdAt: String(row.created_at || ''),
+    }));
+  },
+
+  createPropertyManager: async (input: CreatePropertyManagerInput): Promise<PropertyManagerProfile> => {
+    const response = await fetchWithAuth(`${API_URL}/property-managers/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        email: input.email,
+        first_name: input.firstName,
+        last_name: input.lastName,
+        password: input.password,
+        phone: input.phone || '',
+        property_ids: (input.propertyIds || []).map(Number),
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(parseApiErrorBody(await response.json().catch(() => null), 'Failed to create property manager'));
+    }
+    const row = await response.json();
+    return {
+      id: String(row.id),
+      user: Number(row.user),
+      userEmail: String(row.user_email || ''),
+      userName: String(row.user_name || ''),
+      phone: String(row.phone || ''),
+      propertyIds: ((row.property_ids as number[]) || []).map(String),
+      assignedProperties: ((row.assigned_properties as Record<string, unknown>[]) || []).map((p) => ({
+        id: String(p.id),
+        name: String(p.name || ''),
+        address: String(p.address || ''),
+        city: String(p.city || ''),
+        state: String(p.state || ''),
+        image: (p.image as string) || null,
+      })),
+      createdAt: String(row.created_at || ''),
+    };
+  },
+
+  updatePropertyManager: async (
+    id: string,
+    patch: Partial<Pick<CreatePropertyManagerInput, 'firstName' | 'lastName' | 'phone' | 'propertyIds'>>,
+  ): Promise<PropertyManagerProfile> => {
+    const body: Record<string, unknown> = {};
+    if (patch.firstName !== undefined) body.first_name = patch.firstName;
+    if (patch.lastName !== undefined) body.last_name = patch.lastName;
+    if (patch.phone !== undefined) body.phone = patch.phone;
+    if (patch.propertyIds !== undefined) body.property_ids = patch.propertyIds.map(Number);
+
+    const response = await fetchWithAuth(`${API_URL}/property-managers/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(parseApiErrorBody(await response.json().catch(() => null), 'Failed to update property manager'));
+    }
+    const row = await response.json();
+    return {
+      id: String(row.id),
+      user: Number(row.user),
+      userEmail: String(row.user_email || ''),
+      userName: String(row.user_name || ''),
+      phone: String(row.phone || ''),
+      propertyIds: ((row.property_ids as number[]) || []).map(String),
+      assignedProperties: ((row.assigned_properties as Record<string, unknown>[]) || []).map((p) => ({
+        id: String(p.id),
+        name: String(p.name || ''),
+        address: String(p.address || ''),
+        city: String(p.city || ''),
+        state: String(p.state || ''),
+        image: (p.image as string) || null,
+      })),
+      createdAt: String(row.created_at || ''),
+    };
+  },
+};

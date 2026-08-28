@@ -1,0 +1,43 @@
+# Monorepo: backend lives under Neela-Tenant-App-2/backend
+# Set DATABASE_URL (Hostinger MySQL) and other secrets in the Render dashboard.
+services:
+  - type: web
+    name: neela-backend
+    runtime: python
+    rootDir: Neela-Tenant-App-2/backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: |
+      python manage.py migrate &&
+      python manage.py collectstatic --noinput &&
+      gunicorn neela_backend.wsgi:application
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: SITE_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: LANDLORD_EMAIL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false
+      - key: CELERY_RESULT_BACKEND
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false

@@ -1,0 +1,1461 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { ApplicationForm, Listing, Property, TenantStatus } from '../types';
+import { api } from '../services/api';
+import { Loader2, BedDouble, Bath, Plus, Trash2 } from 'lucide-react';
+import Modal from './Modal';
+import { folderImageForProperty } from '../utils/listingImages';
+import { assetUrl } from '../utils/basePath';
+
+export interface UseApplicationReturn {
+  // Application state
+  formData: ApplicationForm;
+  setFormData: React.Dispatch<React.SetStateAction<ApplicationForm>>;
+  selectedListing: Listing | null;
+  setSelectedListing: (listing: Listing | null) => void;
+  isSubmittingApplication: boolean;
+  applicationError: string | null;
+  applicationSuccess: string | null;
+  draftSaveMessage: string | null;
+  
+  // Handlers
+  handleApply: (listing: Listing, setView: (view: string) => void) => void;
+  handleSubmitApplication: (setUserStatus: (status: 'guest' | 'applicant_pending' | 'applicant_approved' | 'resident') => void, setView: (view: string) => void) => Promise<void>;
+  handleSaveDraft: () => void;
+  handleClearForm: () => void;
+  
+  // Utility
+  propertyToListing: (property: Property) => Listing;
+
+  // Confirmation modal (used by Application form)
+  confirmModal: { isOpen: boolean; title: string; message: string; onConfirm: () => void };
+  setConfirmModal: React.Dispatch<React.SetStateAction<{ isOpen: boolean; title: string; message: string; onConfirm: () => void }>>;
+}
+
+export const useApplication = (): UseApplicationReturn => {
+  // Application Form State
+  const [formData, setFormData] = useState<ApplicationForm>(() => {
+    // Default form structure
+    const defaultForm: ApplicationForm = {
+      // Property Preferences
+      propertyAddress: '',
+      bedroomsDesired: [],
+      bathroomsDesired: [],
+      
+      // Personal Information
+      firstName: '',
+      lastName: '',
+      email: '',
+      phone: '',
+      dateOfBirth: '',
+      currentAddressStreet: '',
+      currentAddressCity: '',
+      currentAddressState: '',
+      currentAddressZip: '',
+      
+      // Occupants
+      otherOccupantsList: [{ name: '', age: '' }],
+      hasOtherAdults: null,
+      photoIdFiles: [],
+      
+      // Employment/Income
+      currentEmployer: '',
+      monthlyIncome: '',
+      incomeVerificationFiles: [],
+      
+      // Rental History
+      hasRentedRecently: null,
+      previousAddress: '',
+      landlordName: '',
+      landlordContact: '',
+      hasEvictionOrFelony: null,
+      evictionFelonyExplanation: '',
+      
+      // Policies & Agreement
+      agreesNoSmoking: false,
+      hasPets: null,
+      petCount: '',
+      petsWhich: '',
+      desiredMoveInDate: '',
+      emergencyContactName: '',
+      emergencyContactRelationship: '',
+      emergencyContactPhone: '',
+      additionalNotes: '',
+      certificationAgreed: false,
+    };
+    
+    // Load draft from localStorage if available
+    const savedDraft = localStorage.getItem('application_draft');
+    if (savedDraft) {
+      try {
+        const parsed = JSON.parse(savedDraft);
+        // Migrate old emergencyContact string to new fields if present
+        let emergencyContactName = parsed.emergencyContactName ?? '';
+        let emergencyContactRelationship = parsed.emergencyContactRelationship ?? '';
+        let emergencyContactPhone = parsed.emergencyContactPhone ?? '';
+        if (!emergencyContactName && !emergencyContactRelationship && !emergencyContactPhone && parsed.emergencyContact) {
+          const parts = String(parsed.emergencyContact).split(',').map((s: string) => s.trim());
+          if (parts.length >= 1) emergencyContactName = parts[0];
+          if (parts.length >= 2) emergencyContactRelationship = parts[1];
+          if (parts.length >= 3) emergencyContactPhone = parts[2];
+        }
+        // Migrate old currentAddress string to new fields if present
+        let currentAddressStreet = parsed.currentAddressStreet ?? '';
+        let currentAddressCity = parsed.currentAddressCity ?? '';
+        let currentAddressState = parsed.currentAddressState ?? '';
+        let currentAddressZip = parsed.currentAddressZip ?? '';
+        if (!currentAddressStreet && !currentAddressCity && !currentAddressState && !currentAddressZip && parsed.currentAddress) {
+          const addrParts = String(parsed.currentAddress).split(',').map((s: string) => s.trim());
+          if (addrParts.length >= 1) currentAddressStreet = addrParts[0];
+          if (addrParts.length >= 2) currentAddressCity = addrParts[1];
+          if (addrParts.length >= 3) {
+            const stateZip = addrParts[2].split(/\s+/);
+            if (stateZip.length >= 2) {
+              currentAddressState = stateZip[0];
+              currentAddressZip = stateZip.slice(1).join(' ');
+            } else {
+              currentAddressState = addrParts[2];
+            }
+          }
+          if (addrParts.length >= 4) currentAddressZip = addrParts[3];
+        }
+        // Migrate old previousLandlordInfo string to new fields if present
+        let previousAddress = parsed.previousAddress ?? '';
+        let landlordName = parsed.landlordName ?? '';
+        let landlordContact = parsed.landlordContact ?? '';
+        if (!previousAddress && !landlordName && !landlordContact && parsed.previousLandlordInfo) {
+          const parts = String(parsed.previousLandlordInfo).split(',').map((s: string) => s.trim());
+          if (parts.length >= 1) previousAddress = parts[0];
+          if (parts.length >= 2) landlordName = parts[1];
+          if (parts.length >= 3) landlordContact = parts[2];
+        }
+        // Migrate old otherOccupants string to otherOccupantsList if present
+        let otherOccupantsList: { name: string; age: string }[] = [{ name: '', age: '' }];
+        if (Array.isArray(parsed.otherOccupantsList) && parsed.otherOccupantsList.length > 0) {
+          otherOccupantsList = parsed.otherOccupantsList.map((o: any) => ({
+            name: (o && typeof o === 'object') ? String(o.name ?? '') : '',
+            age: (o && typeof o === 'object') ? String(o.age ?? '') : '',
+          }));
+        }
+        if (otherOccupantsList.length === 1 && !otherOccupantsList[0]?.name && parsed.otherOccupants && typeof parsed.otherOccupants === 'string') {
+          const raw = parsed.otherOccupants.trim();
+          if (raw) {
+            const parsedList: { name: string; age: string }[] = [];
+            const segments = raw.split(/[,;]/).map((s: string) => s.trim()).filter(Boolean);
+            for (const seg of segments) {
+              const ageMatch = seg.match(/\(age\s*(\d+)\)/i) || seg.match(/\((\d+)\)/);
+              if (ageMatch) {
+                parsedList.push({ name: seg.replace(/\([^)]*\)/, '').trim(), age: ageMatch[1] });
+              } else {
+                parsedList.push({ name: seg, age: '' });
+              }
+            }
+            if (parsedList.length > 0) otherOccupantsList = parsedList;
+          }
+        }
+        // Merge with defaults to ensure all fields exist
+        return {
+          ...defaultForm,
+          ...parsed,
+          emergencyContactName,
+          emergencyContactRelationship,
+          emergencyContactPhone,
+          currentAddressStreet,
+          currentAddressCity,
+          currentAddressState,
+          currentAddressZip,
+          previousAddress,
+          landlordName,
+          landlordContact,
+          otherOccupantsList,
+          // Ensure arrays are always arrays
+          bedroomsDesired: Array.isArray(parsed.bedroomsDesired) ? parsed.bedroomsDesired : [],
+          bathroomsDesired: Array.isArray(parsed.bathroomsDesired) ? parsed.bathroomsDesired : [],
+          // Ensure File objects are not in localStorage (they can't be serialized)
+          photoIdFiles: [],
+          incomeVerificationFiles: [],
+        };
+      } catch (e) {
+        console.error('Error parsing saved draft:', e);
+      }
+    }
+    
+    return defaultForm;
+  });
+  
+  // Application Submission State
+  const [isSubmittingApplication, setIsSubmittingApplication] = useState(false);
+  const [applicationError, setApplicationError] = useState<string | null>(null);
+  const [applicationSuccess, setApplicationSuccess] = useState<string | null>(null);
+  const [draftSaveMessage, setDraftSaveMessage] = useState<string | null>(null);
+  const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  // Convert Property to Listing format
+  const propertyToListing = (property: Property): Listing => {
+    // Handle image URL - display_image from serializer should be a full URL
+    // If it's still relative, prepend API base URL
+    let imageUrl = folderImageForProperty(property) || property.image || '';
+    const isSiteAsset =
+      imageUrl.includes('/property-images/') ||
+      imageUrl.includes('/assets/') ||
+      imageUrl.startsWith('/property-images/') ||
+      imageUrl.startsWith('/assets/');
+    if (imageUrl && !imageUrl.startsWith('http') && !isSiteAsset) {
+      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const baseUrl = API_BASE.replace(/\/api$/, '');
+      imageUrl = `${baseUrl}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
+    }
+
+    return {
+      id: property.id,
+      title: property.name,
+      address: `${property.address}, ${property.city}, ${property.state}`,
+      price: property.price || 0,
+      beds: property.bedrooms || 2,
+      baths: property.bathrooms || 2,
+      sqft: property.square_footage || 1000,
+      image: imageUrl,
+      description: `Beautiful ${property.name} located in ${property.city}, ${property.state}. ${property.units} ${property.units === 1 ? 'unit' : 'units'} available.`,
+      amenities: [],
+      status: property.status === 'occupied' || property.status === 'coming_soon' ? property.status : 'vacant',
+      furnishingType: property.furnishingType,
+      furnishingsBreakdown: property.furnishingsBreakdown || [],
+    };
+  };
+
+  const handleApply = (listing: Listing, setView: (view: string) => void) => {
+    setSelectedListing(listing);
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    setView('application');
+    // Reset form state when opening application
+    setApplicationError(null);
+    setApplicationSuccess(null);
+    const beds = Math.round(Number(listing.beds ?? 2));
+    const baths = Math.round(Number(listing.baths ?? 2));
+    // Pre-fill property address and bed/bath from listing
+    setFormData(prev => ({
+      ...prev,
+      propertyAddress: listing.address || listing.title,
+      bedroomsDesired: [beds],
+      bathroomsDesired: [baths],
+    }));
+  };
+
+  const handleSubmitApplication = async (
+    setUserStatus: (status: 'guest' | 'applicant_pending' | 'applicant_approved' | 'resident') => void,
+    setView: (view: string) => void
+  ) => {
+    // Validation - Required fields
+    if (!formData.firstName || !formData.lastName || !formData.email || !formData.phone) {
+      setApplicationError('Please fill in all required fields (First Name, Last Name, Email, Phone)');
+      return;
+    }
+    
+    if (!formData.dateOfBirth) {
+      setApplicationError('Please provide your date of birth');
+      return;
+    }
+    
+    if (!formData.currentAddressStreet || !formData.currentAddressCity || !formData.currentAddressState || !formData.currentAddressZip) {
+      setApplicationError('Please provide your complete current address (street, city, state, and zip)');
+      return;
+    }
+    
+    if (!formData.monthlyIncome) {
+      setApplicationError('Please provide your monthly income');
+      return;
+    }
+    
+    if (formData.hasOtherAdults === null) {
+      setApplicationError('Please indicate if there are other adults (18+) living in the unit');
+      return;
+    }
+    
+    const hasValidOccupant = formData.otherOccupantsList.some(o => o.name.trim() !== '');
+    if (!hasValidOccupant) {
+      setApplicationError('Please provide at least one other occupant (name and age)');
+      return;
+    }
+    
+    if (formData.hasRentedRecently === null) {
+      setApplicationError('Please indicate if you have rented in the past 2 years');
+      return;
+    }
+    
+    if (formData.hasRentedRecently && (!formData.previousAddress || !formData.landlordName || !formData.landlordContact)) {
+      setApplicationError('Please provide your previous address, landlord name, and landlord contact');
+      return;
+    }
+    
+    if (formData.hasEvictionOrFelony === null) {
+      setApplicationError('Please indicate if you have been evicted or convicted of a felony');
+      return;
+    }
+    
+    if (formData.hasPets === null) {
+      setApplicationError('Please indicate if you will be moving in with pets');
+      return;
+    }
+
+    if (formData.hasPets && !formData.petCount.trim()) {
+      setApplicationError('Please enter how many pets you will have');
+      return;
+    }
+
+    if (formData.hasPets && !formData.petsWhich.trim()) {
+      setApplicationError('Please list which pets you will have');
+      return;
+    }
+
+    if (!formData.agreesNoSmoking) {
+      setApplicationError('You must agree to the no-smoking policy');
+      return;
+    }
+    
+    if (!formData.desiredMoveInDate) {
+      setApplicationError('Please provide your desired move-in date');
+      return;
+    }
+    
+    if (!formData.emergencyContactName || !formData.emergencyContactRelationship || !formData.emergencyContactPhone) {
+      setApplicationError('Please provide complete emergency contact information (name, relationship, and phone)');
+      return;
+    }
+    
+    if (!formData.certificationAgreed) {
+      setApplicationError('You must certify that all information provided is true and complete');
+      return;
+    }
+    
+    if (!selectedListing) {
+      setApplicationError('No property selected');
+      return;
+    }
+    
+    setIsSubmittingApplication(true);
+    setApplicationError(null);
+    setApplicationSuccess(null);
+    
+    try {
+      // Prepare tenant data
+      const rentAmount = selectedListing?.price && selectedListing.price > 0 
+        ? selectedListing.price 
+        : 1000;
+      
+      const propertyUnit = selectedListing?.title || selectedListing?.address || 'Property Application';
+      
+      const tenantData = {
+        name: `${formData.firstName} ${formData.lastName}`.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim(),
+        status: TenantStatus.APPLICANT,
+        propertyUnit: propertyUnit,
+        rentAmount: rentAmount,
+        deposit: 500,
+        balance: 0,
+        applicationData: {
+          submissionDate: new Date().toISOString(),
+          
+          // Property Preferences
+          propertyAddress: formData.propertyAddress,
+          bedroomsDesired: formData.bedroomsDesired,
+          bathroomsDesired: formData.bathroomsDesired,
+          
+          // Personal Information
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          dateOfBirth: formData.dateOfBirth,
+          currentAddress: `${formData.currentAddressStreet}, ${formData.currentAddressCity}, ${formData.currentAddressState} ${formData.currentAddressZip}`.trim(),
+          
+          // Occupants
+          otherOccupants: formData.otherOccupantsList
+            .filter(o => o.name.trim())
+            .map(o => o.age.trim() ? `${o.name.trim()} (age ${o.age.trim()})` : o.name.trim())
+            .join(', ') || '',
+          hasOtherAdults: formData.hasOtherAdults,
+          
+          // Employment/Income
+          currentEmployer: formData.currentEmployer,
+          monthlyIncome: parseFloat(formData.monthlyIncome.replace(/[^0-9.]/g, '')) || 0,
+          
+          // Rental History
+          hasRentedRecently: formData.hasRentedRecently,
+          previousLandlordInfo: formData.hasRentedRecently 
+            ? `${formData.previousAddress}, ${formData.landlordName}, ${formData.landlordContact}`.trim() 
+            : '',
+          hasEvictionOrFelony: formData.hasEvictionOrFelony,
+          evictionFelonyExplanation: formData.evictionFelonyExplanation,
+          
+          // Policies & Agreement
+          agreesNoSmoking: formData.agreesNoSmoking,
+          hasPets: formData.hasPets,
+          petCount: formData.hasPets ? formData.petCount.trim() : '',
+          petsWhich: formData.hasPets ? formData.petsWhich.trim() : '',
+          desiredMoveInDate: formData.desiredMoveInDate,
+          emergencyContact: `${formData.emergencyContactName}, ${formData.emergencyContactRelationship}, ${formData.emergencyContactPhone}`.trim(),
+          additionalNotes: formData.additionalNotes,
+          certificationAgreed: formData.certificationAgreed,
+        },
+        photoIdFiles: formData.photoIdFiles,
+        incomeVerificationFiles: formData.incomeVerificationFiles,
+      };
+      
+      // Submit application with files (this will trigger admin email notification)
+      await api.createTenant(tenantData);
+      
+      // Clear draft after successful submission
+      localStorage.removeItem('application_draft');
+      
+      setApplicationSuccess('Application submitted successfully! You will receive an email once it\'s reviewed.');
+      
+      // Redirect to dashboard after a short delay
+      setTimeout(() => {
+        setUserStatus('applicant_pending');
+        setView('dashboard');
+      }, 2000);
+      
+    } catch (error) {
+      setApplicationError(error instanceof Error ? error.message : 'Failed to submit application. Please try again.');
+    } finally {
+      setIsSubmittingApplication(false);
+    }
+  };
+
+  const handleSaveDraft = () => {
+    try {
+      const draftData = { ...formData };
+      // Remove File objects before saving to localStorage (they can't be serialized)
+      draftData.photoIdFiles = [];
+      draftData.incomeVerificationFiles = [];
+      localStorage.setItem('application_draft', JSON.stringify(draftData));
+      
+      setDraftSaveMessage('Draft saved successfully!');
+      setTimeout(() => setDraftSaveMessage(null), 3000);
+    } catch (error) {
+      setDraftSaveMessage('Failed to save draft');
+      setTimeout(() => setDraftSaveMessage(null), 3000);
+    }
+  };
+
+  const handleClearForm = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Clear Form',
+      message: 'Are you sure you want to clear all form fields? This action cannot be undone.',
+      onConfirm: () => {
+        // Reset to default form state
+        setFormData({
+        // Property Preferences
+        propertyAddress: selectedListing?.address || selectedListing?.title || '',
+        bedroomsDesired: [],
+        bathroomsDesired: [],
+        
+        // Personal Information
+        firstName: '',
+        lastName: '',
+        email: '',
+        phone: '',
+        dateOfBirth: '',
+        currentAddressStreet: '',
+        currentAddressCity: '',
+        currentAddressState: '',
+        currentAddressZip: '',
+        
+        // Occupants
+        otherOccupantsList: [{ name: '', age: '' }],
+        hasOtherAdults: null,
+        photoIdFiles: [],
+        
+        // Employment/Income
+        currentEmployer: '',
+        monthlyIncome: '',
+        incomeVerificationFiles: [],
+        
+        // Rental History
+        hasRentedRecently: null,
+        previousAddress: '',
+        landlordName: '',
+        landlordContact: '',
+        hasEvictionOrFelony: null,
+        evictionFelonyExplanation: '',
+        
+        // Policies & Agreement
+        agreesNoSmoking: false,
+        hasPets: null,
+        petCount: '',
+        petsWhich: '',
+        desiredMoveInDate: '',
+        emergencyContactName: '',
+        emergencyContactRelationship: '',
+        emergencyContactPhone: '',
+        additionalNotes: '',
+        certificationAgreed: false,
+      });
+      
+      // Clear draft from localStorage
+      localStorage.removeItem('application_draft');
+      
+      setDraftSaveMessage('Form cleared successfully');
+      setTimeout(() => setDraftSaveMessage(null), 3000);
+    }
+    });
+  };
+
+  // Auto-save effects - these will be set up by the component using the hook
+  // The component needs to pass view state to know when to auto-save
+
+  return {
+    formData,
+    setFormData,
+    selectedListing,
+    setSelectedListing,
+    isSubmittingApplication,
+    applicationError,
+    applicationSuccess,
+    draftSaveMessage,
+    handleApply,
+    handleSubmitApplication,
+    handleSaveDraft,
+    handleClearForm,
+    propertyToListing,
+    confirmModal,
+    setConfirmModal,
+    clearApplicationError: () => setApplicationError(null),
+  };
+};
+
+export interface ApplicationFormViewProps {
+  formData: ApplicationForm;
+  setFormData: React.Dispatch<React.SetStateAction<ApplicationForm>>;
+  selectedListing: Listing | null;
+  isSubmittingApplication: boolean;
+  applicationError: string | null;
+  applicationSuccess: string | null;
+  draftSaveMessage: string | null;
+  handleSubmitApplication: () => Promise<void>;
+  handleSaveDraft: () => void;
+  handleClearForm: () => void;
+  setView: (view: string) => void;
+  confirmModal: { isOpen: boolean; title: string; message: string; onConfirm: () => void };
+  setConfirmModal: (state: { isOpen: boolean; title: string; message: string; onConfirm: () => void }) => void;
+  clearApplicationError: () => void;
+}
+
+export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
+  formData,
+  setFormData,
+  selectedListing,
+  isSubmittingApplication,
+  applicationError,
+  applicationSuccess,
+  draftSaveMessage,
+  handleSubmitApplication,
+  handleSaveDraft,
+  handleClearForm,
+  setView,
+  confirmModal,
+  setConfirmModal,
+  clearApplicationError,
+}) => {
+  const APPLICATION_STEPS = 6;
+  const [currentStep, setCurrentStep] = useState(1);
+  const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    const t = window.setTimeout(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }), 0);
+    return () => window.clearTimeout(t);
+  }, [selectedListing?.id]);
+
+  const stepRatiosRef = useRef<number[]>(new Array(APPLICATION_STEPS).fill(0));
+
+  // Track which step is in view for step indicator
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const index = sectionRefs.current.indexOf(entry.target as HTMLDivElement);
+          if (index >= 0) stepRatiosRef.current[index] = entry.intersectionRatio;
+        });
+        const ratios = stepRatiosRef.current;
+        const maxIdx = ratios.reduce((best, r, i) => (r > ratios[best] ? i : best), 0);
+        setCurrentStep(maxIdx + 1);
+      },
+      { threshold: [0, 0.2, 0.5, 0.8, 1], rootMargin: '-100px 0px -40% 0px' }
+    );
+    const refs = sectionRefs.current;
+    refs.forEach((el) => {
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  // Save application draft to localStorage whenever formData changes
+  useEffect(() => {
+    try {
+      const toSave = { ...formData, photoIdFiles: [], incomeVerificationFiles: [] };
+      localStorage.setItem('application_draft', JSON.stringify(toSave));
+    } catch (_) {}
+  }, [formData]);
+
+  // Auto-save form draft every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const draftData = { ...formData };
+      // Remove File objects before saving to localStorage (they can't be serialized)
+      draftData.photoIdFiles = [];
+      draftData.incomeVerificationFiles = [];
+      localStorage.setItem('application_draft', JSON.stringify(draftData));
+      console.log('Application draft auto-saved');
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [formData]);
+
+  return (
+    <div className="max-w-3xl mx-auto w-full px-4 md:px-8 py-10">
+      <div className="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl shadow-indigo-500/10 border-2 border-slate-200/60 overflow-hidden relative">
+          <div
+            className="absolute inset-0 opacity-[0.07] bg-cover bg-center pointer-events-none"
+            style={{ backgroundImage: `url(${assetUrl('/property-images/sweet-magnolia.jpg')})` }}
+            aria-hidden
+          />
+          <div className="p-4 sm:p-6 border-b-2 border-slate-100 bg-gradient-to-r from-slate-50/95 via-white/95 to-slate-50/95 relative">
+             <div>
+               <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Application for {selectedListing?.title}</h2>
+               <p className="text-sm text-slate-500 mt-1 font-medium">Complete all sections to submit your application</p>
+               <p className="text-xs font-semibold text-indigo-600 mt-1.5">Step {currentStep} of {APPLICATION_STEPS}</p>
+             </div>
+          </div>
+          <div className="p-8 md:p-10">
+             <div className="space-y-10">
+                {/* Error/Success Messages */}
+                {applicationError && (
+                  <div className="bg-gradient-to-r from-red-50 via-red-100/50 to-red-50 border-2 border-red-200 text-red-800 px-6 py-4 rounded-2xl text-sm shadow-lg shadow-red-500/10 animate-shake">
+                    <p className="font-semibold">Something went wrong. Try again.</p>
+                    <p className="mt-1 text-red-700">{applicationError}</p>
+                    <button type="button" onClick={clearApplicationError} className="mt-3 text-sm font-semibold text-red-700 underline hover:no-underline">Try again</button>
+                  </div>
+                )}
+                {applicationSuccess && (
+                  <div className="bg-gradient-to-r from-emerald-50 via-emerald-100/50 to-emerald-50 border-2 border-emerald-200 text-emerald-800 px-6 py-4 rounded-2xl text-sm font-semibold shadow-lg shadow-emerald-500/10">
+                    {applicationSuccess}
+                  </div>
+                )}
+                {draftSaveMessage && (
+                  <div className="bg-gradient-to-r from-blue-50 via-blue-100/50 to-blue-50 border-2 border-blue-200 text-blue-800 px-6 py-4 rounded-2xl text-sm font-semibold shadow-lg shadow-blue-500/10">
+                    {draftSaveMessage}
+                  </div>
+                )}
+                
+                {/* 1. Property Preferences */}
+                <div ref={(el) => { sectionRefs.current[0] = el; }} className="space-y-6 bg-slate-50/50 rounded-2xl p-5 sm:p-6 md:p-7 border-2 border-slate-100">
+                  <h3 className="font-bold text-slate-900 text-xl border-b-2 border-slate-200 pb-3 flex items-center gap-3">
+                    <span className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white text-sm font-bold">1</span>
+                    Property Preferences
+                  </h3>
+                  
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">
+                      What is the address of the house/apartment you are interested in renting?
+                    </label>
+                    <input 
+                      type="text" 
+                      className="w-full p-4 border-2 border-slate-200 rounded-xl bg-white text-slate-900 focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all duration-200 shadow-sm hover:shadow-md" 
+                      value={formData.propertyAddress}
+                      onChange={(e) => setFormData({...formData, propertyAddress: e.target.value})}
+                      placeholder="Property address"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-3">
+                      How many bedrooms do you desire? (Select all that apply)
+                    </label>
+                    {selectedListing && (formData.bedroomsDesired || []).sort().join(',') !== [selectedListing.beds || 2].sort().join(',') && (
+                      <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                        This property has <strong>{selectedListing.beds || 2} {selectedListing.beds === 1 ? 'bedroom' : 'bedrooms'}</strong>.
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                      {(() => {
+                        const propBeds = selectedListing?.beds ?? 2;
+                        const low = selectedListing ? Math.max(1, propBeds - 2) : 1;
+                        const high = selectedListing ? Math.max(propBeds, 1) : 3;
+                        const options = Array.from({ length: high - low + 1 }, (_, i) => low + i);
+                        return options.map(num => {
+                        const isChecked = (formData.bedroomsDesired || []).includes(num);
+                        return (
+                          <label
+                            key={num}
+                            className={`
+                              flex items-center gap-3 sm:gap-4 p-4 sm:p-4 rounded-xl border-2 cursor-pointer transition-all duration-200
+                              min-h-[52px] sm:min-h-0
+                              ${isChecked 
+                                ? 'border-indigo-500 bg-indigo-50/80 shadow-sm' 
+                                : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'}
+                            `}
+                          >
+                            <input 
+                              type="checkbox" 
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const currentBedrooms = formData.bedroomsDesired || [];
+                                if (e.target.checked) {
+                                  setFormData({...formData, bedroomsDesired: [...currentBedrooms, num]});
+                                } else {
+                                  setFormData({...formData, bedroomsDesired: currentBedrooms.filter(n => n !== num)});
+                                }
+                              }}
+                              className="w-5 h-5 sm:w-5 sm:h-5 flex-shrink-0 text-indigo-600 border-2 border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/30 transition-all duration-200"
+                            />
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <BedDouble className={`w-5 h-5 flex-shrink-0 ${isChecked ? 'text-indigo-600' : 'text-slate-400'}`} />
+                              <span className={`font-semibold text-sm sm:text-base ${isChecked ? 'text-indigo-900' : 'text-slate-700'}`}>
+                                {num} {num === 1 ? 'Bedroom' : 'Bedrooms'}
+                              </span>
+                            </div>
+                          </label>
+                        );
+                      })})()}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-3">
+                      How many bathrooms do you desire? (Select all that apply)
+                    </label>
+                    {selectedListing && (formData.bathroomsDesired || []).sort().join(',') !== [selectedListing.baths || 2].sort().join(',') && (
+                      <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                        This property has <strong>{selectedListing.baths || 2} {selectedListing.baths === 1 ? 'bathroom' : 'bathrooms'}</strong>.
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                      {(() => {
+                        const propBaths = selectedListing?.baths ?? 2;
+                        const low = selectedListing ? Math.max(1, propBaths - 2) : 1;
+                        const high = selectedListing ? Math.max(propBaths, 1) : 3;
+                        const options = Array.from({ length: high - low + 1 }, (_, i) => low + i);
+                        return options.map(num => {
+                        const isChecked = (formData.bathroomsDesired || []).includes(num);
+                        return (
+                          <label
+                            key={num}
+                            className={`
+                              flex items-center gap-3 sm:gap-4 p-4 sm:p-4 rounded-xl border-2 cursor-pointer transition-all duration-200
+                              min-h-[52px] sm:min-h-0
+                              ${isChecked 
+                                ? 'border-indigo-500 bg-indigo-50/80 shadow-sm' 
+                                : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'}
+                            `}
+                          >
+                            <input 
+                              type="checkbox" 
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const currentBathrooms = formData.bathroomsDesired || [];
+                                if (e.target.checked) {
+                                  setFormData({...formData, bathroomsDesired: [...currentBathrooms, num]});
+                                } else {
+                                  setFormData({...formData, bathroomsDesired: currentBathrooms.filter(n => n !== num)});
+                                }
+                              }}
+                              className="w-5 h-5 sm:w-5 sm:h-5 flex-shrink-0 text-indigo-600 border-2 border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/30 transition-all duration-200"
+                            />
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <Bath className={`w-5 h-5 flex-shrink-0 ${isChecked ? 'text-indigo-600' : 'text-slate-400'}`} />
+                              <span className={`font-semibold text-sm sm:text-base ${isChecked ? 'text-indigo-900' : 'text-slate-700'}`}>
+                                {num} {num === 1 ? 'Bathroom' : 'Bathrooms'}
+                              </span>
+                            </div>
+                          </label>
+                        );
+                      })})()}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* 2. Applicant Information */}
+                <div ref={(el) => { sectionRefs.current[1] = el; }} className="space-y-6 bg-slate-50/50 rounded-2xl p-7 border-2 border-slate-100">
+                  <h3 className="font-bold text-slate-900 text-xl border-b-2 border-slate-200 pb-3 flex items-center gap-3">
+                    <span className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white text-sm font-bold">2</span>
+                    Applicant Information
+                  </h3>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        First Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input 
+                        type="text" 
+                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                        value={formData.firstName}
+                        onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Last Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input 
+                        type="text" 
+                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                        value={formData.lastName}
+                        onChange={(e) => setFormData({...formData, lastName: e.target.value})}
+                        required
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Email Address <span className="text-rose-500">*</span>
+                    </label>
+                    <input 
+                      type="email" 
+                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                      value={formData.email}
+                      onChange={(e) => setFormData({...formData, email: e.target.value})}
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Phone Number <span className="text-rose-500">*</span>
+                    </label>
+                    <input 
+                      type="tel" 
+                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                      value={formData.phone}
+                      onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                      placeholder="(555) 123-4567"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Date of Birth <span className="text-rose-500">*</span>
+                    </label>
+                    <input 
+                      type="date" 
+                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                      value={formData.dateOfBirth}
+                      onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})}
+                      required
+                    />
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-slate-700">
+                      Current Address <span className="text-rose-500">*</span>
+                    </p>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Street</label>
+                      <input 
+                        type="text" 
+                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200" 
+                        value={formData.currentAddressStreet}
+                        onChange={(e) => setFormData({...formData, currentAddressStreet: e.target.value})}
+                        placeholder="e.g., 123 Main St"
+                        required
+                      />
+                    </div>
+                    <div 
+                      className={`overflow-hidden transition-all duration-500 ease-out ${
+                        formData.currentAddressStreet.trim() 
+                          ? 'max-h-[90px] opacity-100 translate-y-0' 
+                          : 'max-h-0 opacity-0 -translate-y-2'
+                      }`}
+                    >
+                      <label className="block text-xs font-medium text-slate-500 mb-1">City</label>
+                      <input 
+                        type="text" 
+                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200" 
+                        value={formData.currentAddressCity}
+                        onChange={(e) => setFormData({...formData, currentAddressCity: e.target.value})}
+                        placeholder="e.g., Austin"
+                        required={!!formData.currentAddressStreet.trim()}
+                      />
+                    </div>
+                    <div 
+                      className={`overflow-hidden transition-all duration-500 ease-out ${
+                        formData.currentAddressCity.trim() 
+                          ? 'max-h-[90px] opacity-100 translate-y-0' 
+                          : 'max-h-0 opacity-0 -translate-y-2'
+                      }`}
+                    >
+                      <label className="block text-xs font-medium text-slate-500 mb-1">State</label>
+                      <input 
+                        type="text" 
+                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200" 
+                        value={formData.currentAddressState}
+                        onChange={(e) => setFormData({...formData, currentAddressState: e.target.value})}
+                        placeholder="e.g., TX"
+                        required={!!formData.currentAddressCity.trim()}
+                      />
+                    </div>
+                    <div 
+                      className={`overflow-hidden transition-all duration-500 ease-out ${
+                        formData.currentAddressState.trim() 
+                          ? 'max-h-[90px] opacity-100 translate-y-0' 
+                          : 'max-h-0 opacity-0 -translate-y-2'
+                      }`}
+                    >
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Zip Code</label>
+                      <input 
+                        type="text" 
+                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200" 
+                        value={formData.currentAddressZip}
+                        onChange={(e) => setFormData({...formData, currentAddressZip: e.target.value})}
+                        placeholder="e.g., 78701"
+                        required={!!formData.currentAddressState.trim()}
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                {/* 3. Occupants */}
+                <div ref={(el) => { sectionRefs.current[2] = el; }} className="space-y-4">
+                  <h3 className="font-semibold text-slate-800 text-lg border-b pb-2">Occupants</h3>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-3">
+                      Names of All Other Occupants (Include ages of minors) <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="space-y-3">
+                      {formData.otherOccupantsList.map((occupant, index) => (
+                        <div key={index} className="flex flex-wrap items-end gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                          <div className="flex-1 min-w-[120px]">
+                            <label className="block text-xs font-medium text-slate-500 mb-1">Name</label>
+                            <input 
+                              type="text" 
+                              className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                              value={occupant.name}
+                              onChange={(e) => {
+                                const updated = [...formData.otherOccupantsList];
+                                updated[index] = { ...updated[index], name: e.target.value };
+                                setFormData({ ...formData, otherOccupantsList: updated });
+                              }}
+                              placeholder="e.g., Jane Doe"
+                            />
+                          </div>
+                          <div className="w-24 flex-shrink-0">
+                            <label className="block text-xs font-medium text-slate-500 mb-1">Age</label>
+                            <input 
+                              type="text" 
+                              className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                              value={occupant.age}
+                              onChange={(e) => {
+                                const updated = [...formData.otherOccupantsList];
+                                updated[index] = { ...updated[index], age: e.target.value };
+                                setFormData({ ...formData, otherOccupantsList: updated });
+                              }}
+                              placeholder="e.g., 5"
+                            />
+                          </div>
+                          {formData.otherOccupantsList.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setFormData({ ...formData, otherOccupantsList: formData.otherOccupantsList.filter((_, i) => i !== index) })}
+                              className="p-2.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                              aria-label="Remove occupant"
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, otherOccupantsList: [...formData.otherOccupantsList, { name: '', age: '' }] })}
+                        className="flex items-center gap-2 px-4 py-2.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border-2 border-dashed border-indigo-200 rounded-lg font-medium transition-all duration-200"
+                      >
+                        <Plus className="w-5 h-5" />
+                        Add another occupant
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Are there any other adults (18+) who will live in the unit? <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="radio" 
+                          name="hasOtherAdults"
+                          checked={formData.hasOtherAdults === true}
+                          onChange={() => setFormData({...formData, hasOtherAdults: true})}
+                          className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                        />
+                        <span className="text-slate-700">Yes</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="radio" 
+                          name="hasOtherAdults"
+                          checked={formData.hasOtherAdults === false}
+                          onChange={() => setFormData({...formData, hasOtherAdults: false})}
+                          className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                        />
+                        <span className="text-slate-700">No</span>
+                      </label>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Upload a valid government-issued photo ID (for yourself and all adult occupants) <span className="text-rose-500">*</span>
+                    </label>
+                    <p className="text-xs text-slate-500 mb-2">Upload up to 5 files. Max 10 MB per file. Accepted: PDF, JPG, PNG</p>
+                    <input 
+                      type="file" 
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      multiple
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        setFormData({...formData, photoIdFiles: files});
+                      }}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    {formData.photoIdFiles.length > 0 && (
+                      <div className="mt-2 text-sm text-slate-600">
+                        {formData.photoIdFiles.length} file(s) selected
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* 4. Employment/Income Verification */}
+                <div ref={(el) => { sectionRefs.current[3] = el; }} className="space-y-4">
+                  <h3 className="font-semibold text-slate-800 text-lg border-b pb-2">Employment/Income Verification</h3>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Current Employer
+                    </label>
+                    <input 
+                      type="text" 
+                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                      value={formData.currentEmployer}
+                      onChange={(e) => setFormData({...formData, currentEmployer: e.target.value})}
+                      placeholder="Employer name"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Monthly Income (Pre-tax) <span className="text-rose-500">*</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                      value={formData.monthlyIncome}
+                      onChange={(e) => setFormData({...formData, monthlyIncome: e.target.value})}
+                      placeholder="e.g., 5000"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Upload 2 Most Recent Pay Stubs or 2 Months of Bank Statements <span className="text-rose-500">*</span>
+                    </label>
+                    <p className="text-xs text-slate-500 mb-2">Upload up to 5 files. Max 10 MB per file. Accepted: PDF, JPG, PNG</p>
+                    <input 
+                      type="file" 
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      multiple
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        setFormData({...formData, incomeVerificationFiles: files});
+                      }}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    {formData.incomeVerificationFiles.length > 0 && (
+                      <div className="mt-2 text-sm text-slate-600">
+                        {formData.incomeVerificationFiles.length} file(s) selected
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* 5. Rental History */}
+                <div ref={(el) => { sectionRefs.current[4] = el; }} className="space-y-4">
+                  <h3 className="font-semibold text-slate-800 text-lg border-b pb-2">Rental History</h3>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Have you rented in the past 2 years? <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="radio" 
+                          name="hasRentedRecently"
+                          checked={formData.hasRentedRecently === true}
+                          onChange={() => setFormData({...formData, hasRentedRecently: true})}
+                          className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                        />
+                        <span className="text-slate-700">Yes</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="radio" 
+                          name="hasRentedRecently"
+                          checked={formData.hasRentedRecently === false}
+                          onChange={() => setFormData({...formData, hasRentedRecently: false})}
+                          className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                        />
+                        <span className="text-slate-700">No</span>
+                      </label>
+                    </div>
+                  </div>
+                  
+                  {formData.hasRentedRecently && (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-slate-700">
+                        If yes, provide your previous address and landlord name/contact
+                      </p>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Previous Address</label>
+                        <input 
+                          type="text" 
+                          className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200" 
+                          value={formData.previousAddress}
+                          onChange={(e) => setFormData({...formData, previousAddress: e.target.value})}
+                          placeholder="e.g., 123 Oak St, Austin, TX 78701"
+                        />
+                      </div>
+                      <div 
+                        className={`overflow-hidden transition-all duration-500 ease-out ${
+                          formData.previousAddress.trim() 
+                            ? 'max-h-[90px] opacity-100 translate-y-0' 
+                            : 'max-h-0 opacity-0 -translate-y-2'
+                        }`}
+                      >
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Landlord Name</label>
+                        <input 
+                          type="text" 
+                          className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200" 
+                          value={formData.landlordName}
+                          onChange={(e) => setFormData({...formData, landlordName: e.target.value})}
+                          placeholder="e.g., John Smith"
+                        />
+                      </div>
+                      <div 
+                        className={`overflow-hidden transition-all duration-500 ease-out ${
+                          formData.landlordName.trim() 
+                            ? 'max-h-[90px] opacity-100 translate-y-0' 
+                            : 'max-h-0 opacity-0 -translate-y-2'
+                        }`}
+                      >
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Landlord Contact (Phone or Email)</label>
+                        <input 
+                          type="text" 
+                          className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200" 
+                          value={formData.landlordContact}
+                          onChange={(e) => setFormData({...formData, landlordContact: e.target.value})}
+                          placeholder="e.g., (555) 123-4567 or email@example.com"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Have you ever been evicted or convicted of a felony? <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="radio" 
+                          name="hasEvictionOrFelony"
+                          checked={formData.hasEvictionOrFelony === true}
+                          onChange={() => setFormData({...formData, hasEvictionOrFelony: true})}
+                          className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                        />
+                        <span className="text-slate-700">Yes</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="radio" 
+                          name="hasEvictionOrFelony"
+                          checked={formData.hasEvictionOrFelony === false}
+                          onChange={() => setFormData({...formData, hasEvictionOrFelony: false})}
+                          className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                        />
+                        <span className="text-slate-700">No</span>
+                      </label>
+                    </div>
+                  </div>
+                  
+                  {formData.hasEvictionOrFelony && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        If yes, please explain
+                      </label>
+                      <textarea 
+                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                        value={formData.evictionFelonyExplanation}
+                        onChange={(e) => setFormData({...formData, evictionFelonyExplanation: e.target.value})}
+                        placeholder="Please provide details"
+                        rows={3}
+                      />
+                    </div>
+                  )}
+                </div>
+                
+                {/* 6. Policies & Agreement */}
+                <div ref={(el) => { sectionRefs.current[5] = el; }} className="space-y-4">
+                  <h3 className="font-semibold text-slate-800 text-lg border-b pb-2">Policies & Agreement</h3>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Will you be moving in with pets? <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="hasPets"
+                          checked={formData.hasPets === true}
+                          onChange={() => setFormData({ ...formData, hasPets: true })}
+                          className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                        />
+                        <span className="text-slate-700">Yes</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="hasPets"
+                          checked={formData.hasPets === false}
+                          onChange={() => setFormData({ ...formData, hasPets: false, petCount: '', petsWhich: '' })}
+                          className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                        />
+                        <span className="text-slate-700">No</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {formData.hasPets && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                          How many pets? <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          value={formData.petCount}
+                          onChange={(e) => setFormData({ ...formData, petCount: e.target.value })}
+                          placeholder="e.g., 2"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                          Which pets? <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          value={formData.petsWhich}
+                          onChange={(e) => setFormData({ ...formData, petsWhich: e.target.value })}
+                          placeholder="e.g., 1 dog (Lab), 1 cat"
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.agreesNoSmoking}
+                        onChange={(e) => setFormData({ ...formData, agreesNoSmoking: e.target.checked })}
+                        className="w-4 h-4 mt-1 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-slate-700">
+                        I agree to a no-smoking policy. <span className="text-rose-500">*</span>
+                      </span>
+                    </label>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Desired Move-In Date <span className="text-rose-500">*</span>
+                    </label>
+                    <input 
+                      type="date" 
+                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                      value={formData.desiredMoveInDate}
+                      onChange={(e) => setFormData({...formData, desiredMoveInDate: e.target.value})}
+                      required
+                    />
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-slate-700">
+                      Emergency Contact <span className="text-rose-500">*</span>
+                    </p>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Name</label>
+                      <input 
+                        type="text" 
+                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200" 
+                        value={formData.emergencyContactName}
+                        onChange={(e) => setFormData({...formData, emergencyContactName: e.target.value})}
+                        placeholder="e.g., Mary Smith"
+                        required
+                      />
+                    </div>
+                    <div 
+                      className={`overflow-hidden transition-all duration-500 ease-out ${
+                        formData.emergencyContactName.trim() 
+                          ? 'max-h-[90px] opacity-100 translate-y-0' 
+                          : 'max-h-0 opacity-0 -translate-y-2'
+                      }`}
+                    >
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Relationship</label>
+                      <input 
+                        type="text" 
+                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200" 
+                        value={formData.emergencyContactRelationship}
+                        onChange={(e) => setFormData({...formData, emergencyContactRelationship: e.target.value})}
+                        placeholder="e.g., Sister, Mother, Friend"
+                        required={!!formData.emergencyContactName.trim()}
+                      />
+                    </div>
+                    <div 
+                      className={`overflow-hidden transition-all duration-500 ease-out ${
+                        formData.emergencyContactRelationship.trim() 
+                          ? 'max-h-[90px] opacity-100 translate-y-0' 
+                          : 'max-h-0 opacity-0 -translate-y-2'
+                      }`}
+                    >
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+                      <input 
+                        type="tel" 
+                        className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200" 
+                        value={formData.emergencyContactPhone}
+                        onChange={(e) => setFormData({...formData, emergencyContactPhone: e.target.value})}
+                        placeholder="e.g., (555) 123-4567"
+                        required={!!formData.emergencyContactRelationship.trim()}
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Additional Notes or Questions
+                    </label>
+                    <textarea 
+                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                      value={formData.additionalNotes}
+                      onChange={(e) => setFormData({...formData, additionalNotes: e.target.value})}
+                      placeholder="Any additional information you'd like to share"
+                      rows={4}
+                    />
+                  </div>
+                                                
+                  {/* 8. Certification */}
+                  <div>
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={formData.certificationAgreed}
+                        onChange={(e) => setFormData({...formData, certificationAgreed: e.target.checked})}
+                        className="w-4 h-4 mt-1 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-slate-700">
+                        I certify that all information provided is true and complete. <span className="text-rose-500">*</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+                
+                {/* Draft Save Message */}
+                {draftSaveMessage && (
+                  <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    {draftSaveMessage}
+                  </div>
+                )}
+                
+                {/* 7. Form Action Buttons */}
+                <div className="space-y-3">
+                  {/* Save Draft and Clear Form Buttons */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <button 
+                      type="button"
+                      onClick={handleSaveDraft}
+                      className="py-2.5 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                      </svg>
+                      Save as Draft
+                    </button>
+                    
+                    <button 
+                      type="button"
+                      onClick={handleClearForm}
+                      className="py-2.5 bg-rose-50 text-rose-700 font-medium rounded-lg hover:bg-rose-100 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Clear Form
+                    </button>
+                  </div>
+                  
+                  {/* Submit Button */}
+                  <button 
+                    onClick={handleSubmitApplication}
+                    disabled={isSubmittingApplication}
+                    className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isSubmittingApplication ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      'Submit Application'
+                    )}
+                  </button>
+                </div>
+             </div>
+          </div>
+      </div>
+
+      {/* Confirmation Modal */}
+      <Modal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        type="confirm"
+        onConfirm={confirmModal.onConfirm}
+        confirmText="Confirm"
+        cancelText="Cancel"
+      />
+    </div>
+  );
+};
+
+

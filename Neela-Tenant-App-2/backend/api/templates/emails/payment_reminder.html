@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Reminder</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #f59e0b;
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 5px 5px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .content {
+            background-color: #f9fafb;
+            padding: 30px;
+            border: 1px solid #e5e7eb;
+        }
+        .reminder-box {
+            background-color: #fef3c7;
+            border: 2px solid #f59e0b;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .reminder-box h2 {
+            color: #92400e;
+            margin: 0 0 10px 0;
+        }
+        .amount {
+            font-size: 28px;
+            font-weight: bold;
+            color: #92400e;
+            margin: 15px 0;
+        }
+        .info-box {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .info-box h3 {
+            color: #4f46e5;
+            margin-top: 0;
+        }
+        .button {
+            display: inline-block;
+            background-color: #f59e0b;
+            color: white;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+            text-align: center;
+        }
+        .button:hover {
+            background-color: #d97706;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+            font-size: 12px;
+        }
+        .urgent {
+            background-color: #fee2e2;
+            border-left: 4px solid #ef4444;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>⏰ Payment Reminder</h1>
+    </div>
+    <div class="content">
+        <p>Dear {{ tenant_name }},</p>
+        
+        <div class="reminder-box">
+            <h2>Payment Reminder</h2>
+            <p style="color: #92400e; margin: 0;">You have a pending payment</p>
+            <div class="amount">${{ amount }}</div>
+        </div>
+        
+        <div class="info-box">
+            <h3>Payment Details</h3>
+            <p><strong>Payment Type:</strong> {{ payment_type }}</p>
+            <p><strong>Due Date:</strong> {{ due_date|date:"F d, Y" }}</p>
+            <p><strong>Status:</strong> {{ status }}</p>
+            <p><strong>Property Unit:</strong> {{ property_unit }}</p>
+        </div>
+        
+        {% if is_overdue %}
+        <div class="urgent">
+            <strong>⚠️ Overdue Payment:</strong> This payment is past due. Please make payment as soon as possible to avoid additional fees.
+        </div>
+        {% else %}
+        <p><strong>Friendly Reminder:</strong> This payment is due soon. Please make your payment by {{ due_date|date:"F d, Y" }} to avoid late fees.</p>
+        {% endif %}
+        
+        <div style="text-align: center;">
+            <a href="{{ payment_url }}" class="button">Pay Now</a>
+        </div>
+        
+        <p>If you have already made this payment, please ignore this reminder. If you have any questions, please contact the property management office.</p>
+        
+        <p>Thank you,<br><strong>Neela Property Management Team</strong></p>
+    </div>
+    <div class="footer">
+        <p>This is an automated email from Neela Tenant Management System.</p>
+    </div>
+</body>
+</html>
+

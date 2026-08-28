@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Update</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #6b7280;
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 5px 5px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .content {
+            background-color: #f9fafb;
+            padding: 30px;
+            border: 1px solid #e5e7eb;
+        }
+        .info-box {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #6b7280;
+        }
+        .info-box h3 {
+            color: #4f46e5;
+            margin-top: 0;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Application Update</h1>
+    </div>
+    <div class="content">
+        <p>Dear {{ tenant_name }},</p>
+        
+        <p>Thank you for your interest in {{ property_unit }}. After careful review of your application, we regret to inform you that we are unable to proceed with your application at this time.</p>
+        
+        <div class="info-box">
+            <h3>Application Details</h3>
+            <p><strong>Property Unit:</strong> {{ property_unit }}</p>
+            <p><strong>Application Date:</strong> {{ application_date|date:"F d, Y" }}</p>
+        </div>
+        
+        <p>We appreciate the time you took to submit your application. If you have any questions about this decision, please feel free to contact our office.</p>
+        
+        <p>We wish you the best in your search for housing.</p>
+        
+        <p>Best regards,<br><strong>Neela Property Management Team</strong></p>
+    </div>
+    <div class="footer">
+        <p>This is an automated email from Neela Tenant Management System.</p>
+    </div>
+</body>
+</html>
+

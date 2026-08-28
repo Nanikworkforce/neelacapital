@@ -1,0 +1,47 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: neela_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - neela_network
+
+  # Optional: Celery worker service
+  # Uncomment if you want to run Celery worker in Docker
+  # Note: On Windows, you may want to run Celery locally with --pool=solo
+  # celery_worker:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   container_name: neela_celery
+  #   command: celery -A neela_backend worker --loglevel=info --pool=solo
+  #   volumes:
+  #     - ./backend:/app
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   environment:
+  #     - CELERY_BROKER_URL=redis://redis:6379/0
+  #     - CELERY_RESULT_BACKEND=redis://redis:6379/0
+  #   restart: unless-stopped
+  #   networks:
+  #     - neela_network
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  neela_network:
+    driver: bridge
+
