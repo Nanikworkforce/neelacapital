@@ -9,11 +9,13 @@
 #     FTP_SERVER_DIR  = ./
 #       (use public_html/ instead if FTP lands above public_html)
 #
-# Deploy is MANUAL for now (workflow_dispatch). Turn on push-to-main later when ready.
+# Auto-deploys on every push to main. Manual Run workflow still available.
 
 name: Deploy frontend to Hostinger
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
