@@ -1,12 +1,9 @@
 import { motion } from 'framer-motion'
 import { useState } from 'react'
 import { contact } from '../data/content'
+import { INQUIRIES_API } from '../data/api'
 import Reveal from './ui/Reveal'
 import { ease, staggerContainer, fadeUp } from '../lib/motion'
-
-const INQUIRIES_API =
-  import.meta.env.VITE_API_URL?.replace(/\/$/, '') ||
-  'https://neela-backend-96ia.onrender.com'
 
 export default function Contact() {
   const [submitted, setSubmitted] = useState(false)
@@ -25,7 +22,7 @@ export default function Contact() {
     setSending(true)
     setError(null)
     try {
-      const response = await fetch(`${INQUIRIES_API}/api/inquiries/`, {
+      const response = await fetch(INQUIRIES_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

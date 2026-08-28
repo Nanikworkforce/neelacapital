@@ -1,12 +1,18 @@
 # Neela Capital
 
-Monorepo for Neela Capital Investments.
+Monorepo for Neela Capital Investments — **one backend** powers the whole product.
 
 ## Layout
 
 - **Root** — main marketing website (`neelacapital.com`)
-- **`Neela-Tenant-App-2/`** — tenant portal frontend (`/portal`, `/admin`, `/manager`)
-- **`Neela-Tenant-App-2/backend/`** — Django API (deployed on Render)
+- **`Neela-Tenant-App-2/`** — portal frontend (`/portal`, `/admin`, `/manager`)
+- **`Neela-Tenant-App-2/backend/`** — Django API on Render (shared by website + portal)
+
+## Single backend
+
+Canonical API: `https://neela-backend-96ia.onrender.com`
+
+Used by main site (contact/inquiries, rentals), portal, admin, and manager.
 
 ## URLs
 
@@ -19,6 +25,6 @@ Monorepo for Neela Capital Investments.
 
 ## Deploy notes
 
-- **Hostinger:** upload built `dist/` (main site) + `dist/portal/` (portal SPA)
-- **Render:** uses `render.yaml` with `rootDir: Neela-Tenant-App-2/backend`
-- Copy `Neela-Tenant-App-2/backend/.env.example` → `.env` (never commit real secrets)
+- **Hostinger:** upload built `dist/` (main site) + `dist/portal/`
+- **Render:** Root Directory = `Neela-Tenant-App-2/backend` — keep only **one** web service (`neela-backend-96ia`); suspend `neela-backend-dfmg`
+- Set `DATABASE_URL` to Hostinger MySQL; `LANDLORD_EMAIL` / `ADMIN_EMAIL` = `info@neelacapital.com`

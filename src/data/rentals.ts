@@ -1,5 +1,7 @@
+import { PROPERTIES_API } from './api'
+
 export const TENANT_PORTAL_URL = '/portal/'
-export const TENANT_PROPERTIES_API = 'https://neela-backend-96ia.onrender.com/api/properties'
+export const TENANT_PROPERTIES_API = PROPERTIES_API
 
 export const defaultTenantHero = {
   title: 'Find your next home in Texas',

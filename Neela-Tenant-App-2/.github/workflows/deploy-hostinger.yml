@@ -18,7 +18,7 @@ jobs:
       - name: Build production frontend
         run: npm ci && npm run build
         env:
-          VITE_API_URL: https://neela-backend-dfmg.onrender.com
+          VITE_API_URL: https://neela-backend-96ia.onrender.com
 
       - name: Upload dist to Hostinger
         uses: SamKirkland/FTP-Deploy-Action@v4.3.6

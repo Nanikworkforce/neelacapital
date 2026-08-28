@@ -1,5 +1,8 @@
-# Monorepo: backend lives under Neela-Tenant-App-2/backend
-# Set DATABASE_URL (Hostinger MySQL) and other secrets in the Render dashboard.
+# Canonical Render backend for the full Neela app (website + portal + admin + manager).
+# Keep only ONE web service on Render: neela-backend-96ia
+# Suspend/delete neela-backend-dfmg after this is confirmed live.
+#
+# Root Directory on Render MUST be: Neela-Tenant-App-2/backend
 services:
   - type: web
     name: neela-backend
@@ -16,13 +19,13 @@ services:
       - key: SECRET_KEY
         sync: false
       - key: SITE_URL
-        sync: false
+        value: https://neelacapital.com
       - key: FRONTEND_URL
-        sync: false
+        value: https://neelacapital.com/portal
       - key: LANDLORD_EMAIL
-        sync: false
+        value: info@neelacapital.com
       - key: ADMIN_EMAIL
-        sync: false
+        value: info@neelacapital.com
       - key: CELERY_BROKER_URL
         sync: false
       - key: CELERY_RESULT_BACKEND
@@ -41,3 +44,5 @@ services:
         sync: false
       - key: SENDGRID_API_KEY
         sync: false
+      - key: NEELAGUEST_URL
+        value: https://neelacapital.com/portal/guest
