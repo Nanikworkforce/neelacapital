@@ -1,4 +1,4 @@
-import { Tenant, Payment, MaintenanceRequest, Listing, Property, LeaseSigningMetadata, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, IncomeStatementSummary, PropertyManagerProfile, CreatePropertyManagerInput, PropertyUnit, PropertyMonthInput, PropertyMonthInputLine, Inquiry } from '../types';
+import { Tenant, Payment, MaintenanceRequest, Listing, Property, LeaseSigningMetadata, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, IncomeStatementSummary, PropertyManagerProfile, CreatePropertyManagerInput, PropertyManagerSignupInput, PropertyUnit, PropertyMonthInput, PropertyMonthInputLine, Inquiry } from '../types';
 import { getAuthHeader, clearInvalidTokens, refreshAccessToken, refreshTokenIfNeeded } from './auth';
 import { applyListingImages } from '../utils/listingImages';
 
@@ -16,6 +16,35 @@ function parseApiErrorBody(data: unknown, fallback: string): string {
   const firstField = Object.values(err).find((v) => Array.isArray(v) && v.length > 0);
   if (Array.isArray(firstField)) return String(firstField[0]);
   return fallback;
+}
+
+function mapPropertyManagerRow(row: Record<string, unknown>): PropertyManagerProfile {
+  const statusRaw = String(row.status || 'approved');
+  const status = (['pending', 'approved', 'declined'].includes(statusRaw)
+    ? statusRaw
+    : 'approved') as PropertyManagerProfile['status'];
+  return {
+    id: String(row.id),
+    user: Number(row.user),
+    userEmail: String(row.user_email || ''),
+    userName: String(row.user_name || ''),
+    firstName: row.first_name != null ? String(row.first_name) : undefined,
+    middleName: row.middle_name != null ? String(row.middle_name) : undefined,
+    lastName: row.last_name != null ? String(row.last_name) : undefined,
+    phone: String(row.phone || ''),
+    status,
+    propertyIds: ((row.property_ids as number[]) || []).map(String),
+    assignedProperties: ((row.assigned_properties as Record<string, unknown>[]) || []).map((p) => ({
+      id: String(p.id),
+      name: String(p.name || ''),
+      address: String(p.address || ''),
+      city: String(p.city || ''),
+      state: String(p.state || ''),
+      image: (p.image as string) || null,
+    })),
+    createdAt: String(row.created_at || ''),
+    reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
+  };
 }
 
 // Track if we're currently refreshing to avoid multiple simultaneous refresh attempts
@@ -1055,6 +1084,8 @@ export const api = {
 
   getManagerMe: async (): Promise<{
     role: string;
+    status?: string;
+    middle_name?: string;
     managed_property_ids: string[];
     phone?: string;
     user?: { id: number; email: string; first_name: string; last_name: string };
@@ -1069,6 +1100,8 @@ export const api = {
     const u = data.user as Record<string, unknown> | undefined;
     return {
       role: String(data.role || ''),
+      status: data.status ? String(data.status) : undefined,
+      middle_name: data.middle_name ? String(data.middle_name) : undefined,
       managed_property_ids: ((data.managed_property_ids as Array<string | number>) || []).map(String),
       phone: data.phone ? String(data.phone) : undefined,
       user: u
@@ -1887,23 +1920,26 @@ export const api = {
     if (!response.ok) throw new Error(parseApiErrorBody(await response.json().catch(() => null), 'Failed to fetch property managers'));
     const data = await response.json();
     const rows = Array.isArray(data) ? data : data.results || [];
-    return rows.map((row: Record<string, unknown>) => ({
-      id: String(row.id),
-      user: Number(row.user),
-      userEmail: String(row.user_email || ''),
-      userName: String(row.user_name || ''),
-      phone: String(row.phone || ''),
-      propertyIds: ((row.property_ids as number[]) || []).map(String),
-      assignedProperties: ((row.assigned_properties as Record<string, unknown>[]) || []).map((p) => ({
-        id: String(p.id),
-        name: String(p.name || ''),
-        address: String(p.address || ''),
-        city: String(p.city || ''),
-        state: String(p.state || ''),
-        image: (p.image as string) || null,
-      })),
-      createdAt: String(row.created_at || ''),
-    }));
+    return rows.map((row: Record<string, unknown>) => mapPropertyManagerRow(row));
+  },
+
+  signupPropertyManager: async (input: PropertyManagerSignupInput): Promise<{ status: string; message: string; email: string }> => {
+    const response = await fetch(`${API_URL}/property-managers/signup/`, {
+      method: 'POST',
+      headers: getHeaders(true, false),
+      body: JSON.stringify({
+        email: input.email,
+        first_name: input.firstName,
+        middle_name: input.middleName || '',
+        last_name: input.lastName,
+        password: input.password,
+        phone: input.phone,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(parseApiErrorBody(await response.json().catch(() => null), 'Failed to create account'));
+    }
+    return await response.json();
   },
 
   createPropertyManager: async (input: CreatePropertyManagerInput): Promise<PropertyManagerProfile> => {
@@ -1913,6 +1949,7 @@ export const api = {
       body: JSON.stringify({
         email: input.email,
         first_name: input.firstName,
+        middle_name: input.middleName || '',
         last_name: input.lastName,
         password: input.password,
         phone: input.phone || '',
@@ -1922,35 +1959,20 @@ export const api = {
     if (!response.ok) {
       throw new Error(parseApiErrorBody(await response.json().catch(() => null), 'Failed to create property manager'));
     }
-    const row = await response.json();
-    return {
-      id: String(row.id),
-      user: Number(row.user),
-      userEmail: String(row.user_email || ''),
-      userName: String(row.user_name || ''),
-      phone: String(row.phone || ''),
-      propertyIds: ((row.property_ids as number[]) || []).map(String),
-      assignedProperties: ((row.assigned_properties as Record<string, unknown>[]) || []).map((p) => ({
-        id: String(p.id),
-        name: String(p.name || ''),
-        address: String(p.address || ''),
-        city: String(p.city || ''),
-        state: String(p.state || ''),
-        image: (p.image as string) || null,
-      })),
-      createdAt: String(row.created_at || ''),
-    };
+    return mapPropertyManagerRow(await response.json());
   },
 
   updatePropertyManager: async (
     id: string,
-    patch: Partial<Pick<CreatePropertyManagerInput, 'firstName' | 'lastName' | 'phone' | 'propertyIds'>>,
+    patch: Partial<Pick<CreatePropertyManagerInput, 'firstName' | 'middleName' | 'lastName' | 'phone' | 'propertyIds'> & { status?: 'pending' | 'approved' | 'declined' }>,
   ): Promise<PropertyManagerProfile> => {
     const body: Record<string, unknown> = {};
     if (patch.firstName !== undefined) body.first_name = patch.firstName;
+    if (patch.middleName !== undefined) body.middle_name = patch.middleName;
     if (patch.lastName !== undefined) body.last_name = patch.lastName;
     if (patch.phone !== undefined) body.phone = patch.phone;
     if (patch.propertyIds !== undefined) body.property_ids = patch.propertyIds.map(Number);
+    if (patch.status !== undefined) body.status = patch.status;
 
     const response = await fetchWithAuth(`${API_URL}/property-managers/${id}/`, {
       method: 'PATCH',
@@ -1960,23 +1982,6 @@ export const api = {
     if (!response.ok) {
       throw new Error(parseApiErrorBody(await response.json().catch(() => null), 'Failed to update property manager'));
     }
-    const row = await response.json();
-    return {
-      id: String(row.id),
-      user: Number(row.user),
-      userEmail: String(row.user_email || ''),
-      userName: String(row.user_name || ''),
-      phone: String(row.phone || ''),
-      propertyIds: ((row.property_ids as number[]) || []).map(String),
-      assignedProperties: ((row.assigned_properties as Record<string, unknown>[]) || []).map((p) => ({
-        id: String(p.id),
-        name: String(p.name || ''),
-        address: String(p.address || ''),
-        city: String(p.city || ''),
-        state: String(p.state || ''),
-        image: (p.image as string) || null,
-      })),
-      createdAt: String(row.created_at || ''),
-    };
+    return mapPropertyManagerRow(await response.json());
   },
 };

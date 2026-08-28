@@ -222,6 +222,7 @@ const PropertyManagerView: React.FC = () => {
   const [woodingPnlMonth, setWoodingPnlMonth] = useState(1);
   const [avenueFPnlMonth, setAvenueFPnlMonth] = useState(1);
   const [user, setUser] = useState(() => getCurrentUser('manager'));
+  const [accountStatus, setAccountStatus] = useState<'pending' | 'approved' | 'declined' | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated('manager')) {
@@ -237,16 +238,10 @@ const PropertyManagerView: React.FC = () => {
     const load = async () => {
       setLoading(true);
       try {
-        const year = new Date().getFullYear();
-        const [meRes, props, t, p, ex, m] = await Promise.all([
-          api.getManagerMe(),
-          api.getProperties(),
-          api.getTenants(),
-          api.getPayments(),
-          api.getOperatingExpenses({ year, limit: 100 }),
-          api.getMaintenanceRequests(),
-        ]);
+        const meRes = await api.getManagerMe();
         if (cancelled) return;
+        const status = (meRes.status || 'approved') as 'pending' | 'approved' | 'declined';
+        setAccountStatus(status);
         if (meRes.user) {
           const synced = updateStoredUser({
             first_name: meRes.user.first_name,
@@ -255,23 +250,39 @@ const PropertyManagerView: React.FC = () => {
           }, 'manager');
           if (synced) setUser(synced);
         }
-        setManagedIds(meRes.managed_property_ids);
-        // Backend already scopes lists for property managers; avoid double-filtering to empty.
+        if (status !== 'approved') {
+          setManagedIds([]);
+          setProperties([]);
+          setTenants([]);
+          setPayments([]);
+          setExpenses([]);
+          setMaintenance([]);
+          return;
+        }
+        const year = new Date().getFullYear();
+        const [props, t, p, ex, m] = await Promise.all([
+          api.getProperties(),
+          api.getTenants(),
+          api.getPayments(),
+          api.getOperatingExpenses({ year, limit: 100 }),
+          api.getMaintenanceRequests(),
+        ]);
+        if (cancelled) return;
+        setManagedIds(meRes.managed_property_ids || []);
         setProperties(props);
-        setTenants(t);
+        setTenants(t.filter((x) => !isExcelImportTenant(x)));
         setPayments(p);
         setExpenses(ex);
         setMaintenance(m);
       } catch (e) {
         console.error(e);
+        if (!cancelled) navigate('/manager/login', { replace: true });
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
     load();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [navigate]);
 
   // Tenant/payment/maintenance lists are already scoped by the backend for property managers.
@@ -488,23 +499,34 @@ const PropertyManagerView: React.FC = () => {
   }, []);
 
   const silentRefresh = useCallback(async () => {
+    const meRes = await api.getManagerMe();
+    const status = (meRes.status || 'approved') as 'pending' | 'approved' | 'declined';
+    setAccountStatus(status);
+    if (meRes.user) {
+      const synced = updateStoredUser({
+        first_name: meRes.user.first_name,
+        last_name: meRes.user.last_name,
+        email: meRes.user.email,
+      }, 'manager');
+      if (synced) setUser(synced);
+    }
+    if (status !== 'approved') {
+      setManagedIds([]);
+      setProperties([]);
+      setTenants([]);
+      setPayments([]);
+      setExpenses([]);
+      setMaintenance([]);
+      return;
+    }
     const year = new Date().getFullYear();
-    const [meRes, props, t, p, ex, m] = await Promise.all([
-      api.getManagerMe(),
+    const [props, t, p, ex, m] = await Promise.all([
       api.getProperties(),
       api.getTenants(),
       api.getPayments(),
       api.getOperatingExpenses({ year, limit: 100 }),
       api.getMaintenanceRequests(),
     ]);
-    if (meRes.user) {
-      const synced = updateStoredUser({
-        first_name: meRes.user.first_name,
-        last_name: meRes.user.last_name,
-        email: meRes.user.email,
-      });
-      if (synced) setUser(synced);
-    }
     setManagedIds(meRes.managed_property_ids);
     setProperties(props);
     setTenants(t);
@@ -513,7 +535,7 @@ const PropertyManagerView: React.FC = () => {
     setMaintenance(m);
   }, []);
 
-  usePollWhileVisible(silentRefresh, 30_000, !loading);
+  usePollWhileVisible(silentRefresh, 30_000, !loading && accountStatus === 'approved');
 
   const handleLogout = () => {
     logout('manager');
@@ -539,6 +561,45 @@ const PropertyManagerView: React.FC = () => {
           </div>
           <p className="text-sm font-semibold text-slate-600">Loading your dashboard…</p>
         </div>
+      </div>
+    );
+  }
+
+  if (accountStatus === 'pending' || accountStatus === 'declined') {
+    const isPending = accountStatus === 'pending';
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/40 to-teal-50/30 flex flex-col">
+        <header className="border-b border-slate-200 bg-white/80 backdrop-blur-sm">
+          <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
+            <NeelaLogo variant="full" size="md" showGlow={false} />
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign out
+            </button>
+          </div>
+        </header>
+        <main className="flex-1 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-8 text-center space-y-4">
+            <div className={`mx-auto w-14 h-14 rounded-full flex items-center justify-center ${isPending ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
+              <AlertCircle className="w-7 h-7" />
+            </div>
+            <h1 className="text-xl font-bold text-slate-900">
+              {isPending ? 'Account pending approval' : 'Account not approved'}
+            </h1>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              {isPending
+                ? 'Thanks for signing up. An admin has been notified and will review your request. Once approved, you will receive an email and your assigned properties will appear here.'
+                : 'Your property manager request was not approved. Contact Neela Capital at info@neelacapital.com if you believe this is a mistake.'}
+            </p>
+            <p className="text-xs text-slate-400">
+              Signed in as {user?.email || 'manager'}
+            </p>
+          </div>
+        </main>
       </div>
     );
   }

@@ -2069,3 +2069,132 @@ def send_short_stay_confirmation_to_guest(booking_id):
     logger.info(f"Sending short-stay confirmation email for booking {booking_id}")
     _send_short_stay_confirmation_to_guest(booking_id)
 
+
+def _send_manager_signup_notification_to_admin(profile_id):
+    from .models import PropertyManagerProfile
+
+    try:
+        profile = PropertyManagerProfile.objects.select_related('user').get(id=profile_id)
+    except PropertyManagerProfile.DoesNotExist:
+        logger.error(f"Manager profile {profile_id} not found for signup notification")
+        return
+
+    user = profile.user
+    name = profile.full_name or user.email
+    admin_emails = get_admin_emails()
+    site_url = getattr(settings, 'SITE_URL', 'https://neelacapital.com').rstrip('/')
+    admin_url = f'{site_url}/admin'
+
+    subject = f'New property manager signup — {name}'
+    plain = (
+        f'A property manager has signed up and is awaiting approval.\n\n'
+        f'Name: {name}\n'
+        f'Email: {user.email}\n'
+        f'Phone: {profile.phone or "—"}\n\n'
+        f'Review and assign properties in the admin dashboard:\n{admin_url}\n'
+    )
+    html = f"""
+<div style="font-family: Arial, sans-serif; max-width: 560px; color: #0f172a;">
+  <h2 style="margin: 0 0 12px;">New property manager signup</h2>
+  <p style="margin: 0 0 16px;">Someone requested access to the Property Manager portal and is <strong>pending approval</strong>.</p>
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+    <tr><td style="padding: 8px 0; color: #64748b;">Name</td><td style="padding: 8px 0; font-weight: 600;">{name}</td></tr>
+    <tr><td style="padding: 8px 0; color: #64748b;">Email</td><td style="padding: 8px 0;">{user.email}</td></tr>
+    <tr><td style="padding: 8px 0; color: #64748b;">Phone</td><td style="padding: 8px 0;">{profile.phone or '—'}</td></tr>
+  </table>
+  <p style="margin: 0 0 16px;">
+    <a href="{admin_url}" style="display: inline-block; background: #4f46e5; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600;">
+      Review in Admin Dashboard
+    </a>
+  </p>
+  <p style="margin: 0; color: #64748b; font-size: 13px;">Approve their account and assign properties when ready.</p>
+</div>
+"""
+    send_email_with_logging(
+        subject=subject,
+        message=plain,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=admin_emails,
+        html_message=html,
+        email_type=f'manager signup notification (profile {profile_id})',
+    )
+
+
+def send_manager_signup_notification_to_admin(profile_id):
+    try:
+        send_manager_signup_notification_to_admin_task.delay(profile_id)
+    except Exception:
+        send_email_in_thread(_send_manager_signup_notification_to_admin, profile_id)
+
+
+@shared_task
+def send_manager_signup_notification_to_admin_task(profile_id):
+    _send_manager_signup_notification_to_admin(profile_id)
+
+
+def _send_manager_approved_email(profile_id):
+    from .models import PropertyManagerProfile
+
+    try:
+        profile = PropertyManagerProfile.objects.select_related('user').get(id=profile_id)
+    except PropertyManagerProfile.DoesNotExist:
+        logger.error(f"Manager profile {profile_id} not found for approval email")
+        return
+
+    user = profile.user
+    if not user.email:
+        return
+
+    name = (user.first_name or '').strip() or 'there'
+    site_url = getattr(settings, 'SITE_URL', 'https://neelacapital.com').rstrip('/')
+    login_url = f'{site_url}/manager/login'
+
+    subject = 'Your Neela Capital property manager account is approved'
+    plain = (
+        f'Hi {name},\n\n'
+        f'Great news — your property manager account has been approved.\n\n'
+        f'You can sign in here:\n{login_url}\n\n'
+        f'Once you are in, you will see the properties assigned to you by the Neela Capital team.\n\n'
+        f'Welcome aboard,\n'
+        f'Neela Capital Investments\n'
+    )
+    html = f"""
+<div style="font-family: Arial, sans-serif; max-width: 560px; color: #0f172a;">
+  <h2 style="margin: 0 0 12px;">You're approved</h2>
+  <p style="margin: 0 0 12px;">Hi <strong>{name}</strong>,</p>
+  <p style="margin: 0 0 16px;">
+    Great news — your <strong>Neela Capital</strong> property manager account has been approved.
+    You can now sign in to the manager portal and manage the properties assigned to you.
+  </p>
+  <p style="margin: 0 0 20px;">
+    <a href="{login_url}" style="display: inline-block; background: #059669; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600;">
+      Sign in to Manager Portal
+    </a>
+  </p>
+  <p style="margin: 0; color: #64748b; font-size: 13px;">
+    If you have any questions, reply to this email or contact us at info@neelacapital.com.
+  </p>
+  <p style="margin: 24px 0 0; color: #0f172a;">Welcome aboard,<br><strong>Neela Capital Investments</strong></p>
+</div>
+"""
+    send_email_with_logging(
+        subject=subject,
+        message=plain,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        html_message=html,
+        email_type=f'manager approved email (profile {profile_id})',
+    )
+
+
+def send_manager_approved_email(profile_id):
+    try:
+        send_manager_approved_email_task.delay(profile_id)
+    except Exception:
+        send_email_in_thread(_send_manager_approved_email, profile_id)
+
+
+@shared_task
+def send_manager_approved_email_task(profile_id):
+    _send_manager_approved_email(profile_id)
+

@@ -527,6 +527,12 @@ class PropertyMonthInput(models.Model):
 
 class PropertyManagerProfile(models.Model):
     """Links a property manager user to the properties they manage."""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('declined', 'Declined'),
+    ]
+
     user = models.OneToOneField(
         'accounts.User',
         on_delete=models.CASCADE,
@@ -534,10 +540,23 @@ class PropertyManagerProfile(models.Model):
     )
     properties = models.ManyToManyField(Property, related_name='managers', blank=True)
     phone = models.CharField(max_length=50, blank=True, default='')
+    middle_name = models.CharField(max_length=150, blank=True, default='')
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+        help_text='Self-signup starts pending until admin approves.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
-        return f"Manager — {self.user.email}"
+        return f"Manager — {self.user.email} ({self.status})"
+
+    @property
+    def full_name(self):
+        parts = [self.user.first_name, self.middle_name, self.user.last_name]
+        return ' '.join(p.strip() for p in parts if p and str(p).strip())
 
 
 class ShortStayBooking(models.Model):

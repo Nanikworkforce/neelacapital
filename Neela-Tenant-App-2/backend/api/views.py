@@ -21,8 +21,9 @@ from django.core.files.base import ContentFile
 from django.http import HttpResponse
 from django.http import FileResponse
 from django.core.files.storage import default_storage
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Case, When, IntegerField
 from django.db.models.functions import ExtractMonth
+from django.contrib.auth import get_user_model
 import re
 import cloudinary
 import mimetypes
@@ -1069,9 +1070,14 @@ class PropertyUnitViewSet(viewsets.ModelViewSet):
 
 
 class PropertyManagerViewSet(viewsets.ModelViewSet):
-    """Admin-only CRUD for property manager accounts and property assignments."""
+    """Admin CRUD for property managers + public self-signup."""
     permission_classes = [IsAuthenticated]
     http_method_names = ['get', 'post', 'patch', 'head', 'options']
+
+    def get_permissions(self):
+        if self.action == 'signup':
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     def get_queryset(self):
         if not is_admin_user(self.request.user):
@@ -1080,12 +1086,22 @@ class PropertyManagerViewSet(viewsets.ModelViewSet):
             PropertyManagerProfile.objects
             .select_related('user')
             .prefetch_related('properties')
-            .order_by('-created_at')
+            .order_by(
+                Case(
+                    When(status='pending', then=0),
+                    When(status='approved', then=1),
+                    default=2,
+                    output_field=IntegerField(),
+                ),
+                '-created_at',
+            )
         )
 
     def get_serializer_class(self):
         if self.action == 'create':
             return CreatePropertyManagerSerializer
+        if self.action == 'signup':
+            return PropertyManagerSignupSerializer
         return PropertyManagerProfileSerializer
 
     def _deny_non_admin(self):
@@ -1112,17 +1128,21 @@ class PropertyManagerViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         user = User.objects.create_user(
-            email=data['email'],
+            email=data['email'].strip().lower(),
             password=data['password'],
-            first_name=data['first_name'],
-            last_name=data['last_name'],
+            first_name=data['first_name'].strip(),
+            last_name=data['last_name'].strip(),
             role='property_manager',
             is_staff=False,
             is_superuser=False,
+            is_verified=True,
         )
         profile = PropertyManagerProfile.objects.create(
             user=user,
             phone=data.get('phone') or '',
+            middle_name=(data.get('middle_name') or '').strip(),
+            status='approved',
+            reviewed_at=timezone.now(),
         )
         property_ids = data.get('property_ids') or []
         if property_ids:
@@ -1130,21 +1150,87 @@ class PropertyManagerViewSet(viewsets.ModelViewSet):
         out = PropertyManagerProfileSerializer(profile, context={'request': request})
         return Response(out.data, status=status.HTTP_201_CREATED)
 
+    @action(detail=False, methods=['post'], url_path='signup')
+    def signup(self, request):
+        """Public property manager self-registration (starts as pending)."""
+        serializer = PropertyManagerSignupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        User = get_user_model()
+        email = data['email'].strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            return Response(
+                {'email': ['An account with this email already exists. Please sign in instead.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = User.objects.create_user(
+            email=email,
+            password=data['password'],
+            first_name=data['first_name'].strip(),
+            last_name=data['last_name'].strip(),
+            role='property_manager',
+            is_staff=False,
+            is_superuser=False,
+            is_verified=True,
+        )
+        profile = PropertyManagerProfile.objects.create(
+            user=user,
+            phone=(data.get('phone') or '').strip(),
+            middle_name=(data.get('middle_name') or '').strip(),
+            status='pending',
+        )
+        try:
+            from .email_service import send_manager_signup_notification_to_admin
+            send_manager_signup_notification_to_admin(profile.id)
+        except Exception as e:
+            logger.warning(f"Manager signup saved but admin email failed: {e}", exc_info=True)
+
+        return Response({
+            'status': 'pending',
+            'message': 'Account created. Your request is pending admin approval.',
+            'email': user.email,
+        }, status=status.HTTP_201_CREATED)
+
     def partial_update(self, request, *args, **kwargs):
         self._deny_non_admin()
         profile = self.get_object()
+        old_status = profile.status
+
         phone = request.data.get('phone')
         if phone is not None:
             profile.phone = phone
-            profile.save(update_fields=['phone'])
+        if 'middle_name' in request.data:
+            profile.middle_name = (request.data.get('middle_name') or '').strip()
+
+        new_status = request.data.get('status')
+        if new_status is not None:
+            if new_status not in ('pending', 'approved', 'declined'):
+                return Response({'error': 'Invalid status.'}, status=status.HTTP_400_BAD_REQUEST)
+            profile.status = new_status
+            if new_status in ('approved', 'declined'):
+                profile.reviewed_at = timezone.now()
+            if new_status == 'declined':
+                profile.properties.clear()
+
+        profile.save()
+
         if 'property_ids' in request.data:
             raw_ids = request.data.get('property_ids') or []
             profile.properties.set(Property.objects.filter(id__in=raw_ids))
+
         user = profile.user
         for field in ('first_name', 'last_name'):
             if field in request.data:
                 setattr(user, field, request.data[field])
         user.save()
+
+        if old_status != 'approved' and profile.status == 'approved':
+            try:
+                from .email_service import send_manager_approved_email
+                send_manager_approved_email(profile.id)
+            except Exception as e:
+                logger.warning(f"Manager approved but email failed: {e}", exc_info=True)
+
         out = PropertyManagerProfileSerializer(profile, context={'request': request})
         return Response(out.data)
 
@@ -1285,11 +1371,14 @@ def manager_me(request):
     if not profile:
         return Response({
             'role': 'property_manager',
+            'status': 'pending',
             'managed_property_ids': [],
             'phone': '',
         })
     return Response({
         'role': 'property_manager',
+        'status': profile.status,
+        'middle_name': profile.middle_name,
         'managed_property_ids': list(profile.properties.values_list('id', flat=True)),
         'phone': profile.phone,
         'user': {

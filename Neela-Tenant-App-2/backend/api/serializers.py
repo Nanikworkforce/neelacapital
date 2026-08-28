@@ -455,6 +455,8 @@ class PropertyMonthInputSerializer(serializers.ModelSerializer):
 class PropertyManagerProfileSerializer(serializers.ModelSerializer):
     user_email = serializers.CharField(source='user.email', read_only=True)
     user_name = serializers.SerializerMethodField()
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
     property_ids = serializers.PrimaryKeyRelatedField(
         source='properties', many=True, queryset=Property.objects.all(), required=False
     )
@@ -463,12 +465,12 @@ class PropertyManagerProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyManagerProfile
         fields = (
-            'id', 'user', 'user_email', 'user_name', 'phone',
-            'property_ids', 'assigned_properties', 'created_at',
+            'id', 'user', 'user_email', 'user_name', 'first_name', 'middle_name', 'last_name',
+            'phone', 'status', 'property_ids', 'assigned_properties', 'created_at', 'reviewed_at',
         )
 
     def get_user_name(self, obj):
-        return f"{obj.user.first_name} {obj.user.last_name}".strip()
+        return obj.full_name or obj.user.email
 
     def get_assigned_properties(self, obj):
         request = self.context.get('request')
@@ -496,12 +498,22 @@ class PropertyManagerProfileSerializer(serializers.ModelSerializer):
 class CreatePropertyManagerSerializer(serializers.Serializer):
     email = serializers.EmailField()
     first_name = serializers.CharField(max_length=150)
+    middle_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
     last_name = serializers.CharField(max_length=150)
     password = serializers.CharField(write_only=True, min_length=8)
     phone = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
     property_ids = serializers.ListField(
         child=serializers.IntegerField(), required=False, default=list
     )
+
+
+class PropertyManagerSignupSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    first_name = serializers.CharField(max_length=150)
+    middle_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
+    last_name = serializers.CharField(max_length=150)
+    password = serializers.CharField(write_only=True, min_length=8)
+    phone = serializers.CharField(max_length=50)
 
 class LeaseTemplateSerializer(serializers.ModelSerializer):
     class Meta:

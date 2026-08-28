@@ -346,7 +346,11 @@ export interface PropertyManagerProfile {
   user: number;
   userEmail: string;
   userName: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
   phone: string;
+  status: 'pending' | 'approved' | 'declined';
   propertyIds: string[];
   assignedProperties: {
     id: string;
@@ -357,15 +361,26 @@ export interface PropertyManagerProfile {
     image?: string | null;
   }[];
   createdAt: string;
+  reviewedAt?: string | null;
 }
 
 export interface CreatePropertyManagerInput {
   email: string;
   firstName: string;
+  middleName?: string;
   lastName: string;
   password: string;
   phone?: string;
   propertyIds?: string[];
+}
+
+export interface PropertyManagerSignupInput {
+  email: string;
+  firstName: string;
+  middleName?: string;
+  lastName: string;
+  password: string;
+  phone: string;
 }
 
 export interface PropertyFinancials {

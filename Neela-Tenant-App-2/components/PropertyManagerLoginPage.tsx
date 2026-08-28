@@ -95,6 +95,12 @@ const PropertyManagerLoginPage: React.FC = () => {
             <button type="submit" disabled={isLoading} className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl shadow-lg hover:from-emerald-700 hover:to-teal-700 disabled:opacity-60 flex items-center justify-center gap-2">
               {isLoading ? <><Loader2 className="w-5 h-5 animate-spin" /> Signing in…</> : 'Sign In'}
             </button>
+            <p className="text-center text-sm text-slate-500 pt-1">
+              Need an account?{' '}
+              <Link to="/manager/signup" className="font-semibold text-emerald-700 hover:text-emerald-800">
+                Create account
+              </Link>
+            </p>
           </form>
         </div>
       </div>

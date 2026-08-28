@@ -5,6 +5,7 @@ import App from './App';
 import TenantLoginPage from './components/TenantLoginPage';
 import AdminLoginPage from './components/AdminLoginPage';
 import PropertyManagerLoginPage from './components/PropertyManagerLoginPage';
+import PropertyManagerSignupPage from './components/PropertyManagerSignupPage';
 import PropertyManagerView from './components/PropertyManagerView';
 import LeaseSigningPage from './components/LeaseSigningPage';
 import ShortStaysPublicPage from './components/ShortStaysPublicPage';
@@ -33,6 +34,7 @@ root.render(
         {/* Site-root staff URLs (not under /portal) */}
         <Route path="/admin" element={<AdminEntry />} />
         <Route path="/manager/login" element={<PropertyManagerLoginPage />} />
+        <Route path="/manager/signup" element={<PropertyManagerSignupPage />} />
         <Route path="/manager" element={<PropertyManagerView />} />
 
         {/* Legacy redirects from old /portal/admin|manager URLs */}
