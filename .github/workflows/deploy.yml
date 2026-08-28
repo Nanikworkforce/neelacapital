@@ -1,21 +1,41 @@
-name: Deploy to Hostinger
+# Frontend → Hostinger (clean replace, not stack-on-top).
+# Password NEVER goes in git — only GitHub Secrets.
+#
+# Setup (one time):
+#   Repo → Settings → Secrets and variables → Actions → New repository secret
+#     FTP_SERVER      = 212.85.29.170
+#     FTP_USERNAME    = u295735675.neelacapital.com
+#     FTP_PASSWORD    = (your Hostinger FTP password — Change FTP password if needed)
+#     FTP_SERVER_DIR  = ./
+#       (use public_html/ instead if FTP lands above public_html)
+#
+# Deploy is MANUAL for now (workflow_dispatch). Turn on push-to-main later when ready.
+
+name: Deploy frontend to Hostinger
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
-  deploy-portal:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: Neela-Tenant-App-2/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            Neela-Tenant-App-2/package-lock.json
+
+      - name: Build main website
+        run: npm ci && npm run build
+        env:
+          VITE_API_URL: https://neela-backend-dfmg.onrender.com
 
       - name: Build portal
         working-directory: Neela-Tenant-App-2
@@ -23,12 +43,22 @@ jobs:
         env:
           VITE_API_URL: https://neela-backend-dfmg.onrender.com
 
-      - name: Upload portal to Hostinger
+      - name: Assemble Hostinger dist (main + portal + htaccess)
+        run: |
+          rm -rf dist/portal
+          mkdir -p dist/portal
+          cp -R Neela-Tenant-App-2/dist/. dist/portal/
+          cp public/.htaccess dist/.htaccess
+          if [ -f Neela-Tenant-App-2/public/.htaccess ]; then
+            cp Neela-Tenant-App-2/public/.htaccess dist/portal/.htaccess
+          fi
+
+      - name: Upload to Hostinger (wipe old site files, then upload fresh)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.6
         with:
-          server: 212.85.29.170
-          username: u295735675.portal.neelacapital.com
-          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
-          local-dir: ./Neela-Tenant-App-2/dist/
-          server-dir: public_html/
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./dist/
+          server-dir: ${{ secrets.FTP_SERVER_DIR }}
           dangerous-clean-slate: true
