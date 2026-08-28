@@ -32,13 +32,3 @@ jobs:
           local-dir: ./Neela-Tenant-App-2/dist/
           server-dir: public_html/
           dangerous-clean-slate: true
-
-      - name: Upload portal under neelacapital.com/portal
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.6
-        with:
-          server: 212.85.29.170
-          username: u295735675.neelacapital.com
-          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
-          local-dir: ./Neela-Tenant-App-2/dist/
-          server-dir: public_html/portal/
-          dangerous-clean-slate: true
