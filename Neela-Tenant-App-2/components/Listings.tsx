@@ -74,6 +74,12 @@ const ListingCard: React.FC<{
 
       <div className="flex items-center justify-between mb-4 text-sm">
         <span className="text-slate-600 font-medium capitalize">{furnishingLabel.replace(/-/g, ' ')}</span>
+        {listing.furnishingsBreakdown?.some((item) => /bills included|utilities included/i.test(item)) && (
+          <span className="text-emerald-700 font-semibold">Bills included</span>
+        )}
+        {listing.furnishingsBreakdown?.some((item) => /you pay bills|tenant pays/i.test(item)) && (
+          <span className="text-slate-600 font-semibold">You pay bills</span>
+        )}
         <button
           type="button"
           onClick={() => onViewDetails(listing)}

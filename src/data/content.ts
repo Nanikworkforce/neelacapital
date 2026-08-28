@@ -117,8 +117,8 @@ export const contact = {
   title: 'Get in Touch with Neela Capital Investments',
   description:
     'Contact Neela Capital Investments for expert real estate services, property management, and Airbnb hosting solutions in Houston, Texas.',
-  address: '3733 Westheimer Rd Ste 1 PMB 2339',
-  city: 'Houston, TX 77027 United States',
+  address: '6705 Sherman Street',
+  city: 'Houston, Texas 77011',
   phone: '(832) 621-6126',
   cta: 'Book a call with us today to learn more',
 }
@@ -126,5 +126,5 @@ export const contact = {
 export const footer = {
   description:
     "Neela Capital Investments is your trusted partner in Houston's real estate market. Discover how we transform properties into thriving investments with expertise in Airbnb management, property repairs, and real estate services. Learn more about our story and mission here.",
-  address: '146 W 29th St, Houston tx',
+  address: '6705 Sherman Street, Houston, Texas 77011',
 }

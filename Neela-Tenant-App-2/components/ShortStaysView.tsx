@@ -295,7 +295,7 @@ const ShortStaysView: React.FC = () => {
     try {
       await api.updateProperty(p.id, {
         shortStayEnabled: edits.shortStayEnabled ?? p.shortStayEnabled,
-        shortStayNightlyRate: edits.shortStayNightlyRate ?? p.shortStayNightlyRate ?? p.effectiveNightlyRate,
+        price: edits.price ?? p.price,
         shortStayCleaningFee: edits.shortStayCleaningFee ?? p.shortStayCleaningFee ?? 75,
         shortStayMaxGuests: edits.shortStayMaxGuests ?? p.shortStayMaxGuests ?? p.effectiveMaxGuests,
         shortStayCheckInTime: edits.shortStayCheckInTime ?? p.shortStayCheckInTime,
@@ -776,13 +776,13 @@ const ShortStaysView: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          <p className="text-sm text-slate-500">Set nightly rates, cleaning fees, and toggle short-stay availability per property. Discounts: 3+ nights 5%, 7+ nights 10%, 14+ nights 15%.</p>
+          <p className="text-sm text-slate-500">Set monthly rates, cleaning fees, and toggle short-stay availability per property. Shorter stays are prorated from the monthly rate.</p>
           {displayProperties.map((p, idx) => {
             const groupKey = getPropertyGroupKeyFromProperty(p);
             const prevKey = idx > 0 ? getPropertyGroupKeyFromProperty(displayProperties[idx - 1]) : null;
             const edits = getPropertyEdit(p);
             const enabled = edits.shortStayEnabled ?? p.shortStayEnabled !== false;
-            const nightly = edits.shortStayNightlyRate ?? p.shortStayNightlyRate ?? p.effectiveNightlyRate ?? 165;
+            const monthly = edits.price ?? p.price ?? 0;
             const cleaning = edits.shortStayCleaningFee ?? p.shortStayCleaningFee ?? 75;
             const maxGuests = edits.shortStayMaxGuests ?? p.shortStayMaxGuests ?? p.effectiveMaxGuests ?? 4;
             const checkIn = edits.shortStayCheckInTime ?? p.shortStayCheckInTime ?? p.effectiveCheckInTime ?? (Math.max(1, p.bedrooms ?? 2) >= 3 ? '4:00 PM' : '3:00 PM');
@@ -814,12 +814,12 @@ const ShortStaysView: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Nightly rate ($)</label>
+                    <label className="block text-xs text-slate-500 mb-1">Monthly rate ($)</label>
                     <input
                       type="number"
                       min={1}
-                      value={nightly}
-                      onChange={(e) => setPricingEdits((prev) => ({ ...prev, [p.id]: { ...prev[p.id], shortStayNightlyRate: Number(e.target.value) } }))}
+                      value={monthly}
+                      onChange={(e) => setPricingEdits((prev) => ({ ...prev, [p.id]: { ...prev[p.id], price: Number(e.target.value) } }))}
                       className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                     />
                   </div>

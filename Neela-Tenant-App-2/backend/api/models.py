@@ -359,15 +359,13 @@ class Property(models.Model):
         return Decimal('340') + Decimal(str(bedrooms - 5)) * Decimal('45')
 
     def get_short_stay_nightly_rate(self):
+        from decimal import Decimal
+        # Advertised rate is monthly; nightly is a straight 30-day prorate for date bookings.
+        if self.price:
+            return (self.price / Decimal('30')).quantize(Decimal('0.01'))
         if self.short_stay_nightly_rate:
             return self.short_stay_nightly_rate
-        from decimal import Decimal
-        baseline = self._bedroom_nightly_baseline()
-        if self.price:
-            # Short-stay rates run ~35% above a straight monthly/30 prorate (turnover, furnishing).
-            derived = (self.price / Decimal('30') * Decimal('1.35')).quantize(Decimal('0.01'))
-            return max(baseline, derived)
-        return baseline
+        return self._bedroom_nightly_baseline()
 
     def get_short_stay_max_guests(self):
         if self.short_stay_max_guests:
@@ -437,6 +435,13 @@ class Property(models.Model):
         return 'Greater Houston'
 
     def get_short_stay_listing_location(self):
+        address = (self.address or '').strip().rstrip(',')
+        if address:
+            city = (self.city or 'Houston').strip()
+            state = (self.state or 'TX').strip()
+            if city.lower() in address.lower():
+                return address
+            return f'{address}, {city}, {state}'
         city = self.city or 'Houston'
         state = self.state or 'TX'
         return f'{self.get_short_stay_listing_area()}, {city}, {state}'

@@ -10,7 +10,7 @@ import {
 import { FloatingPillSwitch } from './FloatingPillSwitch';
 import ViewportPortal from './ViewportPortal';
 import NeelaLogo from './NeelaLogo';
-import { shortStayDescription, shortStayLocation, shortStayTitle } from '../utils/shortStayListings';
+import { billsNote, formatMonthlyRate, monthlyRate, shortStayDescription, shortStayLocation, shortStayTitle } from '../utils/shortStayListings';
 import { SEO_PAGES, setPageMeta, shortStayListingMeta } from '../utils/seo';
 import {
   PORTFOLIO_DISPLAY_ORDER,
@@ -43,9 +43,9 @@ const LISTING_AREAS = PORTFOLIO_DISPLAY_ORDER;
 
 const PRICE_BUCKETS = [
   { id: '', label: 'Any price' },
-  { id: 'under150', label: 'Under $150/night' },
-  { id: '150-250', label: '$150 – $250/night' },
-  { id: 'over250', label: 'Over $250/night' },
+  { id: 'under1200', label: 'Under $1,200/mo' },
+  { id: '1200-1500', label: '$1,200 – $1,500/mo' },
+  { id: 'over1500', label: 'Over $1,500/mo' },
 ] as const;
 
 type SortOption = 'price-asc' | 'price-desc' | 'beds-desc' | 'guests-desc';
@@ -56,9 +56,9 @@ function getAreaForProperty(p: Property): string {
 
 function matchesPriceBucket(rate: number, bucket: string): boolean {
   if (!bucket) return true;
-  if (bucket === 'under150') return rate < 150;
-  if (bucket === '150-250') return rate >= 150 && rate <= 250;
-  if (bucket === 'over250') return rate > 250;
+  if (bucket === 'under1200') return rate < 1200;
+  if (bucket === '1200-1500') return rate >= 1200 && rate <= 1500;
+  if (bucket === 'over1500') return rate > 1500;
   return true;
 }
 
@@ -199,7 +199,7 @@ const PriceBreakdown: React.FC<{ quote: any }> = ({ quote }) => (
   <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm space-y-2">
     <p className="font-semibold text-slate-900">Price breakdown</p>
     <div className="flex justify-between">
-      <span>{quote.nights} night(s) × ${quote.nightly_rate}</span>
+      <span>{quote.nights} night(s) prorated from monthly rate</span>
       <span>${quote.lodging_subtotal?.toFixed(2) ?? (quote.nights * quote.nightly_rate).toFixed(2)}</span>
     </div>
     {quote.discount_percent > 0 && (
@@ -231,16 +231,6 @@ interface ShortStayPortalProps {
 }
 
 const FAB_SIZE = 56;
-
-/** Mirror backend bedroom baselines for display when API fields are missing. */
-const bedroomNightlyFallback = (bedrooms?: number) => {
-  const br = Math.max(1, bedrooms || 2);
-  const rates: Record<number, number> = { 1: 115, 2: 165, 3: 215, 4: 275, 5: 340 };
-  return rates[br] ?? 340 + (br - 5) * 45;
-};
-
-const propertyNightlyRate = (p: Property) =>
-  p.effectiveNightlyRate ?? p.shortStayNightlyRate ?? bedroomNightlyFallback(p.bedrooms);
 
 const propertyMaxGuests = (p: Property) =>
   p.effectiveMaxGuests ?? p.shortStayMaxGuests ?? Math.max(2, (p.bedrooms || 2) + 2);
@@ -490,7 +480,6 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
     };
   }, [selectedProperty, checkIn, checkOut, numGuests]);
 
-  const nightlyRate = selectedProperty ? propertyNightlyRate(selectedProperty) : 0;
   const maxGuests = selectedProperty ? propertyMaxGuests(selectedProperty) : 4;
   const checkInTime = quote?.check_in_time || (selectedProperty ? propertyCheckIn(selectedProperty) : '3:00 PM');
   const checkOutTime = quote?.check_out_time || (selectedProperty ? propertyCheckOut(selectedProperty) : '11:00 AM');
@@ -541,7 +530,7 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
       list = list.filter((p) => getAreaForProperty(p) === appliedArea);
     }
     if (appliedPrice) {
-      list = list.filter((p) => matchesPriceBucket(propertyNightlyRate(p), appliedPrice));
+      list = list.filter((p) => matchesPriceBucket(monthlyRate(p), appliedPrice));
     }
     if (appliedGuests != null) {
       list = list.filter((p) => propertyMaxGuests(p) >= appliedGuests);
@@ -549,13 +538,13 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
     list.sort((a, b) => {
       switch (appliedSort) {
         case 'price-desc':
-          return propertyNightlyRate(b) - propertyNightlyRate(a);
+          return monthlyRate(b) - monthlyRate(a);
         case 'beds-desc':
           return (b.bedrooms ?? 0) - (a.bedrooms ?? 0);
         case 'guests-desc':
           return propertyMaxGuests(b) - propertyMaxGuests(a);
         default:
-          return propertyNightlyRate(a) - propertyNightlyRate(b);
+          return monthlyRate(a) - monthlyRate(b);
       }
     });
     return list;
@@ -717,7 +706,12 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
                   <h2 className="text-2xl font-bold text-slate-900">{shortStayTitle(selectedProperty)}</h2>
                   <p className="text-slate-500 flex items-center gap-1 mt-1"><MapPin className="w-4 h-4" />{shortStayLocation(selectedProperty)}</p>
                   <p className="text-slate-600 text-sm mt-3 leading-relaxed">{shortStayDescription(selectedProperty)}</p>
-                  <p className="text-amber-600 font-bold mt-2">${nightlyRate}/night · Max {maxGuests} guests</p>
+                  {billsNote(selectedProperty) && (
+                    <p className="text-sm font-semibold text-emerald-700 mt-2">{billsNote(selectedProperty)}</p>
+                  )}
+                  <p className="text-amber-600 font-bold mt-2">
+                    {formatMonthlyRate(selectedProperty) || 'Rate on request'} · Max {maxGuests} guests
+                  </p>
                   <div className="flex flex-wrap gap-4 mt-3 text-sm text-slate-600">
                     <span className="flex items-center gap-1"><Clock className="w-4 h-4 text-emerald-600" /> Check-in from {checkInTime}</span>
                     <span className="flex items-center gap-1"><Clock className="w-4 h-4 text-rose-500" /> Checkout by {checkOutTime}</span>
@@ -911,7 +905,9 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
                       <div className="min-w-0">
                         <p className="font-semibold text-slate-800 truncate">{shortStayTitle(p)}</p>
                         <p className="text-xs text-slate-500">{shortStayLocation(p)}</p>
-                        <p className="text-sm font-bold text-amber-600 mt-0.5">${propertyNightlyRate(p)}/night</p>
+                        <p className="text-sm font-bold text-amber-600 mt-0.5">
+                          {formatMonthlyRate(p) || 'Rate on request'}
+                        </p>
                       </div>
                     </button>
                   ))}
@@ -1104,7 +1100,7 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
                   <div className="w-full h-full bg-slate-100 flex items-center justify-center"><Building2 className="w-12 h-12 text-slate-300" /></div>
                 )}
                 <div className="absolute top-3 right-3 bg-white/95 px-3 py-1 rounded-full text-sm font-bold text-amber-600">
-                  ${propertyNightlyRate(p)}/night
+                  {formatMonthlyRate(p) || 'Rate on request'}
                 </div>
               </div>
               <div className="p-5">
@@ -1112,6 +1108,7 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
                   <a href={`/short-stays/${p.id}`} className="hover:text-amber-700 transition-colors">{shortStayTitle(p)}</a>
                 </h3>
                 <p className="text-sm text-slate-500 flex items-start gap-1 mt-1"><MapPin className="w-4 h-4 shrink-0" />{shortStayLocation(p)}</p>
+                {billsNote(p) && <p className="text-xs font-semibold text-emerald-700 mt-1">{billsNote(p)}</p>}
                 <p className="text-sm text-slate-600 mt-2 line-clamp-2">{shortStayDescription(p)}</p>
                 <div className="flex gap-4 text-sm text-slate-600 mt-3">
                   <span className="flex items-center gap-1"><BedDouble className="w-4 h-4" />{p.bedrooms ?? 2}</span>

@@ -1,153 +1,173 @@
 from django.core.management.base import BaseCommand
 
-from api.models import Property
+from api.models import Property, PropertyUnit
 
-# Airbnb-style guest-facing copy — no real addresses or property names.
-LISTING_PRESETS = [
+BILLS_INCLUDED = 'Bills included'
+BILLS_TENANT = 'You pay bills'
+BILLS_TAGS = {BILLS_INCLUDED, BILLS_TENANT, 'Tenant pays bills'}
+
+# Keep existing unit nicknames. These 7 are the Airbnb catalog.
+AIRBNB_LISTINGS = [
     {
-        'title': 'Cozy Urban Retreat · Sunlit & Peaceful',
+        'key': 'hideaway',
+        'title': 'The Hideaway',
+        'address': '7425 Avenue H, Houston, TX',
+        'area': 'Avenue H',
+        'price': 1200,
+        'bills': None,
         'description': (
-            'Unwind in this beautifully kept home with soft lighting, comfy seating, and a calm atmosphere. '
-            'Ideal for weekend escapes, work trips, or a relaxing Houston getaway.'
+            'A cozy furnished house on Avenue H — The Hideaway. '
+            'Comfortable Houston stay with on-site parking and a simple check-in.'
         ),
-        'area': 'East Houston',
     },
     {
-        'title': 'Modern Comfort Haven · Quiet Neighborhood',
+        'key': 'little-h',
+        'title': 'Little H House',
+        'address': '7427 Avenue H, Houston, TX',
+        'area': 'Avenue H',
+        'price': 1100,
+        'bills': None,
         'description': (
-            'A stylish, fully equipped stay with thoughtful touches throughout. '
-            'Enjoy a clean, private space perfect for couples, families, or solo travelers.'
+            'Little H House on Avenue H. A clean, furnished home for short stays, '
+            'with parking and everything you need for a Houston visit.'
         ),
-        'area': 'Southeast Houston',
     },
     {
-        'title': 'Charming Family Getaway · Spacious & Warm',
+        'key': 'sweet-home',
+        'title': 'Sweet Home',
+        'address': '7429 Avenue H, Houston, TX',
+        'area': 'Avenue H',
+        'price': 1100,
+        'bills': None,
         'description': (
-            'Spread out and feel at home in this inviting space with room for everyone. '
-            'Great for longer stays with easy access to dining, shopping, and local attractions.'
+            'Sweet Home at 7429 Avenue H. A welcoming house stay with parking, '
+            'close to East Houston dining and local spots.'
         ),
-        'area': 'Inner Loop',
     },
     {
-        'title': 'Serene Hideaway · Relaxed Vibes',
+        'key': 'eado-b',
+        'title': 'Eado Escape',
+        'address': '6835 Avenue Q, Unit B, Houston, TX',
+        'area': 'Avenue Q',
+        'price': 1700,
+        'bills': BILLS_INCLUDED,
         'description': (
-            'Step into a peaceful environment designed for rest and recharge. '
-            'Comfortable beds, a welcoming layout, and a stress-free check-in experience.'
+            'Eado Escape — 6835 Avenue Q Unit B. Furnished 2nd-floor stay. '
+            'Bills included.'
         ),
-        'area': 'North Houston',
     },
     {
-        'title': 'Bright & Airy Stay · Home Away From Home',
+        'key': 'eado-d',
+        'title': 'Eado Studio',
+        'address': '6835 Avenue Q, Unit D, Houston, TX',
+        'area': 'Avenue Q',
+        'price': 1000,
+        'bills': BILLS_INCLUDED,
         'description': (
-            'Natural light fills this cheerful space with everything you need for a comfortable visit. '
-            'Perfect for travelers who value cleanliness, comfort, and convenience.'
+            'Eado Studio — 6835 Avenue Q Unit D. Downstairs furnished studio. '
+            'Bills included.'
         ),
-        'area': 'West Houston',
     },
     {
-        'title': 'Stylish City Escape · Walkable Area',
+        'key': 'wooding-3',
+        'title': 'Wooding Unit 3',
+        'address': '903 Wooding Street, Unit 3, Houston, TX',
+        'area': 'Wooding St',
+        'price': 1000,
+        'bills': None,
         'description': (
-            'Discover Houston from a well-located, thoughtfully furnished retreat. '
-            'Ideal for guests who want a polished stay without the hotel feel.'
+            'Wooding Unit 3 — a comfortable furnished stay on Wooding Street in Houston.'
         ),
-        'area': 'Central Houston',
     },
     {
-        'title': 'Tranquil Garden View Stay · Private & Calm',
+        'key': 'sherman-2',
+        'title': 'Urban Nesting',
+        'address': '6705 Sherman Street, Unit 2, Houston, TX',
+        'area': 'Sherman St',
+        'price': 1500,
+        'bills': BILLS_TENANT,
         'description': (
-            'Enjoy a quiet setting with a cozy interior and all the essentials for a great stay. '
-            'A wonderful choice for guests seeking comfort and privacy.'
+            'Urban Nesting — 6705 Sherman Street Unit 2. Furnished duplex stay. '
+            'You pay bills.'
         ),
-        'area': 'South Houston',
-    },
-    {
-        'title': 'Elegant Short-Term Rental · Premium Comfort',
-        'description': (
-            'Experience elevated comfort in this well-maintained home with quality furnishings and a refined feel. '
-            'Suited for business travelers and leisure guests alike.'
-        ),
-        'area': 'Medical Center Area',
-    },
-    {
-        'title': 'Welcoming Guest Suite · Easy Check-In',
-        'description': (
-            'A hassle-free stay in a clean, comfortable environment. '
-            'Everything is set up so you can settle in quickly and enjoy your time in Houston.'
-        ),
-        'area': 'Greater Houston',
-    },
-    {
-        'title': 'Sunny Retreat · Perfect for Groups',
-        'description': (
-            'Room to gather, relax, and make memories in this friendly, well-appointed space. '
-            'Great for families, friends, and small group trips.'
-        ),
-        'area': 'East End',
-    },
-    {
-        'title': 'Nestled Comfort Cottage · Cozy Nights',
-        'description': (
-            'Snuggle into a warm, inviting atmosphere with soft linens and a laid-back charm. '
-            'An excellent pick for a romantic weekend or peaceful solo retreat.'
-        ),
-        'area': 'Near Downtown',
-    },
-    {
-        'title': 'Fresh & Clean Studio Feel · Minimal & Modern',
-        'description': (
-            'Simple, modern, and spotless — this stay is designed for guests who love a clutter-free space. '
-            'Everything you need, nothing you do not.'
-        ),
-        'area': 'Midtown Houston',
-    },
-    {
-        'title': 'Relaxing Weekend Spot · Unplug & Unwind',
-        'description': (
-            'Leave the hustle behind in this restful home with comfortable living spaces and a welcoming vibe. '
-            'Perfect when you just want to slow down and breathe.'
-        ),
-        'area': 'Third Ward',
-    },
-    {
-        'title': 'Houston Hideout · Central & Convenient',
-        'description': (
-            'Stay close to the action while enjoying a private, comfortable base. '
-            'A smart choice for visitors exploring the city for the first time.'
-        ),
-        'area': 'Heights Area',
-    },
-    {
-        'title': 'Peaceful Overnight Stay · Soft & Serene',
-        'description': (
-            'A gentle, welcoming space for short visits and extended stays alike. '
-            'Expect a clean home, responsive host support, and a smooth booking experience.'
-        ),
-        'area': 'Southwest Houston',
     },
 ]
 
 
+def blob(prop):
+    return f'{prop.name} {prop.address} {prop.area or ""}'.lower()
+
+
+def is_unit_row(prop):
+    return (prop.units or 1) == 1
+
+
+def match_listing(prop, key):
+    text = blob(prop)
+    name = (prop.name or '').lower()
+    if key == 'hideaway':
+        return '7425' in text or 'hideaway' in name
+    if key == 'little-h':
+        return '7427' in text or 'little h' in name
+    if key == 'sweet-home':
+        return '7429' in text or 'sweet home' in name
+    if key == 'eado-b':
+        return 'eado escape' in name or ('avenue q' in text and 'unit b' in name)
+    if key == 'eado-d':
+        return 'eado studio' in name or ('avenue q' in text and 'unit d' in name)
+    if key == 'wooding-3':
+        return ('wooding' in text or 'wooden' in text) and name.strip() == 'unit 3'
+    if key == 'sherman-2':
+        return 'urban nesting' in name or ('sherman' in text and 'unit 2' in name)
+    return False
+
+
+def set_bills_note(prop, note):
+    items = [x for x in (prop.furnishings_breakdown or []) if x not in BILLS_TAGS]
+    if note:
+        items.append(note)
+    prop.furnishings_breakdown = items
+
+
 class Command(BaseCommand):
-    help = 'Seeds Airbnb-style guest listing titles and descriptions for short stays'
+    help = 'Sets the Airbnb catalog to the 7 guest stays (keeps long-term portal listings)'
 
     def handle(self, *args, **options):
-        properties = list(Property.objects.filter(short_stay_enabled=True).order_by('id'))
-        if not properties:
-            properties = list(Property.objects.all().order_by('id'))
+        properties = list(Property.objects.all())
+        enabled_ids = set()
+        updated = []
 
-        updated = 0
-        for idx, prop in enumerate(properties):
-            preset = LISTING_PRESETS[idx % len(LISTING_PRESETS)]
-            prop.short_stay_listing_title = preset['title']
-            prop.short_stay_listing_description = preset['description']
-            prop.short_stay_listing_area = preset['area']
-            prop.save(update_fields=[
-                'short_stay_listing_title',
-                'short_stay_listing_description',
-                'short_stay_listing_area',
-            ])
-            updated += 1
+        for spec in AIRBNB_LISTINGS:
+            matches = [p for p in properties if match_listing(p, spec['key'])]
+            unit_matches = [p for p in matches if is_unit_row(p)]
+            prop = (unit_matches or matches)[0] if (unit_matches or matches) else None
+            if not prop:
+                self.stdout.write(self.style.WARNING(f'Could not find {spec["title"]}'))
+                continue
 
+            prop.address = spec['address']
+            prop.city = 'Houston'
+            prop.state = 'TX'
+            prop.area = spec['area']
+            prop.price = spec['price']
+            prop.short_stay_nightly_rate = None
+            prop.short_stay_enabled = True
+            prop.short_stay_listing_title = spec['title']
+            prop.short_stay_listing_description = spec['description']
+            prop.short_stay_listing_area = spec['area']
+            set_bills_note(prop, spec['bills'])
+            prop.save()
+            enabled_ids.add(prop.id)
+
+            PropertyUnit.objects.filter(label=prop.name).update(monthly_rent=spec['price'])
+            updated.append(f'{prop.name} -> {spec["title"]} @ {spec["address"]} ${spec["price"]}')
+
+        disabled = Property.objects.exclude(id__in=enabled_ids).update(short_stay_enabled=False)
+
+        for line in updated:
+            self.stdout.write(self.style.SUCCESS(line))
         self.stdout.write(
-            self.style.SUCCESS(f'Updated guest listing copy for {updated} propert{"y" if updated == 1 else "ies"}.')
+            self.style.SUCCESS(
+                f'Airbnb catalog: {len(enabled_ids)} enabled, {disabled} other properties left on the main portal only.'
+            )
         )

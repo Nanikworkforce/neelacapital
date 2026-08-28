@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Property } from '../types';
-import { shortStayArea, shortStayDescription, shortStayTitle } from './shortStayListings';
+import { shortStayArea, shortStayDescription, shortStayTitle, monthlyRate } from './shortStayListings';
 
 export const SITE_NAME = 'Neela Capital Investments';
 
@@ -121,9 +121,9 @@ export const SEO_PAGES = {
   shortStaysBrowse: {
     title: 'Short Stays & Airbnb-Style Getaways in Houston',
     description:
-      'Book Airbnb-style short stays in Houston. Nightly rentals with flexible check-in — East Houston, Inner Loop, Medical Center, and more. No platform fees, book direct with Neela Capital.',
+      'Book furnished short stays in Houston by the month. Flexible check-in — East Houston, Inner Loop, Medical Center, and more. No platform fees, book direct with Neela Capital.',
     keywords:
-      'short stay Houston, Airbnb Houston, Houston vacation rental, nightly rental Houston, furnished short term rental Houston, Houston Airbnb alternative, book short stay Houston TX',
+      'short stay Houston, Airbnb Houston, Houston vacation rental, monthly rental Houston, furnished short term rental Houston, Houston Airbnb alternative, book short stay Houston TX',
     canonical: `${getSiteUrl()}/short-stays`,
     jsonLd: {
       '@context': 'https://schema.org',
@@ -166,19 +166,19 @@ export function shortStayListingMeta(property: Property): PageMetaOptions {
   const title = shortStayTitle(property);
   const area = shortStayArea(property);
   const desc = shortStayDescription(property);
-  const rate = property.shortStayNightlyRate;
+  const month = monthlyRate(property);
   const metaTitle = `${title} — Short Stay in ${area}, Houston`;
   const metaDesc =
     `${desc.slice(0, 140)}${desc.length > 140 ? '…' : ''} Book this Houston short stay from $${
-      rate ?? '115'
-    }/night.`;
+      month || '1,200'
+    }/mo.`;
   const canonical = `${getSiteUrl()}/short-stays/${property.id}`;
   const image = property.image || `${getSiteUrl()}${import.meta.env.BASE_URL}neela-logo.webp`.replace(/([^:]\/)\/+/g, '$1');
 
   return {
     title: metaTitle,
     description: metaDesc,
-    keywords: `short stay ${area} Houston, Airbnb ${area}, Houston vacation rental, nightly rental Houston, ${title}`,
+    keywords: `short stay ${area} Houston, Airbnb ${area}, Houston vacation rental, monthly rental Houston, ${title}`,
     canonical,
     ogImage: image,
     ogType: 'website',
@@ -191,6 +191,7 @@ export function shortStayListingMeta(property: Property): PageMetaOptions {
       image,
       address: {
         '@type': 'PostalAddress',
+        streetAddress: property.address || undefined,
         addressLocality: property.city || 'Houston',
         addressRegion: property.state || 'TX',
         addressCountry: 'US',
@@ -200,13 +201,13 @@ export function shortStayListingMeta(property: Property): PageMetaOptions {
         '@type': 'QuantitativeValue',
         maxValue: property.shortStayMaxGuests ?? 4,
       },
-      ...(rate
+      ...(month
         ? {
             offers: {
               '@type': 'Offer',
-              price: rate,
+              price: month,
               priceCurrency: 'USD',
-              unitText: 'NIGHT',
+              unitText: 'MONTH',
             },
           }
         : {}),

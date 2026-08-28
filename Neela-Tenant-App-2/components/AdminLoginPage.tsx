@@ -1,27 +1,40 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { login, isAuthenticated, logout, getCurrentUser } from '../services/auth';
 import { Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import NeelaLogo from './NeelaLogo';
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
 
-const AdminLoginPage: React.FC = () => {
+interface AdminLoginPageProps {
+  onSuccess?: () => void;
+}
+
+const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ onSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const navigate = useNavigate();
 
   usePageMeta(SEO_PAGES.adminLogin);
+
+  const enterDashboard = () => {
+    if (onSuccess) {
+      onSuccess();
+      return;
+    }
+    window.location.replace('/admin');
+  };
 
   useEffect(() => {
     if (!isAuthenticated('admin')) return;
     const user = getCurrentUser('admin');
     if (user?.is_staff || user?.is_superuser) {
-      navigate('/admin', { replace: true, state: { adminLogin: true } });
+      enterDashboard();
     }
-  }, [navigate]);
+    // Restore an existing admin session on mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +47,7 @@ const AdminLoginPage: React.FC = () => {
         setError('Invalid email or password.');
         return;
       }
-      navigate('/admin', { replace: true, state: { adminLogin: true } });
+      enterDashboard();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Try again.');
     } finally {

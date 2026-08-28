@@ -141,6 +141,12 @@ def reset_password(request):
     )
 
 
+# Extra admin emails that authenticate as the existing staff account (same password).
+ADMIN_EMAIL_ALIASES = {
+    'info@neelacapital.com': 'neelacapital@outlook.com',
+}
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login(request):
@@ -152,6 +158,11 @@ def login(request):
             {'error': 'Email and password are required'},
             status=status.HTTP_400_BAD_REQUEST
         )
+
+    email = str(email).strip()
+    mapped = ADMIN_EMAIL_ALIASES.get(email.lower())
+    if mapped:
+        email = mapped
     
     # Authenticate user
     user = authenticate(request, username=email, password=password)

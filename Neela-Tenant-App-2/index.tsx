@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom';
 import App from './App';
@@ -11,12 +11,13 @@ import ShortStaysPublicPage from './components/ShortStaysPublicPage';
 import { isAuthenticated, getCurrentUser } from './services/auth';
 
 function AdminEntry() {
+  const [, setAuthTick] = useState(0);
   const user = getCurrentUser('admin');
   const isStaff = !!(user?.is_staff || user?.is_superuser);
   if (isAuthenticated('admin') && isStaff) {
     return <App variant="admin" />;
   }
-  return <AdminLoginPage />;
+  return <AdminLoginPage onSuccess={() => setAuthTick((n) => n + 1)} />;
 }
 
 const rootElement = document.getElementById('root');
