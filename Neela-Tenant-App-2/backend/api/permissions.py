@@ -1,4 +1,9 @@
-"""Role-based helpers for admin vs property manager access."""
+"""Role-based helpers for admin vs property manager vs tenant access.
+
+Fail closed: anonymous and unmatched users see nothing.
+Managers stay scoped to assigned properties.
+Tenants see only their own tenant-linked rows.
+"""
 
 from django.db.models import Q
 
@@ -58,6 +63,22 @@ def is_property_manager(user):
     )
 
 
+def is_staff_portal_user(user):
+    """Admin or property manager — office roles, not tenants."""
+    return is_admin_user(user) or is_property_manager(user)
+
+
+def get_user_tenant(user):
+    """Resolve the Tenant row for a logged-in resident (email match)."""
+    if not user or not user.is_authenticated or not getattr(user, 'email', None):
+        return None
+    if is_staff_portal_user(user):
+        return None
+    from .models import Tenant
+
+    return Tenant.objects.filter(email__iexact=user.email.strip()).order_by('-id').first()
+
+
 def get_manager_property_ids(user):
     if not is_property_manager(user):
         return None
@@ -108,19 +129,30 @@ def _tenant_property_unit_q(properties):
 
 
 def filter_tenants_for_user(queryset, user):
-    if is_admin_user(user) or not is_property_manager(user):
-        return queryset
-    from .models import Property
-
-    props = list(filter_properties_for_user(Property.objects.only('name', 'address'), user))
-    if not props:
+    """Admin: all. Manager: assigned properties. Tenant: own row. Else: none."""
+    if not user or not user.is_authenticated:
         return queryset.none()
-    unit_q = _tenant_property_unit_q(props)
-    return queryset.filter(unit_q) if unit_q else queryset.none()
+    if is_admin_user(user):
+        return queryset
+    if is_property_manager(user):
+        from .models import Property
+
+        props = list(filter_properties_for_user(Property.objects.only('name', 'address'), user))
+        if not props:
+            return queryset.none()
+        unit_q = _tenant_property_unit_q(props)
+        return queryset.filter(unit_q) if unit_q else queryset.none()
+
+    email = (getattr(user, 'email', None) or '').strip()
+    if not email:
+        return queryset.none()
+    return queryset.filter(email__iexact=email)
 
 
 def filter_payments_for_user(queryset, user):
-    if is_admin_user(user) or not is_property_manager(user):
+    if not user or not user.is_authenticated:
+        return queryset.none()
+    if is_admin_user(user):
         return queryset
     from .models import Tenant
 
@@ -129,9 +161,62 @@ def filter_payments_for_user(queryset, user):
 
 
 def filter_maintenance_for_user(queryset, user):
-    if is_admin_user(user) or not is_property_manager(user):
+    if not user or not user.is_authenticated:
+        return queryset.none()
+    if is_admin_user(user):
         return queryset
     from .models import Tenant
 
     tenant_ids = filter_tenants_for_user(Tenant.objects.all(), user).values_list('id', flat=True)
     return queryset.filter(tenant_id__in=tenant_ids)
+
+
+def filter_legal_documents_for_user(queryset, user):
+    if not user or not user.is_authenticated:
+        return queryset.none()
+    if is_admin_user(user):
+        return queryset
+    if is_property_manager(user):
+        return queryset.none()
+    from .models import Tenant
+
+    tenant_ids = filter_tenants_for_user(Tenant.objects.all(), user).values_list('id', flat=True)
+    return queryset.filter(tenant_id__in=tenant_ids)
+
+
+def get_valid_signing_token(raw_token):
+    """Return a valid (unused, unexpired) LeaseSigningToken or None."""
+    if not raw_token:
+        return None
+    from .models import LeaseSigningToken
+
+    try:
+        token = LeaseSigningToken.objects.select_related('legal_document').get(token=raw_token)
+    except (LeaseSigningToken.DoesNotExist, ValueError, TypeError):
+        return None
+    if not token.is_valid:
+        return None
+    return token
+
+
+def user_can_access_legal_document(user, legal_doc, raw_token=None):
+    """
+    Admin, owning tenant (login), or holder of a valid one-time signing link.
+    """
+    if legal_doc is None:
+        return False
+    if is_admin_user(user):
+        return True
+    token = get_valid_signing_token(raw_token)
+    if token and token.legal_document_id == legal_doc.id:
+        return True
+    if not user or not user.is_authenticated:
+        return False
+    if is_property_manager(user):
+        return False
+    email = (getattr(user, 'email', None) or '').strip()
+    if not email or not legal_doc.tenant_id:
+        return False
+    from .models import Tenant
+
+    return Tenant.objects.filter(id=legal_doc.tenant_id, email__iexact=email).exists()

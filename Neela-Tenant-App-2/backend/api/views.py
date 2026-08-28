@@ -39,12 +39,17 @@ from .pnl_service import compute_property_pnl, excel_portfolio_property_ids, por
 from .permissions import (
     is_admin_user,
     is_property_manager,
+    is_staff_portal_user,
+    get_user_tenant,
     filter_properties_for_user,
     get_manager_property_ids,
     filter_tenants_for_user,
     get_tenant_queryset_for_user,
     filter_payments_for_user,
     filter_maintenance_for_user,
+    filter_legal_documents_for_user,
+    user_can_access_legal_document,
+    get_valid_signing_token,
     MANAGER_EXPENSE_CATEGORIES,
     ADMIN_ONLY_EXPENSE_CATEGORIES,
     MANAGER_NOTICE_TYPES,
@@ -212,6 +217,9 @@ class InquiryViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
 
     def get_queryset(self):
+        # Website/portal leads are admin-only — not tenants or managers.
+        if not is_admin_user(self.request.user):
+            return Inquiry.objects.none()
         qs = Inquiry.objects.all().order_by('-created_at')
         status_filter = self.request.query_params.get('status')
         if status_filter:
@@ -220,6 +228,16 @@ class InquiryViewSet(viewsets.ModelViewSet):
         if source_filter:
             qs = qs.filter(source=source_filter)
         return qs
+
+    def perform_update(self, serializer):
+        if not is_admin_user(self.request.user):
+            raise PermissionDenied('Only admin can update inquiries.')
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if not is_admin_user(self.request.user):
+            raise PermissionDenied('Only admin can delete inquiries.')
+        instance.delete()
 
     def create(self, request, *args, **kwargs):
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
@@ -263,17 +281,20 @@ class InquiryViewSet(viewsets.ModelViewSet):
 @permission_classes([IsAuthenticated])
 def dashboard_stats(request):
     """Return aggregate stats for dashboard without loading full lists."""
-    total_revenue = Payment.objects.filter(status='Paid').aggregate(
-        total=Sum('amount')
-    )['total'] or 0
-    overdue_amount = Tenant.objects.filter(balance__gt=0).aggregate(
-        total=Sum('balance')
-    )['total'] or 0
-    tenant_count = Tenant.objects.count()
-    active_count = Tenant.objects.filter(status='Active').count()
+    if not is_staff_portal_user(request.user):
+        return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+    tenants = filter_tenants_for_user(Tenant.objects.all(), request.user)
+    payments = filter_payments_for_user(Payment.objects.all(), request.user)
+    tickets = filter_maintenance_for_user(MaintenanceRequest.objects.all(), request.user)
+
+    total_revenue = payments.filter(status='Paid').aggregate(total=Sum('amount'))['total'] or 0
+    overdue_amount = tenants.filter(balance__gt=0).aggregate(total=Sum('balance'))['total'] or 0
+    tenant_count = tenants.count()
+    active_count = tenants.filter(status='Active').count()
     occupancy_rate = round((active_count / tenant_count) * 100) if tenant_count else 0
-    open_tickets = MaintenanceRequest.objects.exclude(status='Resolved').count()
-    new_applications = Tenant.objects.filter(status='Applicant').count()
+    open_tickets = tickets.exclude(status='Resolved').count()
+    new_applications = tenants.filter(status='Applicant').count()
     return Response({
         'totalRevenue': float(total_revenue),
         'overdueAmount': float(overdue_amount),
@@ -287,8 +308,14 @@ def dashboard_stats(request):
 class TenantViewSet(viewsets.ModelViewSet):
     queryset = Tenant.objects.all()
     serializer_class = TenantSerializer
-    permission_classes = [AllowAny]  # Require auth for most operations
+    permission_classes = [IsAuthenticated]
     parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
+
+    def get_permissions(self):
+        # Public apply + status check only; everything else requires login.
+        if self.action in ('create', 'check_status'):
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     def get_queryset(self):
         qs = Tenant.objects.all().order_by('-id')
@@ -308,7 +335,7 @@ class TenantViewSet(viewsets.ModelViewSet):
         return TenantSerializer
 
     def perform_destroy(self, instance):
-        if is_property_manager(self.request.user):
+        if not is_admin_user(self.request.user):
             raise PermissionDenied('Only admin can delete tenants.')
         instance.delete()
 
@@ -336,6 +363,8 @@ class TenantViewSet(viewsets.ModelViewSet):
     
     def perform_update(self, serializer):
         """Override to handle status changes and send acceptance email."""
+        if not is_staff_portal_user(self.request.user):
+            raise PermissionDenied('Only admin or property manager can update tenants.')
         old_instance = self.get_object()
         old_status = old_instance.status
         
@@ -479,10 +508,20 @@ class TenantViewSet(viewsets.ModelViewSet):
                     break
             
             if matched_tenant:
-                serializer = self.get_serializer(matched_tenant)
+                # Public status check — only status fields, not financials / ID docs / credit.
                 return Response({
                     "status": matched_tenant.status,
-                    "tenant": serializer.data
+                    "tenant": {
+                        "id": matched_tenant.id,
+                        "name": matched_tenant.name,
+                        "email": matched_tenant.email,
+                        "phone": matched_tenant.phone,
+                        "status": matched_tenant.status,
+                        "property_unit": matched_tenant.property_unit,
+                        "propertyUnit": matched_tenant.property_unit,
+                        "lease_status": matched_tenant.lease_status,
+                        "leaseStatus": matched_tenant.lease_status,
+                    },
                 })
                 
             return Response(
@@ -516,13 +555,18 @@ class TenantViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='document')
+    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated], url_path='document')
     def document(self, request, pk=None):
         """
         Proxy tenant-uploaded documents through backend so preview/download works
         even when direct Cloudinary URLs are access-restricted.
+        Requires login; queryset already scopes to admin / manager / owning tenant.
         """
         tenant = self.get_object()
+        if not is_staff_portal_user(request.user):
+            own = get_user_tenant(request.user)
+            if not own or own.id != tenant.id:
+                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         raw_path = (request.query_params.get('path') or '').strip()
         if not raw_path:
             return Response({'error': 'path is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -596,8 +640,8 @@ class TenantViewSet(viewsets.ModelViewSet):
                 raise PermissionDenied(
                     'Property managers may only send rent reminders and late rent notices.'
                 )
-        elif not request.user.is_authenticated:
-            raise PermissionDenied('Authentication required.')
+        elif not is_admin_user(request.user):
+            raise PermissionDenied('Admin or property manager access required.')
 
         if tenant.status == 'Applicant':
             return Response({'error': 'Notices cannot be sent to applicants.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -678,6 +722,34 @@ class PaymentViewSet(viewsets.ModelViewSet):
             headers = self.get_success_headers(serializer.data)
             return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
 
+        # Residents may only submit proof against their own account (Pending).
+        if not is_admin_user(request.user):
+            own = get_user_tenant(request.user)
+            if not own:
+                raise PermissionDenied('Only admin, managers, or the resident may record payments.')
+            data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+            data['tenant'] = own.id
+            data['status'] = 'Pending'
+            proof_files = request.FILES.getlist('proof_of_payment_files_upload')
+            if proof_files:
+                if hasattr(data, 'setlist'):
+                    data.setlist('proof_of_payment_files_upload', proof_files)
+                else:
+                    data['proof_of_payment_files_upload'] = proof_files
+            serializer = self.get_serializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            payment = serializer.save()
+            try:
+                try:
+                    send_proof_of_payment_notification_to_admin.delay(payment.id)
+                except Exception:
+                    send_proof_of_payment_notification_to_admin(payment.id)
+            except Exception as e:
+                logger.error(f"Failed to send proof-of-payment admin notification: {e}")
+            response_data = dict(serializer.data)
+            headers = self.get_success_headers(serializer.data)
+            return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
+
         self._deny_manager_write()
         """Override create to send invoice email after payment is created."""
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
@@ -744,6 +816,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 self.request.data,
                 payment=self.get_object(),
             )
+        elif not is_admin_user(self.request.user):
+            raise PermissionDenied('Only admin or property manager can update payments.')
         else:
             self._deny_manager_write()
         """Override to send receipt email when payment status changes to 'Paid'."""
@@ -763,7 +837,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 send_payment_receipt_to_tenant(payment.id)
     
     def perform_destroy(self, instance):
-        self._deny_manager_write()
+        if not is_admin_user(self.request.user):
+            raise PermissionDenied('Only admin can delete payments.')
         instance.delete()
 
     @action(detail=True, methods=['post'], url_path='send-receipt')
@@ -868,6 +943,8 @@ class OperatingExpenseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = OperatingExpense.objects.select_related('property', 'unit', 'created_by').all()
         user = self.request.user
+        if not is_staff_portal_user(user):
+            return OperatingExpense.objects.none()
         include_excel = self.request.query_params.get('include_excel') in ('1', 'true', 'yes')
         if is_property_manager(user):
             # Manager portal lists hand-entered costs only — not Excel P&L import rows.
@@ -1235,16 +1312,21 @@ class MaintenanceRequestViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         """
-        Allow public access for create (tenants can submit maintenance requests),
-        but require authentication for list, retrieve, update, delete.
+        Tenants submit maintenance while logged in; list/update require auth.
+        Anonymous create is no longer allowed (prevents spoofing another unit).
         """
-        if self.action == 'create':
-            return [AllowAny()]
         return [IsAuthenticated()]
-    
+
     def perform_create(self, serializer):
         """Override to send email notifications when maintenance request is created."""
-        maintenance_request = serializer.save()
+        user = self.request.user
+        if is_staff_portal_user(user):
+            maintenance_request = serializer.save()
+        else:
+            own = get_user_tenant(user)
+            if not own:
+                raise PermissionDenied('Only residents with a tenant profile can open tickets.')
+            maintenance_request = serializer.save(tenant=own)
         
         # Send email notification to 
         try:
@@ -1515,10 +1597,11 @@ def _create_and_send_notice(tenant, notice_type):
 class LeaseTemplateViewSet(viewsets.ModelViewSet):
     queryset = LeaseTemplate.objects.all()
     serializer_class = LeaseTemplateSerializer
+    permission_classes = [IsAuthenticated]
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
-        if is_property_manager(request.user):
+        if not is_admin_user(request.user):
             raise PermissionDenied('Lease templates are admin only.')
 
 
@@ -1538,6 +1621,7 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         ):
             raise PermissionDenied('Legal documents are admin only.')
         queryset = LegalDocument.objects.all()
+        queryset = filter_legal_documents_for_user(queryset, self.request.user)
         tenant_id = self.request.query_params.get('tenant')
         if tenant_id:
             queryset = queryset.filter(tenant_id=tenant_id)
@@ -1546,23 +1630,26 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='signing_metadata', permission_classes=[AllowAny])
     def signing_metadata(self, request, pk=None):
         """
-        Return metadata required for in-house e-signing:
-        - Backend PDF proxy URL
-        - Normalized overlay field definitions (checkboxes, initials, signatures, dates).
-
-        Coordinates are normalized (0-1) relative to the visible page so the
-        frontend can render a responsive overlay across devices.
+        Return metadata required for in-house e-signing.
+        Requires owning-tenant login, admin, or a valid ?token= signing link.
         """
         try:
-            legal_doc = self.get_object()
+            legal_doc = LegalDocument.objects.select_related('tenant').get(pk=pk)
         except LegalDocument.DoesNotExist:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        raw_token = request.query_params.get('token') or request.data.get('token')
+        if not user_can_access_legal_document(request.user, legal_doc, raw_token=raw_token):
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
         if not legal_doc.pdf_file:
             return Response({'error': 'No PDF file available for this document'}, status=status.HTTP_400_BAD_REQUEST)
 
         request_obj = request._request if hasattr(request, '_request') else request
         pdf_proxy_url = request_obj.build_absolute_uri(f"/api/legal-documents/{legal_doc.id}/pdf/")
+        if raw_token and get_valid_signing_token(raw_token):
+            sep = '&' if '?' in pdf_proxy_url else '?'
+            pdf_proxy_url = f"{pdf_proxy_url}{sep}token={raw_token}"
 
         # For now we expose a conservative, static field map for Lease Agreement.
         # These normalized coordinates are easy for the frontend to adapt and we can
@@ -1668,19 +1755,18 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='submit_signed', permission_classes=[AllowAny])
     def submit_signed(self, request, pk=None):
         """
-        Submit filled form values and field definitions; stamp them onto the PDF,
-        store the signed PDF, and record audit info.
-        Body: { "values": { field_id: value }, "fields": [ { id, type, page, x, y, width, height }, ... ] }
+        Submit filled form values and field definitions; stamp them onto the PDF.
+        Requires owning-tenant login, admin, or a valid signing token.
+        Body: { "values": { field_id: value }, "fields": [ ... ], optional "token": "..." }
         """
         try:
-            legal_doc = self.get_object()
+            legal_doc = LegalDocument.objects.select_related('tenant').get(pk=pk)
         except LegalDocument.DoesNotExist:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        if request.user.is_authenticated:
-            tenant = Tenant.objects.filter(email=request.user.email).first()
-            if tenant and legal_doc.tenant_id != tenant.id:
-                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+        raw_token = request.data.get('token') or request.query_params.get('token')
+        if not user_can_access_legal_document(request.user, legal_doc, raw_token=raw_token):
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
         if not legal_doc.pdf_file:
             return Response({'error': 'No PDF file available'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1752,6 +1838,11 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         legal_doc.signing_audit = audit
         legal_doc.save()
 
+        signing_token = get_valid_signing_token(raw_token)
+        if signing_token and signing_token.legal_document_id == legal_doc.id:
+            signing_token.used_at = timezone.now()
+            signing_token.save(update_fields=['used_at'])
+
         tenant = legal_doc.tenant
         tenant.lease_status = 'Signed'
         # Auto-activate resident once signing is completed (tenant-only or tenant+landlord flow).
@@ -1781,6 +1872,8 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def generate_lease(self, request):
         """Generate lease PDF for a tenant."""
+        if not is_admin_user(request.user):
+            raise PermissionDenied('Only admin can generate leases.')
         tenant_id = request.data.get('tenant_id')
         template_id = request.data.get('template_id')
         custom_content = request.data.get('custom_content')  # Optional custom content
@@ -1962,6 +2055,8 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         Send a one-time signing link to the tenant via email (in-house flow).
         Creates/reuses a LeaseSigningToken and emails the tenant a link to sign in-app.
         """
+        if not is_admin_user(request.user):
+            raise PermissionDenied('Only admin can send lease signing links.')
         try:
             legal_doc = self.get_object()
         except LegalDocument.DoesNotExist:
@@ -2015,6 +2110,8 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         This is used by the Legal Compliance Center to ensure the email attachment
         matches the preview/template the admin generated.
         """
+        if not is_admin_user(request.user):
+            raise PermissionDenied('Only admin can send legal notices.')
         from .email_service import send_notice_to_tenant
 
         legal_doc = self.get_object()
@@ -2060,28 +2157,16 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
     def pdf(self, request, pk=None):
         """
         Proxy the lease PDF through the backend.
-        GET /api/legal-documents/{id}/pdf/
-        Allows tenant access to their own documents.
+        Requires owning-tenant login, admin, or a valid ?token= signing link.
         """
         try:
-            legal_doc = LegalDocument.objects.get(pk=pk)
+            legal_doc = LegalDocument.objects.select_related('tenant').get(pk=pk)
         except LegalDocument.DoesNotExist:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
-        
-        # Verify tenant ownership if user is authenticated
-        if request.user.is_authenticated:
-            # Check if user is a tenant and owns this document
-            try:
-                tenant = Tenant.objects.filter(email=request.user.email).first()
-                if tenant and legal_doc.tenant_id != tenant.id:
-                    # User is authenticated but doesn't own this document
-                    return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
-            except Exception as e:
-                logger.warning(f"Error verifying tenant ownership for PDF access: {e}")
-                # If verification fails, deny access for security
-                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
-        # For unauthenticated access, we allow it but this should ideally be secured with a signed URL or token
-        # For now, allowing unauthenticated access to support direct link downloads
+
+        raw_token = request.query_params.get('token')
+        if not user_can_access_legal_document(request.user, legal_doc, raw_token=raw_token):
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
         if not legal_doc.pdf_file:
             return Response({'error': 'No PDF found'}, status=status.HTTP_404_NOT_FOUND)
@@ -2124,7 +2209,27 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
 class ListingViewSet(viewsets.ModelViewSet):
     queryset = Listing.objects.all()
     serializer_class = ListingSerializer
-    permission_classes = [AllowAny]  # Public access for listings
+    permission_classes = [AllowAny]  # Public read for marketing listings
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def perform_create(self, serializer):
+        if not is_admin_user(self.request.user):
+            raise PermissionDenied('Only admin can manage listings.')
+        serializer.save()
+
+    def perform_update(self, serializer):
+        if not is_admin_user(self.request.user):
+            raise PermissionDenied('Only admin can manage listings.')
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if not is_admin_user(self.request.user):
+            raise PermissionDenied('Only admin can manage listings.')
+        instance.delete()
 
 def _clean_property_name_and_address(name, address, city, state):
     """Strip unit + duplicate city/state from address. Keep catalog unit names as-is."""
@@ -2147,7 +2252,12 @@ class PropertyViewSet(viewsets.ModelViewSet):
     queryset = Property.objects.all()
     serializer_class = PropertySerializer
     parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
-    permission_classes = [AllowAny]  # Public access for all property operations (listings are public)
+    permission_classes = [AllowAny]  # Public read for portfolio / short-stay browsing
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [AllowAny()]
+        return [IsAuthenticated()]
     
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -2171,17 +2281,17 @@ class PropertyViewSet(viewsets.ModelViewSet):
         return Response(data)
 
     def perform_create(self, serializer):
-        if is_property_manager(self.request.user):
+        if not is_admin_user(self.request.user):
             raise PermissionDenied('Only admin can add properties.')
         serializer.save()
 
     def perform_update(self, serializer):
-        if is_property_manager(self.request.user):
+        if not is_admin_user(self.request.user):
             raise PermissionDenied('Only admin can edit properties.')
         serializer.save()
 
     def perform_destroy(self, instance):
-        if is_property_manager(self.request.user):
+        if not is_admin_user(self.request.user):
             raise PermissionDenied('Only admin can delete properties.')
         instance.delete()
 
@@ -2219,6 +2329,18 @@ class ShortStayBookingViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [IsAuthenticated()]
 
+    def get_queryset(self):
+        qs = ShortStayBooking.objects.select_related('property').all()
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return qs.none()
+        if is_admin_user(user):
+            return qs
+        if is_property_manager(user):
+            return qs.filter(property__in=filter_properties_for_user(Property.objects.all(), user))
+        # Tenants / other roles do not get the full guest booking roster.
+        return qs.none()
+
     def create(self, request, *args, **kwargs):
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
         proof_files = request.FILES.getlist('proof_of_payment_files_upload')
@@ -2255,11 +2377,15 @@ class ShortStayBookingViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_201_CREATED, headers=headers)
 
     def perform_update(self, serializer):
+        if not is_staff_portal_user(self.request.user):
+            raise PermissionDenied('Only admin or property manager can update short-stay bookings.')
         booking = serializer.save()
         if booking.status == 'confirmed':
             logger.info(f"Short-stay booking {booking.id} confirmed (PIN: {booking.access_pin or 'pending'})")
 
     def update(self, request, *args, **kwargs):
+        if not is_staff_portal_user(request.user):
+            raise PermissionDenied('Only admin or property manager can update short-stay bookings.')
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
@@ -2300,8 +2426,11 @@ class ShortStayBookingViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='guest-session')
     def guest_session(self, request):
         reservation_id = (request.query_params.get('reservation_id') or '').strip()
+        pin = (request.query_params.get('pin') or '').strip()
         if not reservation_id.startswith('ss-'):
             return Response({'error': 'Invalid session id'}, status=status.HTTP_400_BAD_REQUEST)
+        if not pin or len(pin) != 4 or not pin.isdigit():
+            return Response({'error': 'A valid 4-digit code is required'}, status=status.HTTP_400_BAD_REQUEST)
 
         from .guest_portal import build_guest_property_payload, build_guest_reservation_payload
 
@@ -2313,6 +2442,7 @@ class ShortStayBookingViewSet(viewsets.ModelViewSet):
         booking = ShortStayBooking.objects.filter(
             id=booking_id,
             status='confirmed',
+            access_pin=pin,
         ).select_related('property').first()
 
         if not booking:
@@ -2353,8 +2483,10 @@ class ShortStayBookingViewSet(viewsets.ModelViewSet):
         available, reason = check_short_stay_availability(property_obj, ci, co)
         return Response({'available': available, 'reason': reason if not available else ''})
 
-    @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='document')
+    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated], url_path='document')
     def document(self, request, pk=None):
+        if not is_staff_portal_user(request.user):
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         booking = self.get_object()
         raw_path = (request.query_params.get('path') or '').strip()
         if not raw_path:
@@ -2408,7 +2540,7 @@ class ShortStayBookingViewSet(viewsets.ModelViewSet):
         bookings = ShortStayBooking.objects.filter(
             property_id=property_id,
             status__in=['pending_payment', 'proof_submitted', 'confirmed'],
-        ).values('id', 'check_in', 'check_out', 'status', 'guest_name')
+        ).values('id', 'check_in', 'check_out', 'status')
         blocks = ShortStayBlockedDate.objects.filter(property_id=property_id).values(
             'id', 'start_date', 'end_date', 'reason'
         )
@@ -2419,7 +2551,6 @@ class ShortStayBookingViewSet(viewsets.ModelViewSet):
                     'check_in': b['check_in'].isoformat(),
                     'check_out': b['check_out'].isoformat(),
                     'status': b['status'],
-                    'guest_name': b['guest_name'],
                 }
                 for b in bookings
             ],
@@ -2509,6 +2640,9 @@ class ShortStayBlockedDateViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        if not is_staff_portal_user(self.request.user):
+            return qs.none()
+        qs = qs.filter(property__in=filter_properties_for_user(Property.objects.all(), self.request.user))
         property_id = self.request.query_params.get('property_id')
         if property_id:
             qs = qs.filter(property_id=property_id)
@@ -2527,6 +2661,8 @@ class EmailTestViewSet(viewsets.ViewSet):
         Send a test email to verify email configuration.
         Requires 'recipient_email' in request data.
         """
+        if not is_admin_user(request.user):
+            return Response({'error': 'Only admin can send test emails.'}, status=status.HTTP_403_FORBIDDEN)
         from django.core.mail import send_mail
         from django.conf import settings as django_settings
         from .email_service import validate_email_config
@@ -2617,7 +2753,9 @@ def sign_lease_by_token(request):
 
     if request.method == 'GET':
         request_obj = request._request if hasattr(request, '_request') else request
-        pdf_proxy_url = request_obj.build_absolute_uri(f"/api/legal-documents/{legal_doc.id}/pdf/")
+        pdf_proxy_url = request_obj.build_absolute_uri(
+            f"/api/legal-documents/{legal_doc.id}/pdf/?token={raw_token}"
+        )
 
         fields = []
         if (legal_doc.type or '').lower() == 'lease agreement':
