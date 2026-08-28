@@ -1,0 +1,34 @@
+name: Deploy to Hostinger
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy-portal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Neela-Tenant-App-2/package-lock.json
+
+      - name: Build portal
+        working-directory: Neela-Tenant-App-2
+        run: npm ci && npm run build
+        env:
+          VITE_API_URL: https://neela-backend-dfmg.onrender.com
+
+      - name: Upload portal to Hostinger
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.6
+        with:
+          server: 212.85.29.170
+          username: u295735675.portal.neelacapital.com
+          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+          local-dir: ./Neela-Tenant-App-2/dist/
+          server-dir: public_html/
+          dangerous-clean-slate: true
