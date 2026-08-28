@@ -91,7 +91,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
     p => p.status === 'Pending' && p.proofOfPaymentFiles && p.proofOfPaymentFiles.length > 0
   );
 
-  const getMediaUrl = (path: string) => `${import.meta.env.VITE_API_URL || 'https://neela-backend-96ia.onrender.com'}/media/${path}`;
+  const getMediaUrl = (path: string) => `${import.meta.env.VITE_API_URL || 'https://neela-backend-dfmg.onrender.com'}/media/${path}`;
   // const getMediaUrl = (path: string) => `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/media/${path}`;
   // Handlers
   const handleCreateInvoice = async () => {
