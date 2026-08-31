@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { login, isAuthenticated, getCurrentUser, logout } from '../services/auth';
+import { api } from '../services/api';
 import NeelaLogo from './NeelaLogo';
 import { Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
@@ -37,6 +38,12 @@ const PropertyManagerLoginPage: React.FC = () => {
         logout('manager');
         setError('Invalid email or password.');
         return;
+      }
+      // Warm manager profile before paint so dashboard doesn't flash empty → loaded.
+      try {
+        await api.getManagerMe();
+      } catch {
+        // Dashboard will retry; don't block sign-in.
       }
       navigate('/manager', { replace: true });
     } catch (err) {

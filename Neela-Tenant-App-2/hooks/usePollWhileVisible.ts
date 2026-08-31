@@ -1,17 +1,18 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * Runs `fn` on an interval while the document is visible, and again immediately
- * when the tab becomes visible or the window regains focus.
- * Keeps dashboards fresh without a manual reload.
+ * Runs `fn` on an interval while the document is visible.
+ * Optionally also runs when the tab becomes visible or the window regains focus.
  */
 export function usePollWhileVisible(
   fn: () => void | Promise<void>,
   intervalMs: number,
   enabled = true,
+  options?: { runOnFocus?: boolean },
 ): void {
   const fnRef = useRef(fn);
   fnRef.current = fn;
+  const runOnFocus = options?.runOnFocus !== false;
 
   useEffect(() => {
     if (!enabled || intervalMs <= 0) return;
@@ -34,20 +35,26 @@ export function usePollWhileVisible(
     const id = window.setInterval(run, intervalMs);
 
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') run();
+      if (runOnFocus && document.visibilityState === 'visible') run();
     };
-    const onFocus = () => run();
+    const onFocus = () => {
+      if (runOnFocus) run();
+    };
 
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('focus', onFocus);
+    if (runOnFocus) {
+      document.addEventListener('visibilitychange', onVisibility);
+      window.addEventListener('focus', onFocus);
+    }
 
     return () => {
       cancelled = true;
       window.clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('focus', onFocus);
+      if (runOnFocus) {
+        document.removeEventListener('visibilitychange', onVisibility);
+        window.removeEventListener('focus', onFocus);
+      }
     };
-  }, [intervalMs, enabled]);
+  }, [intervalMs, enabled, runOnFocus]);
 }
 
 export default usePollWhileVisible;

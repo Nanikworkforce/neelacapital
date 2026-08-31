@@ -501,14 +501,21 @@ const PropertyManagerView: React.FC = () => {
   const silentRefresh = useCallback(async () => {
     const meRes = await api.getManagerMe();
     const status = (meRes.status || 'approved') as 'pending' | 'approved' | 'declined';
-    setAccountStatus(status);
+    setAccountStatus((prev) => (prev === status ? prev : status));
     if (meRes.user) {
       const synced = updateStoredUser({
         first_name: meRes.user.first_name,
         last_name: meRes.user.last_name,
         email: meRes.user.email,
       }, 'manager');
-      if (synced) setUser(synced);
+      if (
+        synced &&
+        (synced.first_name !== user?.first_name ||
+          synced.last_name !== user?.last_name ||
+          synced.email !== user?.email)
+      ) {
+        setUser(synced);
+      }
     }
     if (status !== 'approved') {
       setManagedIds([]);
@@ -527,15 +534,16 @@ const PropertyManagerView: React.FC = () => {
       api.getOperatingExpenses({ year, limit: 100 }),
       api.getMaintenanceRequests(),
     ]);
-    setManagedIds(meRes.managed_property_ids);
+    const nextIds = (meRes.managed_property_ids || []).map(String);
+    setManagedIds((prev) => (prev.join(',') === nextIds.join(',') ? prev : nextIds));
     setProperties(props);
     setTenants(t);
     setPayments(p);
     setExpenses(ex);
     setMaintenance(m);
-  }, []);
+  }, [user?.email, user?.first_name, user?.last_name]);
 
-  usePollWhileVisible(silentRefresh, 30_000, !loading && accountStatus === 'approved');
+  usePollWhileVisible(silentRefresh, 60_000, !loading && accountStatus === 'approved', { runOnFocus: false });
 
   const handleLogout = () => {
     logout('manager');
@@ -553,13 +561,22 @@ const PropertyManagerView: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-emerald-50/40 to-teal-50/30">
-        <div className="text-center space-y-4">
-          <div className="relative mx-auto w-14 h-14">
-            <div className="absolute inset-0 rounded-full border-4 border-emerald-100 border-t-emerald-600 animate-spin" />
-            <div className="absolute inset-3 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 opacity-20 animate-pulse" />
+      <div className="min-h-screen flex bg-slate-50 overflow-x-hidden">
+        <aside className="hidden md:flex md:w-64 lg:w-72 flex-col bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-white border-r border-slate-800/50">
+          <div className="flex flex-col items-center justify-center min-h-[4.75rem] px-4 py-5 border-b border-white/5">
+            <NeelaLogo variant="full" size="sm" showGlow className="shrink-0" />
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300/90 mt-3">
+              Property Manager
+            </p>
           </div>
-          <p className="text-sm font-semibold text-slate-600">Loading your dashboard…</p>
+        </aside>
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center space-y-3">
+            <div className="relative mx-auto w-10 h-10">
+              <div className="absolute inset-0 rounded-full border-4 border-emerald-100 border-t-emerald-600 animate-spin" />
+            </div>
+            <p className="text-sm font-medium text-slate-500">Loading…</p>
+          </div>
         </div>
       </div>
     );
