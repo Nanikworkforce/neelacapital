@@ -11,6 +11,7 @@ import {
 import Modal from './Modal';
 import ViewportPortal from './ViewportPortal';
 import { formatDateMMDDYYYY } from '../utils/date';
+import { getApiOrigin } from '../utils/apiOrigin';
 
 interface TenantsProps {
   tenants: Tenant[];
@@ -96,7 +97,7 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
     }
   };
 
-  const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://127.0.0.1:8000';
+  const API_BASE = getApiOrigin();
   const getMediaUrl = (rawPath: string) => {
     if (!rawPath) return '';
     // Already absolute URL (Cloudinary, signed URL, etc.)
@@ -656,13 +657,20 @@ Landlord                            Tenant
       return;
     }
 
+    const recipientEmail = (selectedApplicant?.email || '').trim();
+    if (!recipientEmail) {
+      setErrorMessage('This applicant has no email on file. Update their email, then try Send Lease again.');
+      return;
+    }
+
     setIsSending(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      await api.sendLeaseInhouse(generatedLeaseDoc.id);
-      setSuccessMessage('Lease sent! The tenant will receive an email with a link to sign.');
+      const result = await api.sendLeaseInhouse(generatedLeaseDoc.id);
+      const sentTo = result?.sent_to || recipientEmail;
+      setSuccessMessage(`Lease email sent to ${sentTo}. Ask them to check inbox and spam.`);
 
       const updatedDoc = await api.getLegalDocuments(selectedApplicant!.id);
       const leaseDocs = updatedDoc.filter((d: any) => d.type === 'Lease Agreement');
@@ -677,10 +685,7 @@ Landlord                            Tenant
     }
   };
 
-  const handleSimulateSignature = () => {
-    // Demo utility to fast-forward the signing process
-    setLeaseStatus('Signed');
-  };
+  // Demo utility removed for production — use real signing / Resend Link only.
 
   // Add/Edit Resident Handlers
   const openAddResidentModal = () => {
@@ -1680,20 +1685,17 @@ Landlord                            Tenant
                              {leaseStatus === 'Draft' && !isEditingLease && (
                                <button
                                  onClick={handleSendLease}
-                                  disabled={isSending}
-                                  className="px-4 py-2 text-white rounded-lg text-sm font-bold flex items-center gap-2 shadow-lg bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200"
+                                  disabled={isSending || !(selectedApplicant.email || '').trim()}
+                                  className="px-4 py-2 text-white rounded-lg text-sm font-bold flex items-center gap-2 shadow-lg bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200 disabled:bg-indigo-400 disabled:cursor-not-allowed"
                                >
                                   {isSending ? <Loader2 className="animate-spin w-4 h-4"/> : <Send className="w-4 h-4"/>}
-                                  {isSending ? 'Sending...' : 'Send Lease to Tenant'}
+                                  {isSending ? 'Sending...' : `Send Lease to ${selectedApplicant.email || 'Tenant'}`}
                                </button>
                              )}
                              {leaseStatus === 'Sent' && (
-                                <button 
-                                  onClick={handleSimulateSignature}
-                                  className="px-4 py-2 bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-sm font-bold hover:bg-amber-200 flex items-center gap-2"
-                                >
-                                   <Clock className="w-4 h-4" /> Simulate Tenant Signature
-                                </button>
+                                <p className="text-xs text-slate-500 px-2">
+                                  Waiting for the tenant to sign via email link.
+                                </p>
                              )}
                              {leaseStatus === 'Draft' && generatedLeaseDoc?.pdfUrl && !isEditingLease && (
                                 <a 
@@ -1725,7 +1727,9 @@ Landlord                            Tenant
                                 <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
                                 <div>
                                    <p className="text-sm font-bold text-blue-800">Waiting for Signature</p>
-                                   <p className="text-xs text-blue-600">Envelope sent to {selectedApplicant.email}</p>
+                                   <p className="text-xs text-blue-600">
+                                     Signing link emailed to {selectedApplicant.email || 'unknown email'}
+                                   </p>
                                 </div>
                              </div>
                              <div className="flex gap-3">
@@ -1737,7 +1741,13 @@ Landlord                            Tenant
                                  <RefreshCw className={`w-3 h-3 ${isCheckingStatus ? 'animate-spin' : ''}`} />
                                  {isCheckingStatus ? 'Checking...' : 'Refresh Status'}
                                </button>
-                               <button className="text-xs text-blue-600 underline hover:text-blue-800">Resend Link</button>
+                               <button
+                                 onClick={handleSendLease}
+                                 disabled={isSending || !(selectedApplicant.email || '').trim()}
+                                 className="text-xs text-blue-600 underline hover:text-blue-800 disabled:opacity-50"
+                               >
+                                 {isSending ? 'Resending...' : 'Resend Link'}
+                               </button>
                              </div>
                           </div>
                        )}

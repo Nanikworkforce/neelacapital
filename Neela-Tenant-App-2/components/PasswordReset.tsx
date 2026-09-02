@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Lock, CheckCircle, AlertCircle, Loader2, ArrowLeft } from 'lucide-react';
 import { withBase } from '../utils/basePath';
+import { getApiOrigin } from '../utils/apiOrigin';
 
 interface PasswordResetProps {
   uidb64: string;
@@ -22,7 +23,7 @@ const PasswordReset: React.FC<PasswordResetProps> = ({ uidb64, token, onSuccess 
     // Verify token on mount
     const verifyToken = async () => {
       try {
-        const BASE_URL = import.meta.env.VITE_API_URL || 'https://neela-backend-dfmg.onrender.com';
+        const BASE_URL = getApiOrigin();
         const response = await fetch(`${BASE_URL}/accounts/verify-reset-token/`, {
           method: 'POST',
           headers: {
@@ -71,7 +72,7 @@ const PasswordReset: React.FC<PasswordResetProps> = ({ uidb64, token, onSuccess 
     setIsSubmitting(true);
 
     try {
-      const BASE_URL = import.meta.env.VITE_API_URL || 'https://neela-backend-dfmg.onrender.com';
+      const BASE_URL = getApiOrigin();
       const response = await fetch(`${BASE_URL}/accounts/reset-password/`, {
         method: 'POST',
         headers: {

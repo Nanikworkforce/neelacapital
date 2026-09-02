@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import App from './App';
 import TenantLoginPage from './components/TenantLoginPage';
 import AdminLoginPage from './components/AdminLoginPage';
@@ -10,6 +10,11 @@ import PropertyManagerView from './components/PropertyManagerView';
 import LeaseSigningPage from './components/LeaseSigningPage';
 import ShortStaysPublicPage from './components/ShortStaysPublicPage';
 import { isAuthenticated, getCurrentUser } from './services/auth';
+
+function LegacySignLeaseRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/portal/sign-lease${location.search}`} replace />;
+}
 
 function AdminEntry() {
   const [, setAuthTick] = useState(0);
@@ -47,6 +52,7 @@ root.render(
         <Route path="/portal/short-stays" element={<ShortStaysPublicPage />} />
         <Route path="/portal/tenant" element={<TenantLoginPage />} />
         <Route path="/portal/sign-lease" element={<LeaseSigningPage />} />
+        <Route path="/sign-lease" element={<LegacySignLeaseRedirect />} />
         <Route path="/portal/*" element={<App variant="portal" />} />
         <Route path="/portal" element={<App variant="portal" />} />
 

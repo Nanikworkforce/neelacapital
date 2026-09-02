@@ -1,10 +1,10 @@
 import { Tenant, Payment, MaintenanceRequest, Listing, Property, LeaseSigningMetadata, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, IncomeStatementSummary, PropertyManagerProfile, CreatePropertyManagerInput, PropertyManagerSignupInput, PropertyUnit, PropertyMonthInput, PropertyMonthInputLine, Inquiry } from '../types';
 import { getAuthHeader, clearInvalidTokens, refreshAccessToken, refreshTokenIfNeeded } from './auth';
 import { applyListingImages } from '../utils/listingImages';
+import { getApiOrigin } from '../utils/apiOrigin';
 
 // In dev, use Vite proxy (/api → backend) unless VITE_API_URL is set explicitly.
-const BASE_URL = import.meta.env.VITE_API_URL
-  || (import.meta.env.DEV ? '' : 'http://localhost:8000');
+const BASE_URL = getApiOrigin();
 const API_URL = `${BASE_URL}/api`;
 
 function parseApiErrorBody(data: unknown, fallback: string): string {
@@ -1688,7 +1688,7 @@ export const api = {
   }),
 
   getShortStayDocumentUrl: (bookingId: string, path: string, filename?: string, download = false) => {
-    const base = (import.meta as any).env?.VITE_API_URL || 'http://127.0.0.1:8000';
+    const base = getApiOrigin();
     const params = new URLSearchParams({ path });
     if (filename) params.set('filename', filename);
     if (download) params.set('download', '1');

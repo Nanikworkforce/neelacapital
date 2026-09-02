@@ -768,13 +768,13 @@ class ShortStayBookingSerializer(serializers.ModelSerializer):
 
         if old_status != 'confirmed' and booking.status == 'confirmed':
             from .guest_portal import generate_short_stay_access_pin
-            from .email_service import send_short_stay_confirmation_to_guest
+            from .email_service import run_async, send_short_stay_confirmation_to_guest
 
             if not booking.access_pin:
                 booking.access_pin = generate_short_stay_access_pin()
                 booking.save(update_fields=['access_pin'])
             try:
-                send_short_stay_confirmation_to_guest.delay(booking.id)
+                run_async(send_short_stay_confirmation_to_guest, booking.id)
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(

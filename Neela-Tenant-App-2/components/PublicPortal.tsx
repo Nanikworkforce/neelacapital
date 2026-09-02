@@ -752,7 +752,10 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
                       <LeaseSigningOverlay
                         metadata={leaseSigningMetadata}
                         pdfUrlOverride={pdfBlobUrl}
-                        onSubmitSuccess={() => refreshLeaseDocument()}
+                        onSubmitSuccess={async () => {
+                          await refreshLeaseDocument();
+                          await refreshApplicationStatus(setUserStatus);
+                        }}
                       />
                     </div>
                   ) : pdfBlobUrl && leaseDocument?.id ? (

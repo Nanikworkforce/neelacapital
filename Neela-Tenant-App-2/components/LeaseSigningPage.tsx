@@ -2,10 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
 import ViewportPortal from './ViewportPortal';
 import { withBase } from '../utils/basePath';
+import { getApiOrigin } from '../utils/apiOrigin';
 
-// const BASE_URL = (import.meta as any).env?.VITE_API_URL || 'https://neela-backend.onrender.com';
-const BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
-// const BASE_URL = (import.meta as any).env?.VITE_API_URL || 'https://neela-backend-96ia.onrender.com';
+const BASE_URL = getApiOrigin();
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface Field {

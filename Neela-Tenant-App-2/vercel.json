@@ -8,6 +8,8 @@
         { "source": "/admin/(.*)", "destination": "/index.html" },
         { "source": "/manager", "destination": "/index.html" },
         { "source": "/manager/(.*)", "destination": "/index.html" },
+        { "source": "/portal", "destination": "/index.html" },
+        { "source": "/portal/(.*)", "destination": "/index.html" },
         { "source": "/tenant", "destination": "/index.html" },
         { "source": "/tenant/(.*)", "destination": "/index.html" },
         { "source": "/short-stays", "destination": "/index.html" },
@@ -17,6 +19,13 @@
       ]
     }
   },
+  "redirects": [
+    { "source": "/sign-lease", "destination": "/portal/sign-lease", "permanent": false },
+    { "source": "/tenant", "destination": "/portal/tenant", "permanent": false },
+    { "source": "/tenant/:path*", "destination": "/portal/tenant/:path*", "permanent": false },
+    { "source": "/short-stays", "destination": "/portal/short-stays", "permanent": false },
+    { "source": "/short-stays/:path*", "destination": "/portal/short-stays/:path*", "permanent": false }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",

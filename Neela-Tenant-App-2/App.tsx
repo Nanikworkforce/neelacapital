@@ -90,6 +90,18 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
     });
   }, [activeTab, isAuthChecking, loading, tenants.length, loadAdminData, isStaffAdmin]);
 
+  // Refresh admin lists when user returns to the tab (avoids stale dashboard data)
+  useEffect(() => {
+    if (variant !== 'admin') return;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!isAuthenticated('admin') || !isStaffAdmin()) return;
+      loadAdminData({ blockUI: false }).catch(() => {});
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [variant, loadAdminData, isStaffAdmin]);
+
   // When returning from /admin login, switch to admin dashboard and load data
   useEffect(() => {
     const state = location.state as { adminLogin?: boolean } | null;

@@ -6,6 +6,7 @@
  */
 
 import { stripBase } from '../utils/basePath';
+import { getApiOrigin } from '../utils/apiOrigin';
 
 export type AuthPortal = 'admin' | 'manager' | 'tenant';
 
@@ -56,7 +57,7 @@ export interface LoginResponse {
   tenant: Tenant | null;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = getApiOrigin();
 
 export const detectAuthPortal = (): AuthPortal => {
   if (typeof window === 'undefined') return 'admin';

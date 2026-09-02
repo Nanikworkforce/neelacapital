@@ -346,8 +346,8 @@ class TenantViewSet(viewsets.ModelViewSet):
         if tenant.status == 'Applicant':
             try:
                 # Try async with Celery
-                task = send_application_notification_to_admin.delay(tenant.id)
-                logger.info(f"Email task submitted to Celery: {task.id}")
+                run_async(send_application_notification_to_admin, tenant.id)
+                logger.info(f"Email task submitted to Celery: background-thread")
             except Exception as e:
                 # Fallback to threading if Celery connection fails (non-blocking)
                 logger.warning(f"Celery connection failed, using threading fallback: {e}")
@@ -355,8 +355,8 @@ class TenantViewSet(viewsets.ModelViewSet):
             
             # Send confirmation email to tenant
             try:
-                task = send_application_received_email_to_tenant.delay(tenant.id)
-                logger.info(f"Application received email task submitted to Celery: {task.id}")
+                run_async(send_application_received_email_to_tenant, tenant.id)
+                logger.info(f"Application received email task submitted to Celery: background-thread")
             except Exception as e:
                 logger.warning(f"Celery connection failed, using threading fallback for tenant email: {e}")
                 send_application_received_email_to_tenant(tenant.id)
@@ -380,8 +380,8 @@ class TenantViewSet(viewsets.ModelViewSet):
             # Send notification to Admin about the approval (only on first approval)
             if new_status == 'Approved':
                 try:
-                    task = send_application_approval_notification_to_admin.delay(tenant.id)
-                    logger.info(f"Admin approval notification task submitted to Celery: {task.id}")
+                    run_async(send_application_approval_notification_to_admin, tenant.id)
+                    logger.info(f"Admin approval notification task submitted to Celery: background-thread")
                 except Exception as e:
                     logger.warning(f"Celery connection failed for admin approval notification: {e}")
                     send_application_approval_notification_to_admin(tenant.id)
@@ -405,14 +405,14 @@ class TenantViewSet(viewsets.ModelViewSet):
                 token, uidb64 = generate_password_reset_token(user)
                 
                 # Get frontend URL from settings
-                frontend_url = getattr(settings, 'FRONTEND_URL', 'https://neela-tenant.vercel.app')
+                frontend_url = get_frontend_url()
                 reset_url = get_password_reset_url(uidb64, token, frontend_url)
                 
                 # Send acceptance email with password reset link
                 try:
                     # Try async with Celery
-                    task = send_acceptance_email_to_user.delay(tenant.id, token, reset_url)
-                    logger.info(f"Email task submitted to Celery: {task.id}")
+                    run_async(send_acceptance_email_to_user, tenant.id, token, reset_url)
+                    logger.info(f"Email task submitted to Celery: background-thread")
                 except Exception as e:
                     # Fallback to threading if Celery connection fails (non-blocking)
                     logger.warning(f"Celery connection failed, using threading fallback: {e}")
@@ -421,8 +421,8 @@ class TenantViewSet(viewsets.ModelViewSet):
         # If status changed to 'Declined' or similar rejection status, send declined email
         if old_status == 'Applicant' and new_status in ['Declined', 'Rejected', 'Denied']:
             try:
-                task = send_application_declined_email_to_user.delay(tenant.id)
-                logger.info(f"Application declined email task submitted to Celery: {task.id}")
+                run_async(send_application_declined_email_to_user, tenant.id)
+                logger.info(f"Application declined email task submitted to Celery: background-thread")
             except Exception as e:
                 logger.warning(f"Celery connection failed, using threading fallback for declined email: {e}")
                 send_application_declined_email_to_user(tenant.id)
@@ -742,7 +742,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
             payment = serializer.save()
             try:
                 try:
-                    send_proof_of_payment_notification_to_admin.delay(payment.id)
+                    run_async(send_proof_of_payment_notification_to_admin, payment.id)
                 except Exception:
                     send_proof_of_payment_notification_to_admin(payment.id)
             except Exception as e:
@@ -768,7 +768,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         # Send invoice email to tenant (same pattern as Legal & Compliance)
         try:
             try:
-                send_payment_invoice_to_tenant.delay(payment.id)
+                run_async(send_payment_invoice_to_tenant, payment.id)
                 logger.info(f"Queued invoice email to tenant {payment.tenant.email if payment.tenant else 'unknown'} for payment {payment.id}")
                 invoice_email_sent = True
             except Exception:
@@ -784,7 +784,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         if payment.method:
             try:
                 try:
-                    send_payment_confirmation_to_tenant.delay(payment.id)
+                    run_async(send_payment_confirmation_to_tenant, payment.id)
                     logger.info(f"Queued confirmation email to tenant {payment.tenant.email if payment.tenant else 'unknown'} for payment {payment.id}")
                 except Exception:
                     # Celery not available or misconfigured; run inline
@@ -798,7 +798,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         if payment.proof_of_payment_files and len(payment.proof_of_payment_files) > 0:
             try:
                 try:
-                    send_proof_of_payment_notification_to_admin.delay(payment.id)
+                    run_async(send_proof_of_payment_notification_to_admin, payment.id)
                     logger.info(f"Queued proof-of-payment admin notification for payment {payment.id}")
                 except Exception:
                     send_proof_of_payment_notification_to_admin(payment.id)
@@ -831,8 +831,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
         # If status changed to 'Paid', send receipt email
         if old_status != 'Paid' and new_status == 'Paid':
             try:
-                task = send_payment_receipt_to_tenant.delay(payment.id)
-                logger.info(f"Payment receipt task submitted to Celery: {task.id}")
+                run_async(send_payment_receipt_to_tenant, payment.id)
+                logger.info(f"Payment receipt task submitted to Celery: background-thread")
             except Exception as e:
                 logger.warning(f"Celery connection failed, using threading fallback for payment receipt: {e}")
                 send_payment_receipt_to_tenant(payment.id)
@@ -850,7 +850,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         receipt_email_sent = False
         try:
             try:
-                send_payment_receipt_to_tenant.delay(payment.id)
+                run_async(send_payment_receipt_to_tenant, payment.id)
                 logger.info(f"Queued receipt email to tenant {payment.tenant.email if payment.tenant else 'unknown'} for payment {payment.id}")
                 receipt_email_sent = True
             except Exception:
@@ -878,7 +878,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         reminder_email_sent = False
         try:
             try:
-                send_payment_reminder_to_tenant.delay(payment.id)
+                run_async(send_payment_reminder_to_tenant, payment.id)
                 reminder_email_sent = True
             except Exception:
                 send_payment_reminder_to_tenant(payment.id)
@@ -1419,16 +1419,16 @@ class MaintenanceRequestViewSet(viewsets.ModelViewSet):
         
         # Send email notification to 
         try:
-            task = send_maintenance_ticket_notification_to_manager.delay(maintenance_request.id)
-            logger.info(f"Maintenance ticket notification task submitted to Celery: {task.id}")
+            run_async(send_maintenance_ticket_notification_to_manager, maintenance_request.id)
+            logger.info(f"Maintenance ticket notification task submitted to Celery: background-thread")
         except Exception as e:
             logger.warning(f"Celery connection failed, using threading fallback for maintenance notification: {e}")
             send_maintenance_ticket_notification_to_manager(maintenance_request.id)
         
         # Send confirmation email to tenant
         try:
-            task = send_maintenance_ticket_confirmation_to_tenant.delay(maintenance_request.id)
-            logger.info(f"Maintenance ticket confirmation task submitted to Celery: {task.id}")
+            run_async(send_maintenance_ticket_confirmation_to_tenant, maintenance_request.id)
+            logger.info(f"Maintenance ticket confirmation task submitted to Celery: background-thread")
         except Exception as e:
             logger.warning(f"Celery connection failed, using threading fallback for maintenance confirmation: {e}")
             send_maintenance_ticket_confirmation_to_tenant(maintenance_request.id)
@@ -1453,10 +1453,10 @@ class MaintenanceRequestViewSet(viewsets.ModelViewSet):
                     update_message = latest_update.get('message', '')
             
             try:
-                task = send_maintenance_status_update_to_tenant.delay(
+                run_async(send_maintenance_status_update_to_tenant, 
                     maintenance_request.id, old_status, new_status, update_message
                 )
-                logger.info(f"Maintenance status update task submitted to Celery: {task.id}")
+                logger.info(f"Maintenance status update task submitted to Celery: background-thread")
             except Exception as e:
                 logger.warning(f"Celery connection failed, using threading fallback for status update: {e}")
                 send_maintenance_status_update_to_tenant(maintenance_request.id, old_status, new_status, update_message)
@@ -1473,10 +1473,10 @@ class MaintenanceRequestViewSet(viewsets.ModelViewSet):
                     
                     if comment_message:  # Only send if there's actual message content
                         try:
-                            task = send_maintenance_comment_notification_to_tenant.delay(
+                            run_async(send_maintenance_comment_notification_to_tenant, 
                                 maintenance_request.id, comment_author, comment_message, comment_date
                             )
-                            logger.info(f"Maintenance comment notification task submitted to Celery: {task.id}")
+                            logger.info(f"Maintenance comment notification task submitted to Celery: background-thread")
                         except Exception as e:
                             logger.warning(f"Celery connection failed, using threading fallback for comment notification: {e}")
                             send_maintenance_comment_notification_to_tenant(
@@ -1672,7 +1672,7 @@ def _create_and_send_notice(tenant, notice_type):
     try:
         pdf_bytes_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
         try:
-            send_notice_to_tenant.delay(legal_doc.id, pdf_bytes_b64=pdf_bytes_b64)
+            run_async(send_notice_to_tenant, legal_doc.id, pdf_bytes_b64=pdf_bytes_b64)
             notice_email_sent = True
         except Exception:
             send_notice_to_tenant(legal_doc.id, pdf_bytes_b64=pdf_bytes_b64)
@@ -1945,7 +1945,7 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         try:
             from .email_service import send_lease_signed_confirmation
             try:
-                send_lease_signed_confirmation.delay(legal_doc.id)
+                run_async(send_lease_signed_confirmation, legal_doc.id)
             except Exception:
                 send_lease_signed_confirmation(legal_doc.id)
         except Exception as e:
@@ -2112,7 +2112,7 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
                 # Pass PDF bytes directly to avoid fetching from remote storage (Cloudinary may require auth)
                 pdf_bytes_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
                 try:
-                    send_notice_to_tenant.delay(legal_doc.id, pdf_bytes_b64=pdf_bytes_b64)
+                    run_async(send_notice_to_tenant, legal_doc.id, pdf_bytes_b64=pdf_bytes_b64)
                     logger.info(f"Queued notice email to tenant {tenant.email} for document {legal_doc.id}")
                     notice_email_sent = True
                 except Exception:
@@ -2157,6 +2157,18 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         if legal_doc.status == 'Signed':
             return Response({'error': 'This lease is already signed.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        tenant_email = (getattr(legal_doc.tenant, 'email', None) or '').strip()
+        if not tenant_email:
+            return Response(
+                {
+                    'error': (
+                        f'Cannot send lease: {legal_doc.tenant.name} has no email address on file. '
+                        'Update the application email and try again.'
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         from datetime import timedelta
         from .models import LeaseSigningToken
 
@@ -2167,6 +2179,18 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
             expires_at=timezone.now() + timedelta(days=7),
         )
 
+        # Send lease-ready email first — only mark Sent if delivery succeeds.
+        try:
+            from .email_service import _send_lease_ready_for_signing
+            sent_to = _send_lease_ready_for_signing(legal_doc.id, token=str(signing_token.token))
+            logger.info(f"Lease-ready email sent for document {legal_doc.id} to {sent_to}")
+        except Exception as e:
+            logger.error(f"Failed to send in-house lease email: {e}", exc_info=True)
+            return Response(
+                {'error': f'Email could not be sent to {tenant_email}: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         legal_doc.status = 'Sent'
         legal_doc.delivery_method = 'In-House'
         legal_doc.save(update_fields=['status', 'delivery_method'])
@@ -2174,17 +2198,15 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         legal_doc.tenant.lease_status = 'Sent'
         legal_doc.tenant.save(update_fields=['lease_status'])
 
-        # Send lease-ready email synchronously — admin-triggered, no Celery worker needed.
-        try:
-            from .email_service import _send_lease_ready_for_signing
-            _send_lease_ready_for_signing(legal_doc.id, token=str(signing_token.token))
-            logger.info(f"Lease-ready email sent for document {legal_doc.id}")
-        except Exception as e:
-            logger.error(f"Failed to send in-house lease email: {e}", exc_info=True)
-            return Response({'error': f'Lease marked as Sent but email failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
         serializer = self.get_serializer(legal_doc)
-        return Response({**serializer.data, 'signing_token': str(signing_token.token)}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                **serializer.data,
+                'signing_token': str(signing_token.token),
+                'sent_to': tenant_email,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(
         detail=True,
@@ -2234,7 +2256,7 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
             )
 
         try:
-            send_notice_to_tenant.delay(legal_doc.id)
+            run_async(send_notice_to_tenant, legal_doc.id)
         except Exception:
             # Celery may be misconfigured; fail-safe: send inline.
             send_notice_to_tenant(legal_doc.id)
@@ -2288,8 +2310,8 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         # If lease is signed (signed_at is set), send confirmation
         if not old_signed_at and new_signed_at:
             try:
-                task = send_lease_signed_confirmation.delay(legal_doc.id)
-                logger.info(f"Lease signed confirmation task submitted to Celery: {task.id}")
+                run_async(send_lease_signed_confirmation, legal_doc.id)
+                logger.info(f"Lease signed confirmation task submitted to Celery: background-thread")
             except Exception as e:
                 logger.warning(f"Celery connection failed, using threading fallback for lease signed confirmation: {e}")
                 send_lease_signed_confirmation(legal_doc.id)
@@ -2450,7 +2472,7 @@ class ShortStayBookingViewSet(viewsets.ModelViewSet):
 
         if booking.proof_of_payment_files:
             try:
-                send_short_stay_proof_notification_to_admin.delay(booking.id)
+                run_async(send_short_stay_proof_notification_to_admin, booking.id)
             except Exception as e:
                 logger.warning(f"Queued short-stay proof notification failed, skipping sync send: {e}")
 
@@ -2976,7 +2998,7 @@ def sign_lease_by_token(request):
     try:
         from .email_service import send_lease_signed_confirmation
         try:
-            send_lease_signed_confirmation.delay(legal_doc.id)
+            run_async(send_lease_signed_confirmation, legal_doc.id)
         except Exception:
             send_lease_signed_confirmation(legal_doc.id)
     except Exception as e:

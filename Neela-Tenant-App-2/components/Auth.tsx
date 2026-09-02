@@ -468,8 +468,10 @@ export const useAuth = (): UseAuthReturn => {
           setCurrentTenant(tenant);
           
           if (setUserStatus) {
-            if (tenant.status === TenantStatus.APPROVED || tenant.status === TenantStatus.ACTIVE) {
+            if (tenant.status === TenantStatus.ACTIVE) {
               setUserStatus('resident');
+            } else if (tenant.status === TenantStatus.APPROVED) {
+              setUserStatus(tenant.leaseStatus === 'Signed' ? 'resident' : 'applicant_approved');
             } else if (tenant.status === TenantStatus.APPLICANT) {
               setUserStatus('applicant_pending');
             }
@@ -480,8 +482,10 @@ export const useAuth = (): UseAuthReturn => {
             const tenantData = await api.getMyTenant();
             setCurrentTenant(tenantData);
             if (setUserStatus) {
-              if (tenantData.status === TenantStatus.APPROVED || tenantData.status === TenantStatus.ACTIVE) {
+              if (tenantData.status === TenantStatus.ACTIVE) {
                 setUserStatus('resident');
+              } else if (tenantData.status === TenantStatus.APPROVED) {
+                setUserStatus(tenantData.leaseStatus === 'Signed' ? 'resident' : 'applicant_approved');
               } else if (tenantData.status === TenantStatus.APPLICANT) {
                 setUserStatus('applicant_pending');
               }

@@ -1,18 +1,28 @@
-from celery import shared_task
 from django.core.mail import send_mail
 from django.conf import settings
 import logging
 
+from .email_service import run_async
+
 logger = logging.getLogger(__name__)
+
+try:
+    from celery import shared_task
+except ImportError:
+    def shared_task(func=None, **_kwargs):
+        if func is None:
+            return lambda f: f
+        return func
+
 
 @shared_task
 def send_test_email():
     try:
         result = send_mail(
-            "Celery Test",
-            "This is a test email sent via Celery.",
-            "fadahunsipaul@gmail.com",
-            ["wahiga8943@bipochub.com"],
+            "Email Test",
+            "This is a test email.",
+            settings.DEFAULT_FROM_EMAIL,
+            [settings.DEFAULT_FROM_EMAIL],
             fail_silently=False
         )
         logger.info(f"Email sent successfully, result={result}")
@@ -55,7 +65,7 @@ def check_lease_renewals():
                 
                 # Use delay() if Celery is working, or call directly if not configured?
                 # shared_task wrapper handles this if imported correctly, but let's use .delay() for async
-                send_lease_renewal_reminder.delay(tenant.id, days)
+                run_async(send_lease_renewal_reminder, tenant.id, days)
                 sent_count += 1
                 
             except Exception as e:
@@ -90,7 +100,7 @@ def send_rent_reminders():
     
     for payment in upcoming_payments:
         try:
-            send_payment_reminder_to_tenant.delay(payment.id)
+            run_async(send_payment_reminder_to_tenant, payment.id)
             sent_count += 1
         except Exception as e:
             logger.error(f"Error sending upcoming rent reminder for payment {payment.id}: {e}")
@@ -103,7 +113,7 @@ def send_rent_reminders():
     
     for payment in due_today_payments:
         try:
-            send_payment_reminder_to_tenant.delay(payment.id)
+            run_async(send_payment_reminder_to_tenant, payment.id)
             sent_count += 1
         except Exception as e:
             logger.error(f"Error sending due date rent reminder for payment {payment.id}: {e}")
@@ -131,7 +141,7 @@ def send_rent_reminders():
                 payment.status = 'Overdue'
                 payment.save()
                 
-            send_payment_reminder_to_tenant.delay(payment.id)
+            run_async(send_payment_reminder_to_tenant, payment.id)
             sent_count += 1
         except Exception as e:
             logger.error(f"Error sending late rent reminder for payment {payment.id}: {e}")

@@ -29,20 +29,44 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
+# SECURITY WARNING: don't run with debug turned on in production!
+# Prefer explicit DEBUG=; on Render default to False when unset.
+_debug_env = os.environ.get('DEBUG')
+if _debug_env is not None:
+    DEBUG = _debug_env.strip().lower() in ('1', 'true', 'yes')
+else:
+    DEBUG = 'RENDER' not in os.environ
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-default-key-for-dev')
+SECRET_KEY = os.environ.get('SECRET_KEY', '').strip()
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'django-insecure-default-key-for-dev'
+    else:
+        raise ImproperlyConfigured('SECRET_KEY must be set when DEBUG is False.')
 
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://neelacapital.com/portal')
 # Public site root (admin/manager live here, not under /portal)
 SITE_URL = (os.environ.get('SITE_URL') or 'https://neelacapital.com').rstrip('/')
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = 'RENDER' not in os.environ
-
-ALLOWED_HOSTS = ['*']
+_allowed = [
+    h.strip() for h in os.environ.get('ALLOWED_HOSTS', '').split(',') if h.strip()
+]
+if _allowed:
+    ALLOWED_HOSTS = _allowed
+elif DEBUG:
+    ALLOWED_HOSTS = ['*']
+else:
+    ALLOWED_HOSTS = [
+        'neela-backend-dfmg.onrender.com',
+        'neelacapital.com',
+        'www.neelacapital.com',
+        'localhost',
+        '127.0.0.1',
+    ]
 
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
-if RENDER_EXTERNAL_HOSTNAME:
+if RENDER_EXTERNAL_HOSTNAME and RENDER_EXTERNAL_HOSTNAME not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 
@@ -98,11 +122,24 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = True # Fallback
-CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',') if os.environ.get('CORS_ALLOWED_ORIGINS') else []
+# CORS Configuration — lock down in production; open in DEBUG when unset
+_cors_raw = os.environ.get('CORS_ALLOWED_ORIGINS', '').strip()
+CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_raw.split(',') if o.strip()]
 if not CORS_ALLOWED_ORIGINS:
-    CORS_ALLOW_ALL_ORIGINS = True
+    # Derive safe defaults from SITE_URL (origin only, no path)
+    from urllib.parse import urlparse
+    _site = urlparse(SITE_URL)
+    if _site.scheme and _site.netloc:
+        CORS_ALLOWED_ORIGINS = [f'{_site.scheme}://{_site.netloc}']
+    if DEBUG:
+        CORS_ALLOWED_ORIGINS += [
+            'http://localhost:3000',
+            'http://127.0.0.1:3000',
+            'http://localhost:5173',
+            'http://127.0.0.1:5173',
+        ]
+CORS_ALLOW_ALL_ORIGINS = DEBUG and not _cors_raw
+CORS_ALLOW_CREDENTIALS = True
 
 ROOT_URLCONF = 'neela_backend.urls'
 
@@ -175,7 +212,8 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),  # Access token valid for 1 hour
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),  # Refresh token valid for 7 days
     'ROTATE_REFRESH_TOKENS': True,  # Issue new refresh token on each refresh
-    'BLACKLIST_AFTER_ROTATION': True,  # Blacklist old refresh tokens
+    # Blacklist app not installed — keep False to avoid refresh failures in prod
+    'BLACKLIST_AFTER_ROTATION': False,
     'UPDATE_LAST_LOGIN': True,
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
@@ -220,30 +258,28 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'accounts.User'
 
 # Email Configuration
-# Use Anymail with SendGrid if SENDGRID_API_KEY is present
-SENDGRID_API_KEY = os.environ.get('SENDGRID_API_KEY')
+# Use Anymail with SendGrid only if SENDGRID_API_KEY is non-empty.
+# Otherwise use SMTP (Gmail app password, etc.).
+SENDGRID_API_KEY = (os.environ.get('SENDGRID_API_KEY') or '').strip() or None
 
 if SENDGRID_API_KEY:
-    EMAIL_BACKEND = "anymail.backends.sendgrid.EmailBackend"  # Use Anymail instead of custom backend
+    EMAIL_BACKEND = "anymail.backends.sendgrid.EmailBackend"
     ANYMAIL = {
         "SENDGRID_API_KEY": SENDGRID_API_KEY,
     }
-
-    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'neelacapital@outlook.com')
+    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@neelacapital.com')
 else:
-    # Fallback to SMTP (or Console in Debug)
     EMAIL_BACKEND = os.environ.get(
         'EMAIL_BACKEND',
         'django.core.mail.backends.smtp.EmailBackend'
     )
-    EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+    EMAIL_HOST = (os.environ.get('EMAIL_HOST') or 'smtp.gmail.com').strip()
     EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '465'))
-    # EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() == 'true'
     EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'True').lower() == 'true'
-    EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+    EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'info@neelacapital.com')
     EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
     EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '10'))
-    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
+    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'info@neelacapital.com')
 # Landlord/Admin contact (used for lease placeholders, signing, emails)
 LANDLORD_EMAIL = os.environ.get('LANDLORD_EMAIL', '').strip() or None
 LANDLORD_NAME = os.environ.get('LANDLORD_NAME', '').strip() or None
@@ -259,9 +295,10 @@ ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', '').strip() or None
 
 logger = logging.getLogger(__name__)
 
-# Celery Configuration
-CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+# Celery/Redis are optional. Emails use background threads (run_async) by default.
+USE_CELERY = os.environ.get('USE_CELERY', 'false').lower() in ('1', 'true', 'yes')
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', '')
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', '')
 
 # Append SSL requirement to Redis URL if it's a rediss:// URL and missing params
 def append_ssl_cert_reqs(url):
@@ -270,32 +307,34 @@ def append_ssl_cert_reqs(url):
         return f"{url}{sep}ssl_cert_reqs=CERT_NONE"
     return url
 
-CELERY_BROKER_URL = append_ssl_cert_reqs(CELERY_BROKER_URL)
-CELERY_RESULT_BACKEND = append_ssl_cert_reqs(CELERY_RESULT_BACKEND)
+if USE_CELERY and CELERY_BROKER_URL:
+    CELERY_BROKER_URL = append_ssl_cert_reqs(CELERY_BROKER_URL)
+    CELERY_RESULT_BACKEND = append_ssl_cert_reqs(CELERY_RESULT_BACKEND or CELERY_BROKER_URL)
 
-# Set Redis backend SSL options explicitly to support redis-py>=3
-if CELERY_BROKER_URL.startswith('rediss://'):
-    # Fix: SSL dictionary keys must match expected parameters for redis-py's SSLConnection
-    # AND we must use the 'ssl_cert_reqs' from the ssl module, not just a string
-    import ssl
-    CELERY_REDIS_BACKEND_USE_SSL = {
-        'ssl_cert_reqs': ssl.CERT_NONE
-    }
-    CELERY_BROKER_USE_SSL = {
-        'ssl_cert_reqs': ssl.CERT_NONE
-    }
+    # Set Redis backend SSL options explicitly to support redis-py>=3
+    if CELERY_BROKER_URL.startswith('rediss://'):
+        import ssl
+        CELERY_REDIS_BACKEND_USE_SSL = {
+            'ssl_cert_reqs': ssl.CERT_NONE
+        }
+        CELERY_BROKER_USE_SSL = {
+            'ssl_cert_reqs': ssl.CERT_NONE
+        }
 
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = TIME_ZONE
+    CELERY_ACCEPT_CONTENT = ['json']
+    CELERY_TASK_SERIALIZER = 'json'
+    CELERY_RESULT_SERIALIZER = 'json'
+    CELERY_TIMEZONE = TIME_ZONE
 
-# Windows compatibility: Use 'solo' pool instead of 'prefork' on Windows
-# Prefork doesn't work well on Windows due to process forking limitations
-if sys.platform == 'win32':
-    CELERY_WORKER_POOL = 'solo'  # Use solo pool on Windows
+    # Windows compatibility: Use 'solo' pool instead of 'prefork' on Windows
+    if sys.platform == 'win32':
+        CELERY_WORKER_POOL = 'solo'
+    else:
+        CELERY_WORKER_POOL = 'prefork'
 else:
-    CELERY_WORKER_POOL = 'prefork'  # Use prefork on Linux/Mac
+    # No broker required — API does not depend on Redis/Celery for email delivery.
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
 
 # Logging Configuration
 LOGGING = {
@@ -339,4 +378,21 @@ LOGGING = {
         },
     },
 }
+
+# Production security headers (Render / HTTPS)
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'true').lower() in ('1', 'true', 'yes')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', '31536000'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    CSRF_TRUSTED_ORIGINS = [
+        o.strip() for o in os.environ.get(
+            'CSRF_TRUSTED_ORIGINS',
+            'https://neelacapital.com,https://www.neelacapital.com,https://neela-backend-dfmg.onrender.com',
+        ).split(',')
+        if o.strip()
+    ]
 

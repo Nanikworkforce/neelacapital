@@ -1,7 +1,4 @@
 # Canonical Render backend for the full Neela app (website + portal + admin + manager).
-# Keep only ONE web service on Render: neela-backend-96ia
-# Suspend/delete neela-backend-dfmg after this is confirmed live.
-#
 # Root Directory on Render MUST be: Neela-Tenant-App-2/backend
 services:
   - type: web
@@ -14,27 +11,41 @@ services:
       python manage.py collectstatic --noinput &&
       gunicorn neela_backend.wsgi:application
     envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: SECRET_KEY
-        sync: false
+      - key: DEBUG
+        value: "False"
+      - key: USE_CELERY
+        value: "false"
       - key: SITE_URL
         value: https://neelacapital.com
       - key: FRONTEND_URL
         value: https://neelacapital.com/portal
+      - key: NEELAGUEST_URL
+        value: https://neelacapital.com/portal/guest
       - key: LANDLORD_EMAIL
         value: info@neelacapital.com
       - key: ADMIN_EMAIL
         value: info@neelacapital.com
-      - key: CELERY_BROKER_URL
-        sync: false
-      - key: CELERY_RESULT_BACKEND
-        sync: false
+      - key: LANDLORD_NAME
+        value: Neela Capital
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://neelacapital.com,https://www.neelacapital.com
+      - key: EMAIL_BACKEND
+        value: django.core.mail.backends.smtp.EmailBackend
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: "465"
+      - key: EMAIL_USE_SSL
+        value: "True"
       - key: EMAIL_HOST_USER
+        value: info@neelacapital.com
+      - key: DEFAULT_FROM_EMAIL
+        value: Neela Capital <info@neelacapital.com>
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
         sync: false
       - key: EMAIL_HOST_PASSWORD
-        sync: false
-      - key: DEFAULT_FROM_EMAIL
         sync: false
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
@@ -42,7 +53,10 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+      # Leave empty / unset — use Google Workspace SMTP instead
       - key: SENDGRID_API_KEY
         sync: false
-      - key: NEELAGUEST_URL
-        value: https://neelacapital.com/portal/guest
+      - key: CELERY_BROKER_URL
+        sync: false
+      - key: CELERY_RESULT_BACKEND
+        sync: false

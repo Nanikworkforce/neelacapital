@@ -5,6 +5,7 @@ import { Loader2, BedDouble, Bath, Plus, Trash2 } from 'lucide-react';
 import Modal from './Modal';
 import { folderImageForProperty } from '../utils/listingImages';
 import { assetUrl } from '../utils/basePath';
+import { getApiOrigin } from '../utils/apiOrigin';
 
 export interface UseApplicationReturn {
   // Application state
@@ -206,7 +207,7 @@ export const useApplication = (): UseApplicationReturn => {
       imageUrl.startsWith('/property-images/') ||
       imageUrl.startsWith('/assets/');
     if (imageUrl && !imageUrl.startsWith('http') && !isSiteAsset) {
-      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const API_BASE = getApiOrigin() || 'http://localhost:8000';
       const baseUrl = API_BASE.replace(/\/api$/, '');
       imageUrl = `${baseUrl}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
     }

@@ -55,12 +55,17 @@ def is_admin_user(user):
 
 
 def is_property_manager(user):
-    return bool(
+    if not (
         user
         and user.is_authenticated
         and getattr(user, 'role', None) == 'property_manager'
         and not is_admin_user(user)
-    )
+    ):
+        return False
+    profile = getattr(user, 'manager_profile', None)
+    if profile is None:
+        return False
+    return getattr(profile, 'status', None) == 'approved'
 
 
 def is_staff_portal_user(user):

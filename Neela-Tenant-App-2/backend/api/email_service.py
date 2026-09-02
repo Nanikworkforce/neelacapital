@@ -53,8 +53,8 @@ def send_test_email():
         result = send_mail(
             "Celery Test",
             "This is a test email sent via Celery.",
-            "fadahunsipaul@gmail.com",
-            ["wahiga8943@bipochub.com"],
+            settings.DEFAULT_FROM_EMAIL,
+            [settings.DEFAULT_FROM_EMAIL],
             fail_silently=False
         )
         logger.info(f"Email sent successfully, result={result}")
@@ -73,6 +73,14 @@ def validate_email_config():
     if not default_from:
         return False, "DEFAULT_FROM_EMAIL is not configured"
     
+    # For SendGrid / Anymail, require API key
+    if 'sendgrid' in email_backend.lower() or 'anymail' in email_backend.lower():
+        sendgrid_key = getattr(settings, 'SENDGRID_API_KEY', None) or (
+            (getattr(settings, 'ANYMAIL', {}) or {}).get('SENDGRID_API_KEY')
+        )
+        if not sendgrid_key:
+            return False, "SENDGRID_API_KEY is not configured"
+
     # For SMTP backend, check if credentials are set
     if 'smtp' in email_backend.lower():
         email_host_user = getattr(settings, 'EMAIL_HOST_USER', '')
@@ -82,7 +90,7 @@ def validate_email_config():
     return True, None
 
 
-def send_email_with_logging(subject, message, from_email, recipient_list, html_message=None, email_type="email"):
+def send_email_with_logging(subject, message, from_email, recipient_list, html_message=None, email_type="email", raise_on_failure=False):
     """
     Wrapper around send_mail with proper logging, validation, and error handling.
     Falls back to console backend if SMTP fails in DEBUG mode.
@@ -94,14 +102,17 @@ def send_email_with_logging(subject, message, from_email, recipient_list, html_m
         recipient_list: List of recipient emails
         html_message: Optional HTML message
         email_type: Description of email type for logging
+        raise_on_failure: If True, raise RuntimeError when send fails (admin-triggered flows)
     
     Returns:
-        Number of emails sent (0 on failure)
+        Number of emails sent (0 on failure when raise_on_failure is False)
     """
     # Validate email configuration
     is_valid, error_msg = validate_email_config()
     if not is_valid:
         logger.error(f"Cannot send {email_type}: {error_msg}")
+        if raise_on_failure:
+            raise RuntimeError(error_msg)
         return 0
     
     # Log email attempt
@@ -109,8 +120,9 @@ def send_email_with_logging(subject, message, from_email, recipient_list, html_m
     logger.info(f"Attempting to send {email_type} to {len(recipient_list)} recipient(s) using {email_backend}")
     logger.debug(f"Recipients: {recipient_list}, From: {from_email}, Subject: {subject}")
     
-    # Use fail_silently=False in DEBUG mode to catch errors, True in production
-    fail_silently = not getattr(settings, 'DEBUG', False)
+    # Always surface errors when caller requires success (e.g. Send Lease);
+    # otherwise fail_silently only in production.
+    fail_silently = False if raise_on_failure else (not getattr(settings, 'DEBUG', False))
     
     try:
         result = send_mail(
@@ -126,9 +138,17 @@ def send_email_with_logging(subject, message, from_email, recipient_list, html_m
             logger.info(f"{email_type} sent successfully to {recipient_list} (sent {result} email(s))")
         else:
             logger.error(f"Failed to send {email_type}: send_mail returned {result} (0 indicates failure)")
+            if raise_on_failure:
+                raise RuntimeError(
+                    f"Email could not be sent to {', '.join(recipient_list)}. "
+                    "Check SendGrid/SMTP configuration (API key and from-address)."
+                )
         
         return result
     except Exception as e:
+        if raise_on_failure and isinstance(e, RuntimeError) and 'Email could not be sent' in str(e):
+            raise
+
         error_type = type(e).__name__
         error_msg = str(e)
         
@@ -179,6 +199,11 @@ def send_email_with_logging(subject, message, from_email, recipient_list, html_m
         else:
             logger.error(f"Error sending {email_type}: {error_type}: {error_msg}", exc_info=True)
         
+        if raise_on_failure:
+            raise RuntimeError(
+                f"Email could not be sent to {', '.join(recipient_list)}: {error_msg}. "
+                "Check SendGrid/SMTP configuration."
+            ) from e
         return 0
 
 
@@ -314,7 +339,7 @@ def send_email_in_thread(email_func, *args, **kwargs):
     
     # For console backend, send synchronously to ensure output is visible
     if 'console' in email_backend.lower():
-        logger.info(f"Sending email synchronously (console backend) for {email_func.__name__}")
+        logger.info(f"Sending email synchronously (console backend) for {getattr(email_func, '__name__', email_func)}")
         try:
             email_func(*args, **kwargs)
         except Exception as e:
@@ -330,7 +355,23 @@ def send_email_in_thread(email_func, *args, **kwargs):
     
     thread = threading.Thread(target=_send_email, daemon=True)
     thread.start()
-    logger.info(f"Email sending started in background thread for {email_func.__name__}")
+    logger.info(f"Email sending started in background thread for {getattr(email_func, '__name__', email_func)}")
+
+
+def run_async(task, *args, **kwargs):
+    """
+    Fire-and-forget without Redis/Celery.
+
+    Runs the task body in a background thread so API responses stay fast.
+    Accepts a Celery @shared_task or a plain function.
+    """
+    func = getattr(task, 'run', None)
+    if not callable(func):
+        func = task
+    name = getattr(func, '__name__', getattr(task, 'name', 'task'))
+    logger.info(f"Queueing background work (thread): {name}")
+    send_email_in_thread(func, *args, **kwargs)
+    return None
 
 
 def get_admin_emails():
@@ -661,7 +702,7 @@ def _send_maintenance_ticket_confirmation_to_tenant(maintenance_request_id):
     
     subject = f'Maintenance Request Confirmation - Ticket #{maintenance_request.id}'
     
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://neela-tenant.vercel.app')
+    frontend_url = get_frontend_url()
     tenant_portal_url = f"{frontend_url.rstrip('/')}"
     
     context = {
@@ -735,7 +776,7 @@ def _send_maintenance_status_update_to_tenant(maintenance_request_id, old_status
     
     subject = f'Maintenance Request Status Update - Ticket #{maintenance_request.id}'
     
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://neela-tenant.vercel.app')
+    frontend_url = get_frontend_url()
     tenant_portal_url = f"{frontend_url.rstrip('/')}"
     
     context = {
@@ -815,7 +856,7 @@ def _send_maintenance_comment_notification_to_tenant(maintenance_request_id, com
     
     subject = f'New Comment on Maintenance Request - Ticket #{maintenance_request.id}'
     
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://neela-tenant.vercel.app')
+    frontend_url = get_frontend_url()
     tenant_portal_url = f"{frontend_url.rstrip('/')}"
     
     context = {
@@ -892,7 +933,7 @@ def _send_payment_invoice_to_tenant(payment_id):
     
     subject = f'Payment Invoice - ${payment.amount} - {payment.type}'
     
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://neela-tenant.vercel.app')
+    frontend_url = get_frontend_url()
     payment_url = f"{frontend_url.rstrip('/')}"
     
     context = {
@@ -976,7 +1017,7 @@ def _send_payment_reminder_to_tenant(payment_id):
     if is_overdue:
         subject = f'⚠️ Overdue Payment - ${payment.amount} - {payment.type}'
     
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://neela-tenant.vercel.app')
+    frontend_url = get_frontend_url()
     payment_url = f"{frontend_url.rstrip('/')}"
     
     context = {
@@ -1188,6 +1229,9 @@ def _send_lease_ready_for_signing(legal_document_id, token=None):
     """
     Send email to tenant when their lease is ready to sign in-house.
     token: UUID string from LeaseSigningToken — builds a direct sign link.
+
+    Raises RuntimeError if the tenant has no email or delivery fails.
+    Returns the recipient email address on success.
     """
     from .models import LegalDocument
 
@@ -1195,11 +1239,15 @@ def _send_lease_ready_for_signing(legal_document_id, token=None):
         legal_doc = LegalDocument.objects.select_related('tenant').get(id=legal_document_id)
     except LegalDocument.DoesNotExist:
         logger.error(f"Legal document with ID {legal_document_id} not found for lease ready email.")
-        return
+        raise RuntimeError(f"Lease document {legal_document_id} not found.")
 
-    if not legal_doc.tenant.email:
+    recipient = (legal_doc.tenant.email or '').strip()
+    if not recipient:
         logger.warning(f"Tenant {legal_doc.tenant.id} has no email address for lease ready email.")
-        return
+        raise RuntimeError(
+            f"Cannot send lease: {legal_doc.tenant.name} has no email address on file. "
+            "Update the application email and try again."
+        )
 
     frontend_url = get_frontend_url()
 
@@ -1240,10 +1288,12 @@ Neela Property Management Team
         subject=subject,
         message=plain_message,
         from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[legal_doc.tenant.email],
+        recipient_list=[recipient],
         html_message=html_message,
-        email_type=f"lease ready email (document {legal_doc.id})"
+        email_type=f"lease ready email (document {legal_doc.id})",
+        raise_on_failure=True,
     )
+    return recipient
 
 
 @shared_task
@@ -1285,7 +1335,7 @@ def _send_lease_signed_confirmation(legal_document_id):
         
         The final signed lease document has been stored in the system.
         
-        Log in to view: {getattr(settings, 'FRONTEND_URL', 'https://neela-tenant.vercel.app')}
+        Log in to view: {get_frontend_url()}
         """
         
         send_email_with_logging(
@@ -1313,7 +1363,7 @@ def _send_lease_signed_confirmation(legal_document_id):
             # If user needs to set a password (newly created or no usable password)
             if created or not user.has_usable_password():
                 token, uidb64 = generate_password_reset_token(user)
-                frontend_url = getattr(settings, 'FRONTEND_URL', 'https://neela-tenant.vercel.app')
+                frontend_url = get_frontend_url()
                 setup_url = get_password_reset_url(uidb64, token, frontend_url)
                 logger.info(f"Generated setup URL for tenant {legal_doc.tenant.id} in confirmation email")
         except Exception as e:
@@ -1730,7 +1780,7 @@ def _send_lease_renewal_reminder(tenant_id, days_remaining):
     
     subject = f'Lease Renewal Reminder - {tenant.property_unit}'
     
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://neela-tenant.vercel.app')
+    frontend_url = get_frontend_url()
     tenant_portal_url = f"{frontend_url.rstrip('/')}"
     
     context = {
@@ -2121,10 +2171,7 @@ def _send_manager_signup_notification_to_admin(profile_id):
 
 
 def send_manager_signup_notification_to_admin(profile_id):
-    try:
-        send_manager_signup_notification_to_admin_task.delay(profile_id)
-    except Exception:
-        send_email_in_thread(_send_manager_signup_notification_to_admin, profile_id)
+    run_async(_send_manager_signup_notification_to_admin, profile_id)
 
 
 @shared_task
@@ -2188,10 +2235,7 @@ def _send_manager_approved_email(profile_id):
 
 
 def send_manager_approved_email(profile_id):
-    try:
-        send_manager_approved_email_task.delay(profile_id)
-    except Exception:
-        send_email_in_thread(_send_manager_approved_email, profile_id)
+    run_async(_send_manager_approved_email, profile_id)
 
 
 @shared_task
