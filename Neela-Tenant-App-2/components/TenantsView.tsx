@@ -679,7 +679,21 @@ Landlord                            Tenant
         setLeaseStatus(leaseDocs[leaseDocs.length - 1].status || 'Sent');
       }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to send lease');
+      const err = error as Error & { signingUrl?: string };
+      const link = err.signingUrl;
+      if (link) {
+        setErrorMessage(
+          `${err.message}\n\nShare this signing link manually:\n${link}`
+        );
+        try {
+          await navigator.clipboard.writeText(link);
+          setSuccessMessage('Signing link copied to clipboard — paste it to the applicant while email is fixed.');
+        } catch {
+          /* clipboard may be blocked */
+        }
+      } else {
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to send lease');
+      }
     } finally {
       setIsSending(false);
     }

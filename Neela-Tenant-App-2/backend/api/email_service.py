@@ -200,9 +200,15 @@ def send_email_with_logging(subject, message, from_email, recipient_list, html_m
             logger.error(f"Error sending {email_type}: {error_type}: {error_msg}", exc_info=True)
         
         if raise_on_failure:
+            hint = "Check SendGrid/SMTP configuration."
+            low = error_msg.lower()
+            if 'network is unreachable' in low or 'errno 101' in low or 'connection refused' in low:
+                hint = (
+                    "Render cannot reach Gmail SMTP (ports blocked). "
+                    "Use SendGrid API (HTTPS) for production email."
+                )
             raise RuntimeError(
-                f"Email could not be sent to {', '.join(recipient_list)}: {error_msg}. "
-                "Check SendGrid/SMTP configuration."
+                f"Email could not be sent to {', '.join(recipient_list)}: {error_msg}. {hint}"
             ) from e
         return 0
 

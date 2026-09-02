@@ -1438,7 +1438,11 @@ export const api = {
     if (!response.ok) {
       let error: any = { detail: 'Failed to send lease' };
       try { error = await response.json(); } catch { /* keep default */ }
-      throw new Error(error.error || error.detail || error.message || 'Failed to send lease');
+      const message = error.error || error.detail || error.message || 'Failed to send lease';
+      const err = new Error(message) as Error & { signingUrl?: string; sentTo?: string };
+      if (error.signing_url) err.signingUrl = String(error.signing_url);
+      if (error.sent_to) err.sentTo = String(error.sent_to);
+      throw err;
     }
     return await response.json();
   },

@@ -2180,14 +2180,21 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         )
 
         # Send lease-ready email first — only mark Sent if delivery succeeds.
+        from .email_service import _send_lease_ready_for_signing, get_frontend_url
+        signing_url = f"{get_frontend_url()}/sign-lease?token={signing_token.token}"
         try:
-            from .email_service import _send_lease_ready_for_signing
             sent_to = _send_lease_ready_for_signing(legal_doc.id, token=str(signing_token.token))
             logger.info(f"Lease-ready email sent for document {legal_doc.id} to {sent_to}")
         except Exception as e:
             logger.error(f"Failed to send in-house lease email: {e}", exc_info=True)
+            # Still return the link so admin can share it manually while email is fixed
             return Response(
-                {'error': f'Email could not be sent to {tenant_email}: {str(e)}'},
+                {
+                    'error': f'Email could not be sent to {tenant_email}: {str(e)}',
+                    'signing_url': signing_url,
+                    'sent_to': tenant_email,
+                    'signing_token': str(signing_token.token),
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -2204,6 +2211,7 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
                 **serializer.data,
                 'signing_token': str(signing_token.token),
                 'sent_to': tenant_email,
+                'signing_url': signing_url,
             },
             status=status.HTTP_200_OK,
         )
