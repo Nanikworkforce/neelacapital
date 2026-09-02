@@ -944,7 +944,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
   const [notifTick, setNotifTick] = useState(0);
   const bellRef = useRef<HTMLDivElement>(null);
 
-  const load = async (selectedYear: number) => {
+  const load = async (selectedYear: number, signal?: AbortSignal) => {
     setLoading(true);
     setDetailsLoading(true);
     setError(null);
@@ -952,26 +952,49 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     setExpenses([]);
     setExpensesLoading(true);
 
-    try {
+    const attemptLoad = async () => {
       const [full, expenseRows] = await Promise.all([
         api.getIncomeStatement(selectedYear),
         api.getOperatingExpenses({ year: selectedYear, limit: 500 }),
       ]);
+      if (signal?.aborted) return;
       setSummary(full);
       setExpenses(expenseRows);
+    };
+
+    try {
+      try {
+        await attemptLoad();
+      } catch (e) {
+        if (signal?.aborted) return;
+        // One retry after connection-pressure / transient network failures.
+        const msg = e instanceof Error ? e.message : '';
+        if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Load failed')) {
+          await new Promise((r) => setTimeout(r, 700));
+          if (signal?.aborted) return;
+          await attemptLoad();
+        } else {
+          throw e;
+        }
+      }
     } catch (e) {
+      if (signal?.aborted) return;
       setError(e instanceof Error ? e.message : 'Failed to load income statement');
     } finally {
-      setLoading(false);
-      setDetailsLoading(false);
-      setExpensesLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+        setDetailsLoading(false);
+        setExpensesLoading(false);
+      }
     }
   };
 
   useEffect(() => {
+    const ac = new AbortController();
     setExpandedProperty(null);
     setSelectedMonth(null);
-    load(year);
+    void load(year, ac.signal);
+    return () => ac.abort();
   }, [year]);
 
   const bellaPropertyId = properties.find((p) => isBellaJessName(p.name || ''))?.id || '';
@@ -990,6 +1013,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       setBellaMonthTotals({});
       return;
     }
+    // Wait for main P&L fetch so we don't starve browser connections.
+    if (loading || !summary) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1029,7 +1054,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     return () => {
       cancelled = true;
     };
-  }, [year, bellaPropertyId]);
+  }, [year, bellaPropertyId, loading, summary]);
 
   // Load Tomball Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
   useEffect(() => {
@@ -1037,6 +1062,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       setTomballMonthTotals({});
       return;
     }
+    // Wait for main P&L fetch so we don't starve browser connections.
+    if (loading || !summary) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1075,7 +1102,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     return () => {
       cancelled = true;
     };
-  }, [year, tomballPropertyId]);
+  }, [year, tomballPropertyId, loading, summary]);
 
   // Load Conroe Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
   useEffect(() => {
@@ -1083,6 +1110,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       setConroeMonthTotals({});
       return;
     }
+    // Wait for main P&L fetch so we don't starve browser connections.
+    if (loading || !summary) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1121,7 +1150,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     return () => {
       cancelled = true;
     };
-  }, [year, conroePropertyId]);
+  }, [year, conroePropertyId, loading, summary]);
 
   // Load Avenue Q Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
   useEffect(() => {
@@ -1129,6 +1158,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       setAvenueQMonthTotals({});
       return;
     }
+    // Wait for main P&L fetch so we don't starve browser connections.
+    if (loading || !summary) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1167,7 +1198,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     return () => {
       cancelled = true;
     };
-  }, [year, avenueQPropertyId]);
+  }, [year, avenueQPropertyId, loading, summary]);
 
   // Load Sherman Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
   useEffect(() => {
@@ -1175,6 +1206,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       setShermanMonthTotals({});
       return;
     }
+    // Wait for main P&L fetch so we don't starve browser connections.
+    if (loading || !summary) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1213,7 +1246,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     return () => {
       cancelled = true;
     };
-  }, [year, shermanPropertyId]);
+  }, [year, shermanPropertyId, loading, summary]);
 
   // Load 70th Street Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
   useEffect(() => {
@@ -1221,6 +1254,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       setSeventiethMonthTotals({});
       return;
     }
+    // Wait for main P&L fetch so we don't starve browser connections.
+    if (loading || !summary) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1259,7 +1294,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     return () => {
       cancelled = true;
     };
-  }, [year, seventiethPropertyId]);
+  }, [year, seventiethPropertyId, loading, summary]);
 
   // Load Avenue H Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
   useEffect(() => {
@@ -1267,6 +1302,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       setAvenueHMonthTotals({});
       return;
     }
+    // Wait for main P&L fetch so we don't starve browser connections.
+    if (loading || !summary) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1305,7 +1342,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     return () => {
       cancelled = true;
     };
-  }, [year, avenueHPropertyId]);
+  }, [year, avenueHPropertyId, loading, summary]);
 
   // Load Wooding Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
   useEffect(() => {
@@ -1313,6 +1350,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       setWoodingMonthTotals({});
       return;
     }
+    // Wait for main P&L fetch so we don't starve browser connections.
+    if (loading || !summary) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1351,7 +1390,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     return () => {
       cancelled = true;
     };
-  }, [year, woodingPropertyId]);
+  }, [year, woodingPropertyId, loading, summary]);
 
   // Load Avenue F Jan–Dec inputs so yearly rows reflect saved Income / OpEx / NOI.
   useEffect(() => {
@@ -1359,6 +1398,8 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       setAvenueFMonthTotals({});
       return;
     }
+    // Wait for main P&L fetch so we don't starve browser connections.
+    if (loading || !summary) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1397,7 +1438,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     return () => {
       cancelled = true;
     };
-  }, [year, avenueFPropertyId]);
+  }, [year, avenueFPropertyId, loading, summary]);
 
   // Keep expense bell fresh; avoid re-running the heavy full P&L on a timer.
   usePollWhileVisible(async () => {
@@ -1768,7 +1809,18 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
   }
 
   if (error || !summary) {
-    return <div className="text-rose-600">{error || 'Could not load income statement'}</div>;
+    return (
+      <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-6 text-center space-y-3">
+        <p className="text-rose-700 font-medium">{error || 'Could not load income statement'}</p>
+        <button
+          type="button"
+          onClick={() => void load(year)}
+          className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+        >
+          Try again
+        </button>
+      </div>
+    );
   }
 
   const isAdmin = summary.isAdminView !== false;

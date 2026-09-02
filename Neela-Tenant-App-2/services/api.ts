@@ -74,40 +74,80 @@ const getHeaders = (includeContentType: boolean = true, includeAuth: boolean = t
  * Wrapper for fetch that automatically handles token refresh on 401 errors.
  * Proactively refreshes tokens if they're expiring soon.
  */
+const withFreshAuthHeaders = (headers: HeadersInit | undefined): HeadersInit => {
+  const next: Record<string, string> = {};
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      next[key] = value;
+    });
+  } else if (Array.isArray(headers)) {
+    for (const [key, value] of headers) next[key] = value;
+  } else if (headers) {
+    Object.assign(next, headers);
+  }
+  const authHeader = getAuthHeader();
+  if (authHeader) {
+    next['Authorization'] = authHeader;
+  }
+  return next;
+};
+
+const isNetworkFetchError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message || '';
+  return (
+    error.name === 'TypeError' ||
+    msg === 'Failed to fetch' ||
+    msg.includes('NetworkError') ||
+    msg.includes('Load failed')
+  );
+};
+
 const fetchWithAuth = async (
   url: string,
   options: RequestInit = {},
   retryOn401: boolean = true
 ): Promise<Response> => {
-  // Proactively refresh token if it's expiring soon (before making the request)
-  if (options.headers && 'Authorization' in (options.headers as any)) {
+  const wantsAuth =
+    !!options.headers &&
+    (Object.prototype.hasOwnProperty.call(options.headers as object, 'Authorization') ||
+      (typeof (options.headers as Headers).has === 'function' &&
+        (options.headers as Headers).has('Authorization')));
+
+  // Proactively refresh, then always stamp the latest token onto headers.
+  if (wantsAuth) {
     await refreshTokenIfNeeded();
   }
+  let headers = wantsAuth ? withFreshAuthHeaders(options.headers) : options.headers;
+  const run = () => fetch(url, { ...options, headers });
 
-  // Make the initial request
-  let response = await fetch(url, options);
+  let response: Response;
+  try {
+    response = await run();
+  } catch (error) {
+    // One retry for transient browser/network failures (common under connection pressure).
+    if (!isNetworkFetchError(error) || options.signal?.aborted) throw error;
+    await new Promise((r) => setTimeout(r, 600));
+    if (wantsAuth) {
+      await refreshTokenIfNeeded();
+      headers = withFreshAuthHeaders(options.headers);
+    }
+    response = await fetch(url, { ...options, headers });
+  }
 
   // If we get a 401 and retry is enabled, try to refresh token and retry
-  if (response.status === 401 && retryOn401 && options.headers && 'Authorization' in (options.headers as any)) {
+  if (response.status === 401 && retryOn401 && wantsAuth) {
     // Check if we're already refreshing
     if (isRefreshing && refreshPromise) {
-      // Wait for the ongoing refresh to complete
       await refreshPromise;
-      // Retry the request with new token
-      const newHeaders = { ...options.headers };
-      const authHeader = getAuthHeader();
-      if (authHeader) {
-        (newHeaders as any)['Authorization'] = authHeader;
-      }
-      response = await fetch(url, { ...options, headers: newHeaders });
+      headers = withFreshAuthHeaders(options.headers);
+      response = await fetch(url, { ...options, headers });
     } else {
-      // Start refresh process
       isRefreshing = true;
       refreshPromise = (async () => {
         try {
           await refreshAccessToken();
         } catch (error) {
-          // Refresh failed - clear tokens and let the 401 propagate
           clearInvalidTokens();
           throw error;
         } finally {
@@ -118,15 +158,9 @@ const fetchWithAuth = async (
 
       try {
         await refreshPromise;
-        // Retry the request with new token
-        const newHeaders = { ...options.headers };
-        const authHeader = getAuthHeader();
-        if (authHeader) {
-          (newHeaders as any)['Authorization'] = authHeader;
-        }
-        response = await fetch(url, { ...options, headers: newHeaders });
-      } catch (error) {
-        // Refresh failed - return original 401 response
+        headers = withFreshAuthHeaders(options.headers);
+        response = await fetch(url, { ...options, headers });
+      } catch {
         return response;
       }
     }
