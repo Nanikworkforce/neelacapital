@@ -258,10 +258,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'accounts.User'
 
 # Email Configuration
-# Prefer SendGrid (HTTPS) whenever a key is present. Render blocks outbound SMTP.
+# Default: Google Workspace / Gmail SMTP (app password).
+# Optional: SendGrid over HTTPS if SENDGRID_API_KEY is set (not used when empty).
+# Note: Render *free* blocks outbound SMTP (465/587). Paid Render OR Gmail API works with Google.
 SENDGRID_API_KEY = (os.environ.get('SENDGRID_API_KEY') or '').strip() or None
-ON_RENDER = bool(os.environ.get('RENDER') or os.environ.get('RENDER_SERVICE_ID'))
-FORCE_SENDGRID = os.environ.get('EMAIL_FORCE_SENDGRID', '').lower() in ('1', 'true', 'yes')
 
 if SENDGRID_API_KEY:
     EMAIL_BACKEND = "anymail.backends.sendgrid.EmailBackend"
@@ -269,13 +269,6 @@ if SENDGRID_API_KEY:
         "SENDGRID_API_KEY": SENDGRID_API_KEY,
     }
     DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@neelacapital.com')
-elif ON_RENDER or FORCE_SENDGRID:
-    # Do not fall back to Gmail SMTP on Render — connections fail with Errno 101.
-    EMAIL_BACKEND = "django.core.mail.backends.dummy.EmailBackend"
-    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@neelacapital.com')
-    logging.getLogger(__name__).error(
-        "SENDGRID_API_KEY is missing; email disabled on Render. Set SENDGRID_API_KEY."
-    )
 else:
     EMAIL_BACKEND = os.environ.get(
         'EMAIL_BACKEND',
@@ -285,7 +278,7 @@ else:
     EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '465'))
     EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'True').lower() == 'true'
     EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'info@neelacapital.com')
-    EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+    EMAIL_HOST_PASSWORD = (os.environ.get('EMAIL_HOST_PASSWORD') or '').replace(' ', '')
     EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '10'))
     DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'info@neelacapital.com')
 # Landlord/Admin contact (used for lease placeholders, signing, emails)
