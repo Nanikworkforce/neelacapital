@@ -258,12 +258,23 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'accounts.User'
 
 # Email Configuration
-# Default: Google Workspace / Gmail SMTP (app password).
-# Optional: SendGrid over HTTPS if SENDGRID_API_KEY is set (not used when empty).
-# Note: Render *free* blocks outbound SMTP (465/587). Paid Render OR Gmail API works with Google.
+# Prefer Gmail API (HTTPS) when OAuth refresh token is set — works on Render free.
+# Else optional SendGrid. Else Google Workspace SMTP (works locally / paid Render).
+GMAIL_OAUTH_CLIENT_ID = (os.environ.get('GMAIL_OAUTH_CLIENT_ID') or '').strip() or None
+GMAIL_OAUTH_CLIENT_SECRET = (os.environ.get('GMAIL_OAUTH_CLIENT_SECRET') or '').strip() or None
+GMAIL_OAUTH_REFRESH_TOKEN = (os.environ.get('GMAIL_OAUTH_REFRESH_TOKEN') or '').strip() or None
 SENDGRID_API_KEY = (os.environ.get('SENDGRID_API_KEY') or '').strip() or None
 
-if SENDGRID_API_KEY:
+_gmail_api_ready = bool(
+    GMAIL_OAUTH_CLIENT_ID and GMAIL_OAUTH_CLIENT_SECRET and GMAIL_OAUTH_REFRESH_TOKEN
+)
+
+if _gmail_api_ready:
+    EMAIL_BACKEND = "api.gmail_api_backend.GmailApiEmailBackend"
+    DEFAULT_FROM_EMAIL = os.environ.get(
+        'DEFAULT_FROM_EMAIL', 'Neela Capital <info@neelacapital.com>'
+    )
+elif SENDGRID_API_KEY:
     EMAIL_BACKEND = "anymail.backends.sendgrid.EmailBackend"
     ANYMAIL = {
         "SENDGRID_API_KEY": SENDGRID_API_KEY,

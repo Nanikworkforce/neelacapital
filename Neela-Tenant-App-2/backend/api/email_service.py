@@ -73,6 +73,17 @@ def validate_email_config():
     if not default_from:
         return False, "DEFAULT_FROM_EMAIL is not configured"
     
+    if 'gmail_api' in email_backend.lower():
+        missing = []
+        if not (getattr(settings, 'GMAIL_OAUTH_CLIENT_ID', None) or '').strip():
+            missing.append('GMAIL_OAUTH_CLIENT_ID')
+        if not (getattr(settings, 'GMAIL_OAUTH_CLIENT_SECRET', None) or '').strip():
+            missing.append('GMAIL_OAUTH_CLIENT_SECRET')
+        if not (getattr(settings, 'GMAIL_OAUTH_REFRESH_TOKEN', None) or '').strip():
+            missing.append('GMAIL_OAUTH_REFRESH_TOKEN')
+        if missing:
+            return False, "Gmail API missing: " + ", ".join(missing)
+
     # For SendGrid / Anymail, require API key
     if 'sendgrid' in email_backend.lower() or 'anymail' in email_backend.lower():
         sendgrid_key = getattr(settings, 'SENDGRID_API_KEY', None) or (
@@ -227,6 +238,11 @@ def send_email_with_logging(subject, message, from_email, recipient_list, html_m
                 hint = (
                     "From-address must be a verified SendGrid sender "
                     "(e.g. neelacapital@outlook.com)."
+                )
+            elif 'gmail api' in low or 'gmail_oauth' in low or 'invalid_grant' in low:
+                hint = (
+                    "Gmail API OAuth failed. Re-run: python manage.py gmail_oauth_setup "
+                    "and update GMAIL_OAUTH_* on Render."
                 )
             raise RuntimeError(
                 f"Email could not be sent to {', '.join(recipient_list)}: {error_msg}. {hint}"
