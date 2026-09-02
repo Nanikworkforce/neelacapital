@@ -17,6 +17,7 @@ import AddExpenseModal from './AddExpenseModal';
 import ViewportPortal from './ViewportPortal';
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
 import { assetUrl } from '../utils/basePath';
+import { formatDateMMDDYYYY } from '../utils/date';
 import {
   BELLA_JESS_2026_YEARLY,
   BELLA_JESS_OVERVIEW,
@@ -2368,7 +2369,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                     {' - '}{CATEGORY_LABELS[e.category] || e.category}
                   </p>
                   <p className="text-xs text-slate-500 break-words">
-                    {e.date}
+                    {formatDateMMDDYYYY(e.date)}
                     {formatExpenseNote(e.notes) ? ` - ${formatExpenseNote(e.notes)}` : ''}
                   </p>
                 </div>
@@ -2396,7 +2397,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
                 {expenseSuccessPopup.unitLabel ? ` - ${expenseSuccessPopup.unitLabel}` : ''}
               </p>
               <p className="text-xs text-slate-500 mt-1">
-                {CATEGORY_LABELS[expenseSuccessPopup.category] || expenseSuccessPopup.category} - {expenseSuccessPopup.date}
+                {CATEGORY_LABELS[expenseSuccessPopup.category] || expenseSuccessPopup.category} - {formatDateMMDDYYYY(expenseSuccessPopup.date)}
               </p>
               <button
                 type="button"

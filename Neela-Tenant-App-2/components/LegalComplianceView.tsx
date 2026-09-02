@@ -6,6 +6,7 @@ import {
   FileSignature, Download, CheckCircle2, Search, Mail, PenTool, Save, Plus
 } from 'lucide-react';
 import Modal from './Modal';
+import { formatDateMMDDYYYY } from '../utils/date';
 
 interface LegalComplianceProps {
   tenants: Tenant[];
@@ -385,7 +386,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
                  <tbody className="divide-y divide-slate-100">
                     {history.map((doc) => (
                        <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4 text-slate-600">{doc.createdAt}</td>
+                          <td className="px-6 py-4 text-slate-600">{formatDateMMDDYYYY(doc.createdAt)}</td>
                           <td className="px-6 py-4 font-medium text-slate-800">{tenantsMap[doc.tenantId]?.name || 'Unknown'}</td>
                           <td className="px-6 py-4 text-slate-800">{doc.type}</td>
                           <td className="px-6 py-4 text-slate-600 flex items-center gap-2">

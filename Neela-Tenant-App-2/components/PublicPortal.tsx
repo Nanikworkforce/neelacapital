@@ -16,7 +16,7 @@ import { OnboardingTour } from './OnboardingTour';
 import LeaseSigningOverlay from './LeaseSigningOverlay';
 import type { LeaseSigningMetadata } from '../types';
 import { getOnboardingSteps, getOnboardingCompleted, setOnboardingCompleted } from '../constants/onboardingSteps';
-import { formatDateMMDDYYYY } from '../utils/date';
+import { formatDateMMDDYYYY, formatDateTime } from '../utils/date';
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
 import { 
   MapPin, BedDouble, Bath, Maximize, Check, ArrowLeft, 
@@ -1200,7 +1200,7 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
                               <div className="flex-1 min-w-0">
                                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 sm:gap-0">
                                   <p className="font-semibold text-gray-900 text-sm sm:text-base">{n.title}</p>
-                                  <span className="text-xs text-gray-400 whitespace-nowrap">{n.date}</span>
+                                  <span className="text-xs text-gray-400 whitespace-nowrap">{formatDateTime(n.date)}</span>
                                 </div>
                                 <p className="text-xs sm:text-sm text-gray-600 mt-1 leading-relaxed">{n.message}</p>
                                   </div>
@@ -1678,7 +1678,7 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
                                  <div>
                               <div className="flex items-center gap-3 mb-2">
                                 <span className="font-bold text-gray-900">{ticket.category}</span>
-                                <span className="text-gray-400 text-sm">• {ticket.createdAt}</span>
+                                <span className="text-gray-400 text-sm">• {formatDateTime(ticket.createdAt)}</span>
                                     </div>
                               <p className="text-gray-600">{ticket.description}</p>
                                     {ticket.assignedTo && (
@@ -1721,7 +1721,7 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
                               <p className="font-semibold text-gray-700 text-xs uppercase mb-3">Latest Update</p>
                                     {ticket.updates.map((u, idx) => (
                                 <div key={idx} className="flex gap-3 text-gray-600 mb-2 last:mb-0">
-                                  <span className="text-gray-400 text-xs">{u.date}:</span>
+                                  <span className="text-gray-400 text-xs">{formatDateTime(u.date)}:</span>
                                           <span>{u.message}</span>
                                        </div>
                                     ))}

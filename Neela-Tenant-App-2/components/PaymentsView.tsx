@@ -9,6 +9,7 @@ import { api } from '../services/api';
 import Modal from './Modal';
 import ViewportPortal from './ViewportPortal';
 import { getApiOrigin } from '../utils/apiOrigin';
+import { formatDateMMDDYYYY } from '../utils/date';
 
 interface PaymentsViewProps {
   tenants: Tenant[];
@@ -580,7 +581,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                              </div>
                              <div>
                                 <p className="text-sm font-medium text-slate-800">{paymentTenantName(p)}</p>
-                                <p className="text-xs text-slate-500">{p.date} • {p.type}</p>
+                                <p className="text-xs text-slate-500">{formatDateMMDDYYYY(p.date)} • {p.type}</p>
                              </div>
                           </div>
                           <span className="font-bold text-slate-700">+${p.amount}</span>
@@ -637,7 +638,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                           <td className="px-6 py-4 text-slate-500 font-mono text-xs">{inv.id}</td>
                           <td className="px-6 py-4 font-medium text-slate-800">{tenantsMap[inv.tenantId]?.name}</td>
                           <td className="px-6 py-4 text-slate-600">{inv.period}</td>
-                          <td className="px-6 py-4 text-slate-600">{inv.dueDate}</td>
+                          <td className="px-6 py-4 text-slate-600">{formatDateMMDDYYYY(inv.dueDate)}</td>
                           <td className="px-6 py-4 font-bold text-slate-800">${inv.amount}</td>
                           <td className="px-6 py-4">
                              <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium
@@ -685,7 +686,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                  <tbody className="divide-y divide-slate-100">
                     {initialPayments.map((pay) => (
                        <tr key={pay.id} className="hover:bg-slate-50">
-                          <td className="px-6 py-4 text-slate-600">{pay.date}</td>
+                          <td className="px-6 py-4 text-slate-600">{formatDateMMDDYYYY(pay.date)}</td>
                           <td className="px-6 py-4 font-medium text-slate-800">{paymentTenantName(pay)}</td>
                           <td className="px-6 py-4 text-slate-600">{pay.type}</td>
                           <td className="px-6 py-4 text-slate-600">{pay.method}</td>
@@ -730,7 +731,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                  <tbody className="divide-y divide-slate-100">
                     {pendingPaymentsWithProof.map((pay) => (
                        <tr key={pay.id} className="hover:bg-slate-50">
-                          <td className="px-6 py-4 text-slate-600">{pay.date}</td>
+                          <td className="px-6 py-4 text-slate-600">{formatDateMMDDYYYY(pay.date)}</td>
                           <td className="px-6 py-4 font-medium text-slate-800">{paymentTenantName(pay)}</td>
                           <td className="px-6 py-4 text-slate-600">{pay.method}</td>
                           <td className="px-6 py-4 font-bold text-slate-800">${pay.amount}</td>

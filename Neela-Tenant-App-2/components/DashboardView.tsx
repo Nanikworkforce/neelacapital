@@ -851,7 +851,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
                     {' · '}{CATEGORY_LABELS[e.category] || e.category}
                   </p>
                   <p className="text-xs text-slate-500 truncate">
-                    {e.date}{e.notes ? ` · ${e.notes}` : ''}
+                    {formatDateMMDDYYYY(e.date)}{e.notes ? ` · ${e.notes}` : ''}
                     {e.createdByName ? ` · ${e.createdByName}` : ''}
                   </p>
                 </div>

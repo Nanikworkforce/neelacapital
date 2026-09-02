@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Inquiry } from '../types';
 import { api } from '../services/api';
 import { MessageSquare, Search, Mail, Loader2, Archive, Eye, Inbox } from 'lucide-react';
+import { formatDateMMDDYYYY, formatDateTime } from '../utils/date';
 
 const statusStyles: Record<string, string> = {
   new: 'bg-amber-100 text-amber-800',
@@ -171,7 +172,7 @@ const InquiriesView: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-4 py-3.5 hidden sm:table-cell text-slate-500 whitespace-nowrap">
-                        {new Date(item.createdAt).toLocaleDateString()}
+                        {formatDateMMDDYYYY(item.createdAt)}
                       </td>
                     </tr>
                   );
@@ -219,7 +220,7 @@ const InquiriesView: React.FC = () => {
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Message</p>
               <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">{selected.message}</p>
               <p className="text-xs text-slate-400 mt-4">
-                Received {new Date(selected.createdAt).toLocaleString()}
+                Received {formatDateTime(selected.createdAt)}
               </p>
             </div>
             <div className="p-5 border-t border-slate-100 flex flex-wrap gap-2">

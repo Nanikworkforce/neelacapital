@@ -22,6 +22,7 @@ import {
 } from '../utils/propertyGrouping';
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
+import { formatDateMMDDYYYY } from '../utils/date';
 
 const formatMoney = (v: number) =>
   `$${(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -1050,7 +1051,7 @@ const PropertyManagerView: React.FC = () => {
                           </div>
                           <div className="min-w-0">
                             <p className="font-semibold text-sm text-slate-800 truncate">{tenant?.name || 'Tenant'}</p>
-                            <p className="text-xs text-slate-500">{p.date} · {p.type}</p>
+                            <p className="text-xs text-slate-500">{formatDateMMDDYYYY(p.date)} · {p.type}</p>
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0 space-y-1">
@@ -1599,7 +1600,7 @@ const PropertyManagerView: React.FC = () => {
                           </p>
                           <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
                             <Calendar className="w-3 h-3 flex-shrink-0" />
-                            {e.date}
+                            {formatDateMMDDYYYY(e.date)}
                           </p>
                         </div>
                       </div>
@@ -1859,7 +1860,7 @@ const PropertyManagerView: React.FC = () => {
                           </div>
                           <div className="min-w-0">
                             <p className="font-semibold text-slate-800 truncate">{tenant?.name || 'Tenant'}</p>
-                            <p className="text-xs text-slate-500">{p.date}</p>
+                            <p className="text-xs text-slate-500">{formatDateMMDDYYYY(p.date)}</p>
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0 ml-3">
@@ -1896,7 +1897,7 @@ const PropertyManagerView: React.FC = () => {
                             {e.propertyName || 'Property'}
                             {e.unitLabel ? ` · ${e.unitLabel}` : ''}
                           </p>
-                          <p className="text-xs text-slate-500">{CATEGORY_LABELS[e.category] || e.category} · {e.date}</p>
+                          <p className="text-xs text-slate-500">{CATEGORY_LABELS[e.category] || e.category} · {formatDateMMDDYYYY(e.date)}</p>
                         </div>
                       </div>
                       <p className="font-bold text-rose-700 flex-shrink-0 ml-3">{formatMoney(e.amount)}</p>
@@ -2106,7 +2107,7 @@ const PropertyManagerView: React.FC = () => {
               {expenseSuccessPopup.unitLabel ? ` · ${expenseSuccessPopup.unitLabel}` : ''}
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              {CATEGORY_LABELS[expenseSuccessPopup.category] || expenseSuccessPopup.category} · {expenseSuccessPopup.date}
+              {CATEGORY_LABELS[expenseSuccessPopup.category] || expenseSuccessPopup.category} · {formatDateMMDDYYYY(expenseSuccessPopup.date)}
             </p>
             <button
               type="button"

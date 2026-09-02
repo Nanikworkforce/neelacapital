@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { OperatingExpense, Property, PropertyUnit } from '../types';
+import { formatDateMMDDYYYY } from '../utils/date';
 import {
   expenseLinesForRole,
   ExpenseLineItem,
@@ -494,7 +495,7 @@ const AddExpenseModal: React.FC<Props> = ({ open, onClose, properties, role, onC
                           <p className="text-[11px] text-slate-500 truncate">
                             {e.propertyName || 'Property'}
                             {e.unitLabel ? ` · ${e.unitLabel}` : ''}
-                            {e.date ? ` · ${e.date}` : ''}
+                            {e.date ? ` · ${formatDateMMDDYYYY(e.date)}` : ''}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">

@@ -8,6 +8,7 @@ import {
   Clock, ArrowRight, FileText
 } from 'lucide-react';
 import Modal from './Modal';
+import { formatDateMMDDYYYY, formatDateTime } from '../utils/date';
 
 interface MaintenanceProps {
   requests: MaintenanceRequest[];
@@ -328,7 +329,7 @@ const MaintenanceView: React.FC<MaintenanceProps> = ({ requests: initialRequests
                    </div>
                    <div className="flex items-center gap-2">
                       <Clock className="w-3 h-3" />
-                      <span>{req.createdAt}</span>
+                      <span>{formatDateTime(req.createdAt)}</span>
                    </div>
                 </div>
               </div>
@@ -429,7 +430,7 @@ const MaintenanceView: React.FC<MaintenanceProps> = ({ requests: initialRequests
                               </div>
                               <div>
                                  <p className="text-slate-800"><span className="font-bold text-slate-700">{u.author}:</span> {u.message}</p>
-                                 <p className="text-xs text-slate-500">{u.date}</p>
+                                 <p className="text-xs text-slate-500">{formatDateTime(u.date)}</p>
                               </div>
                            </div>
                         ))}
