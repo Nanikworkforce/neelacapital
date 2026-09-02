@@ -111,19 +111,35 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
   };
   const isImageFile = (filename: string) => /\.(jpg|jpeg|png|webp|gif)$/i.test(filename || '');
   const isPdfFile = (filenameOrUrl: string) => /\.pdf(\?|#|$)/i.test(filenameOrUrl || '');
+
+  /** Prefer authenticated document proxy — bare /media/ URLs 404 on Render. */
+  const buildTenantDocumentUrl = (tenantId: string | number | undefined, rawPath: string): string | null => {
+    if (!tenantId || !rawPath) return null;
+    const normalized = rawPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!/applications\/tenant_/i.test(normalized)) return null;
+    return `${API_BASE.replace(/\/+$/, '')}/api/tenants/${tenantId}/document/?path=${encodeURIComponent(normalized)}`;
+  };
+
   /** Get preview/download URL from file object (path, file, or url). */
-  const getFilePreviewUrl = (file: any): string | null => {
+  const getFilePreviewUrl = (file: any, tenantId?: string | number): string | null => {
     if (!file) return null;
     if (typeof file.url === 'string' && file.url.trim()) {
-      // Guard against malformed local links such as /media/media/... from legacy data.
-      return file.url.replace(/\/media\/media\//gi, '/media/');
+      const url = file.url.replace(/\/media\/media\//gi, '/media/');
+      // Rewrite legacy bare /media/application links to the auth proxy.
+      const mediaMatch = url.match(/\/media\/((?:media\/)?applications\/tenant_\d+\/[^?#]+)/i);
+      if (mediaMatch && tenantId) {
+        return buildTenantDocumentUrl(tenantId, mediaMatch[1]) || url;
+      }
+      return url;
     }
     const path = file.path || file.file;
-    if (typeof path === 'string' && path.trim()) return getMediaUrl(path);
+    if (typeof path === 'string' && path.trim()) {
+      return buildTenantDocumentUrl(tenantId, path) || getMediaUrl(path);
+    }
     return null;
   };
-  const getFileDownloadUrl = (file: any): string | null => {
-    const previewUrl = getFilePreviewUrl(file);
+  const getFileDownloadUrl = (file: any, tenantId?: string | number): string | null => {
+    const previewUrl = getFilePreviewUrl(file, tenantId);
     if (!previewUrl) return null;
     // Force attachment download for backend proxy links.
     if (/\/api\/tenants\/\d+\/document\/\?/i.test(previewUrl)) {
@@ -133,8 +149,39 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
     }
     return previewUrl;
   };
-  const buildDocumentPreview = (file: any, fallbackName: string) => {
-    const url = getFilePreviewUrl(file) || '';
+
+  /** Download via authenticated fetch — <a target=_blank> cannot send Bearer token. */
+  const downloadFileAuthenticated = async (file: any, tenantId: string | number | undefined, fallbackName: string) => {
+    const url = getFileDownloadUrl(file, tenantId);
+    if (!url) {
+      setErrorMessage('Download link unavailable for this document.');
+      return;
+    }
+    try {
+      const headers: Record<string, string> = {};
+      const authHeader = getAuthHeader();
+      if (authHeader) headers['Authorization'] = authHeader;
+      const response = await fetch(url, { headers });
+      if (!response.ok) {
+        throw new Error(`Download failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = file?.filename || fallbackName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      console.error(err);
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to download document');
+    }
+  };
+
+  const buildDocumentPreview = (file: any, fallbackName: string, tenantId?: string | number) => {
+    const url = getFilePreviewUrl(file, tenantId) || '';
     const filename = file?.filename || fallbackName;
     const isImage = isImageFile(filename);
     const isPdf = isPdfFile(filename) || isPdfFile(url);
@@ -1155,8 +1202,8 @@ Landlord                            Tenant
                                    <p className="text-xs text-slate-500 font-medium mb-2">Photo IDs</p>
                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                      {selectedApplicant.photoIdFiles.map((file: any, idx: number) => {
-                                        const fileUrl = getFilePreviewUrl(file);
-                                        const fileDownloadUrl = getFileDownloadUrl(file);
+                                        const fileUrl = getFilePreviewUrl(file, selectedApplicant.id);
+                                        const fileDownloadUrl = getFileDownloadUrl(file, selectedApplicant.id);
                                         return (
                                         <div key={idx} className="flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:bg-slate-50">
                                             <div className="flex items-center gap-3">
@@ -1169,9 +1216,14 @@ Landlord                            Tenant
                                                </div>
                                             </div>
                                            {fileUrl && (
-                                              <a href={fileDownloadUrl || fileUrl} target="_blank" rel="noopener noreferrer">
-                                                  <Download className="w-4 h-4 text-slate-400 hover:text-indigo-600" />
-                                               </a>
+                                              <button
+                                                   type="button"
+                                                   onClick={() => void downloadFileAuthenticated(file, selectedApplicant.id, file.filename || 'document')}
+                                                   className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                                                   title="Download"
+                                                 >
+                                                   <Download className="w-4 h-4" /> Download
+                                                 </button>
                                             )}
                                          </div>
                                      ); })}
@@ -1185,8 +1237,8 @@ Landlord                            Tenant
                                    <p className="text-xs text-slate-500 font-medium mb-2">Income Verification</p>
                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                      {selectedApplicant.incomeVerificationFiles.map((file: any, idx: number) => {
-                                        const fileUrl = getFilePreviewUrl(file);
-                                        const fileDownloadUrl = getFileDownloadUrl(file);
+                                        const fileUrl = getFilePreviewUrl(file, selectedApplicant.id);
+                                        const fileDownloadUrl = getFileDownloadUrl(file, selectedApplicant.id);
                                         return (
                                         <div key={idx} className="flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:bg-slate-50">
                                             <div className="flex items-center gap-3">
@@ -1199,9 +1251,14 @@ Landlord                            Tenant
                                                </div>
                                             </div>
                                            {fileUrl && (
-                                              <a href={fileDownloadUrl || fileUrl} target="_blank" rel="noopener noreferrer">
-                                                  <Download className="w-4 h-4 text-slate-400 hover:text-indigo-600" />
-                                               </a>
+                                              <button
+                                                   type="button"
+                                                   onClick={() => void downloadFileAuthenticated(file, selectedApplicant.id, file.filename || 'document')}
+                                                   className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                                                   title="Download"
+                                                 >
+                                                   <Download className="w-4 h-4" /> Download
+                                                 </button>
                                             )}
                                          </div>
                                      ); })}
@@ -1215,8 +1272,8 @@ Landlord                            Tenant
                                    <p className="text-xs text-slate-500 font-medium mb-2">Background Check Report</p>
                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                      {selectedApplicant.backgroundCheckFiles.map((file: any, idx: number) => {
-                                        const fileUrl = getFilePreviewUrl(file);
-                                        const fileDownloadUrl = getFileDownloadUrl(file);
+                                        const fileUrl = getFilePreviewUrl(file, selectedApplicant.id);
+                                        const fileDownloadUrl = getFileDownloadUrl(file, selectedApplicant.id);
                                         return (
                                         <div key={idx} className="flex items-center justify-between p-3 border border-green-200 bg-green-50 rounded-lg hover:bg-green-100">
                                             <div className="flex items-center gap-3">
@@ -1229,9 +1286,14 @@ Landlord                            Tenant
                                                </div>
                                             </div>
                                            {fileUrl && (
-                                              <a href={fileDownloadUrl || fileUrl} target="_blank" rel="noopener noreferrer">
-                                                  <Download className="w-4 h-4 text-green-600 hover:text-green-800" />
-                                               </a>
+                                              <button
+                                                   type="button"
+                                                   onClick={() => void downloadFileAuthenticated(file, selectedApplicant.id, file.filename || 'document')}
+                                                   className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                                                   title="Download"
+                                                 >
+                                                   <Download className="w-4 h-4" /> Download
+                                                 </button>
                                             )}
                                          </div>
                                      ); })}
@@ -1318,8 +1380,8 @@ Landlord                            Tenant
                              {selectedApplicant.photoIdFiles && selectedApplicant.photoIdFiles.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                    {selectedApplicant.photoIdFiles.map((file: any, idx: number) => {
-                                      const fileUrl = getFilePreviewUrl(file);
-                                      const fileDownloadUrl = getFileDownloadUrl(file);
+                                      const fileUrl = getFilePreviewUrl(file, selectedApplicant.id);
+                                      const fileDownloadUrl = getFileDownloadUrl(file, selectedApplicant.id);
                                       return (
                                       <div key={idx} className="flex items-center justify-between gap-3 p-4 border border-slate-200 rounded-xl hover:bg-slate-50/80 bg-white shadow-sm">
                                          <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1338,16 +1400,21 @@ Landlord                            Tenant
                                                    type="button"
                                                   onClick={() => {
                                                     setPreviewLoadFailed(false);
-                                                    setDocumentPreview(buildDocumentPreview(file, 'Photo ID'));
+                                                    setDocumentPreview(buildDocumentPreview(file, 'Photo ID', selectedApplicant.id));
                                                   }}
                                                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
                                                    title="Preview document"
                                                  >
                                                    <Eye className="w-4 h-4" /> Preview
                                                  </button>
-                                                <a href={fileDownloadUrl || fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors" title="Download">
+                                                <button
+                                                   type="button"
+                                                   onClick={() => void downloadFileAuthenticated(file, selectedApplicant.id, file.filename || 'document')}
+                                                   className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                                                   title="Download"
+                                                 >
                                                    <Download className="w-4 h-4" /> Download
-                                                 </a>
+                                                 </button>
                                                </>
                                             ) : (
                                                <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1.5 rounded-lg">Preview unavailable</span>
@@ -1372,8 +1439,8 @@ Landlord                            Tenant
                              {selectedApplicant.incomeVerificationFiles && selectedApplicant.incomeVerificationFiles.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                    {selectedApplicant.incomeVerificationFiles.map((file: any, idx: number) => {
-                                      const fileUrl = getFilePreviewUrl(file);
-                                      const fileDownloadUrl = getFileDownloadUrl(file);
+                                      const fileUrl = getFilePreviewUrl(file, selectedApplicant.id);
+                                      const fileDownloadUrl = getFileDownloadUrl(file, selectedApplicant.id);
                                       return (
                                       <div key={idx} className="flex items-center justify-between gap-3 p-4 border border-slate-200 rounded-xl hover:bg-slate-50/80 bg-white shadow-sm">
                                          <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1392,16 +1459,21 @@ Landlord                            Tenant
                                                    type="button"
                                                   onClick={() => {
                                                     setPreviewLoadFailed(false);
-                                                    setDocumentPreview(buildDocumentPreview(file, 'Income Document'));
+                                                    setDocumentPreview(buildDocumentPreview(file, 'Income Document', selectedApplicant.id));
                                                   }}
                                                    className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors shadow-sm"
                                                    title="Preview document"
                                                  >
                                                    <Eye className="w-4 h-4" /> Preview
                                                  </button>
-                                                <a href={fileDownloadUrl || fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors" title="Download">
+                                                <button
+                                                   type="button"
+                                                   onClick={() => void downloadFileAuthenticated(file, selectedApplicant.id, file.filename || 'document')}
+                                                   className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                                                   title="Download"
+                                                 >
                                                    <Download className="w-4 h-4" /> Download
-                                                 </a>
+                                                 </button>
                                                </>
                                             ) : (
                                                <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1.5 rounded-lg">Preview unavailable</span>
@@ -1426,8 +1498,8 @@ Landlord                            Tenant
                              {selectedApplicant.backgroundCheckFiles && selectedApplicant.backgroundCheckFiles.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                    {selectedApplicant.backgroundCheckFiles.map((file: any, idx: number) => {
-                                      const fileUrl = getFilePreviewUrl(file);
-                                      const fileDownloadUrl = getFileDownloadUrl(file);
+                                      const fileUrl = getFilePreviewUrl(file, selectedApplicant.id);
+                                      const fileDownloadUrl = getFileDownloadUrl(file, selectedApplicant.id);
                                       return (
                                       <div key={idx} className="flex items-center justify-between gap-3 p-4 border border-green-200 bg-green-50/50 rounded-xl hover:bg-green-50 shadow-sm">
                                          <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1446,16 +1518,21 @@ Landlord                            Tenant
                                                    type="button"
                                                   onClick={() => {
                                                     setPreviewLoadFailed(false);
-                                                    setDocumentPreview(buildDocumentPreview(file, 'Background Check'));
+                                                    setDocumentPreview(buildDocumentPreview(file, 'Background Check', selectedApplicant.id));
                                                   }}
                                                    className="flex items-center gap-1.5 px-3 py-2 bg-green-700 text-white text-sm font-medium rounded-lg hover:bg-green-800 transition-colors shadow-sm"
                                                    title="Preview document"
                                                  >
                                                    <Eye className="w-4 h-4" /> Preview
                                                  </button>
-                                                <a href={fileDownloadUrl || fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-2 border border-green-300 text-green-800 text-sm font-medium rounded-lg hover:bg-green-100 transition-colors" title="Download">
+                                                <button
+                                                   type="button"
+                                                   onClick={() => void downloadFileAuthenticated(file, selectedApplicant.id, file.filename || 'document')}
+                                                   className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                                                   title="Download"
+                                                 >
                                                    <Download className="w-4 h-4" /> Download
-                                                 </a>
+                                                 </button>
                                                </>
                                             ) : (
                                                <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1.5 rounded-lg">Preview unavailable</span>
@@ -2202,14 +2279,23 @@ Landlord                            Tenant
                 <h3 className="font-semibold text-slate-800 truncate pr-2">{documentPreview.filename}</h3>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <a
-                  href={documentPreview.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (documentPreviewBlobUrl) {
+                      window.open(documentPreviewBlobUrl, '_blank', 'noopener,noreferrer');
+                      return;
+                    }
+                    void downloadFileAuthenticated(
+                      { url: documentPreview.url, filename: documentPreview.filename },
+                      selectedApplicant?.id,
+                      documentPreview.filename,
+                    );
+                  }}
                   className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
                 >
-                  Open in new tab
-                </a>
+                  Open / Download
+                </button>
                 <button
                   type="button"
                   onClick={() => setDocumentPreview(null)}
@@ -2246,23 +2332,23 @@ Landlord                            Tenant
                     This file type is best viewed in a new tab or downloaded.
                   </p>
                   <div className="flex items-center justify-center gap-3">
-                    <a
-                      href={documentPreview.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (documentPreviewBlobUrl) {
+                          window.open(documentPreviewBlobUrl, '_blank', 'noopener,noreferrer');
+                          return;
+                        }
+                        void downloadFileAuthenticated(
+                          { url: documentPreview.url, filename: documentPreview.filename },
+                          selectedApplicant?.id,
+                          documentPreview.filename,
+                        );
+                      }}
                       className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
                     >
-                      Open in new tab
-                    </a>
-                    <a
-                      href={documentPreview.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      download
-                      className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
-                    >
-                      Download
-                    </a>
+                      Open / Download
+                    </button>
                   </div>
                 </div>
               )}

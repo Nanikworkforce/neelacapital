@@ -12,7 +12,7 @@ import os
 from datetime import datetime
 
 class TenantListSerializer(serializers.ModelSerializer):
-    """Lightweight tenant payload for list views — skips document URL normalization."""
+    """Lightweight tenant payload for list views — still normalizes document URLs for admin preview/download."""
 
     class Meta:
         model = Tenant
@@ -24,6 +24,18 @@ class TenantListSerializer(serializers.ModelSerializer):
             'photo_id_files', 'income_verification_files', 'background_check_files',
         ]
         read_only_fields = fields
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        helper = TenantSerializer(context=self.context)
+        rep['photo_id_files'] = helper._normalize_file_entries(instance.id, rep.get('photo_id_files'))
+        rep['income_verification_files'] = helper._normalize_file_entries(
+            instance.id, rep.get('income_verification_files')
+        )
+        rep['background_check_files'] = helper._normalize_file_entries(
+            instance.id, rep.get('background_check_files')
+        )
+        return rep
 
 
 class TenantSerializer(serializers.ModelSerializer):
