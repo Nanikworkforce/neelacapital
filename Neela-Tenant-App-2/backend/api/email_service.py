@@ -119,7 +119,18 @@ def send_email_with_logging(subject, message, from_email, recipient_list, html_m
     email_backend = getattr(settings, 'EMAIL_BACKEND', 'unknown')
     logger.info(f"Attempting to send {email_type} to {len(recipient_list)} recipient(s) using {email_backend}")
     logger.debug(f"Recipients: {recipient_list}, From: {from_email}, Subject: {subject}")
-    
+
+    # Dummy backend never delivers — treat as hard failure for admin flows.
+    if 'dummy' in email_backend.lower():
+        msg = (
+            "Email backend is dummy (not delivering). "
+            "Set a working SENDGRID_API_KEY on Render."
+        )
+        logger.error(f"Cannot send {email_type}: {msg}")
+        if raise_on_failure:
+            raise RuntimeError(msg)
+        return 0
+
     # Always surface errors when caller requires success (e.g. Send Lease);
     # otherwise fail_silently only in production.
     fail_silently = False if raise_on_failure else (not getattr(settings, 'DEBUG', False))
@@ -206,6 +217,16 @@ def send_email_with_logging(subject, message, from_email, recipient_list, html_m
                 hint = (
                     "Render cannot reach Gmail SMTP (ports blocked). "
                     "Use SendGrid API (HTTPS) for production email."
+                )
+            elif 'maximum credits exceeded' in low or 'credits exceeded' in low:
+                hint = (
+                    "SendGrid account has no sending credits left. "
+                    "Upgrade the SendGrid plan or replace SENDGRID_API_KEY with a key that has credits."
+                )
+            elif 'from' in low and ('verified' in low or 'does not match' in low or 'forbidden' in low):
+                hint = (
+                    "From-address must be a verified SendGrid sender "
+                    "(e.g. neelacapital@outlook.com)."
                 )
             raise RuntimeError(
                 f"Email could not be sent to {', '.join(recipient_list)}: {error_msg}. {hint}"
