@@ -258,9 +258,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'accounts.User'
 
 # Email Configuration
-# Use Anymail with SendGrid only if SENDGRID_API_KEY is non-empty.
-# Otherwise use SMTP (Gmail app password, etc.).
+# Prefer SendGrid (HTTPS) whenever a key is present. Render blocks outbound SMTP.
 SENDGRID_API_KEY = (os.environ.get('SENDGRID_API_KEY') or '').strip() or None
+ON_RENDER = bool(os.environ.get('RENDER') or os.environ.get('RENDER_SERVICE_ID'))
+FORCE_SENDGRID = os.environ.get('EMAIL_FORCE_SENDGRID', '').lower() in ('1', 'true', 'yes')
 
 if SENDGRID_API_KEY:
     EMAIL_BACKEND = "anymail.backends.sendgrid.EmailBackend"
@@ -268,6 +269,13 @@ if SENDGRID_API_KEY:
         "SENDGRID_API_KEY": SENDGRID_API_KEY,
     }
     DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@neelacapital.com')
+elif ON_RENDER or FORCE_SENDGRID:
+    # Do not fall back to Gmail SMTP on Render — connections fail with Errno 101.
+    EMAIL_BACKEND = "django.core.mail.backends.dummy.EmailBackend"
+    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@neelacapital.com')
+    logging.getLogger(__name__).error(
+        "SENDGRID_API_KEY is missing; email disabled on Render. Set SENDGRID_API_KEY."
+    )
 else:
     EMAIL_BACKEND = os.environ.get(
         'EMAIL_BACKEND',
