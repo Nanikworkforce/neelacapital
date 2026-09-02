@@ -1333,22 +1333,25 @@ export const api = {
     }
   },
 
-  // Lease Template APIs
+  // Lease Template APIs (admin-only on backend)
   getLeaseTemplates: async (): Promise<any[]> => {
-    const response = await fetch(`${API_URL}/lease-templates/`, {
-      headers: getHeaders(false, false),
+    const response = await fetchWithAuth(`${API_URL}/lease-templates/`, {
+      headers: getHeaders(false),
     });
     if (!response.ok) throw new Error('Failed to fetch lease templates');
     return await response.json();
   },
 
   createLeaseTemplate: async (templateData: { name: string; content: string; is_active?: boolean }): Promise<any> => {
-    const response = await fetch(`${API_URL}/lease-templates/`, {
+    const response = await fetchWithAuth(`${API_URL}/lease-templates/`, {
       method: 'POST',
-      headers: getHeaders(true, false), // Public endpoint, no auth needed
+      headers: getHeaders(),
       body: JSON.stringify(templateData),
     });
-    if (!response.ok) throw new Error('Failed to create lease template');
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to create lease template' }));
+      throw new Error(error.detail || error.error || error.message || 'Failed to create lease template');
+    }
     return await response.json();
   },
 
@@ -1363,14 +1366,14 @@ export const api = {
     if (customContent) {
       body.custom_content = customContent;
     }
-    const response = await fetch(`${API_URL}/legal-documents/generate_lease/`, {
+    const response = await fetchWithAuth(`${API_URL}/legal-documents/generate_lease/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(body),
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Failed to generate lease' }));
-      throw new Error(error.detail || error.message || 'Failed to generate lease');
+      throw new Error(error.error || error.detail || error.message || 'Failed to generate lease');
     }
     return await response.json();
   },
@@ -1425,6 +1428,7 @@ export const api = {
       pdfUrl: item.pdf_url,
       signedPdfUrl: item.signed_pdf_url,
       signedAt: item.signed_at,
+      generatedContent: item.generated_content ?? item.generatedContent ?? '',
     }));
   },
 

@@ -388,19 +388,20 @@ Landlord                            Tenant
       const leaseDocs = docs.filter((d: any) => d.type === 'Lease Agreement');
       
       if (leaseDocs.length > 0) {
-        // Use the most recent one (assuming last in list or we could sort)
-        const leaseDoc = leaseDocs[leaseDocs.length - 1];
+        // Prefer newest by id when available
+        const leaseDoc = [...leaseDocs].sort((a: any, b: any) => Number(b.id) - Number(a.id))[0];
         setGeneratedLeaseDoc(leaseDoc);
         setLeaseStatus(leaseDoc.status || 'Draft');
-        
-        // If we have content, set it for preview
-        if (leaseDoc.generatedContent) {
-          setGeneratedLease(leaseDoc.generatedContent);
+
+        const content = leaseDoc.generatedContent || leaseDoc.generated_content || '';
+        if (content) {
+          setGeneratedLease(content);
+        } else if (leaseDoc.pdfUrl) {
+          // PDF exists even if text content wasn't mapped — still show lease UI
+          setGeneratedLease('(Lease PDF ready)');
         }
-        
-        // If it's Sent, auto-check status to see if it's been signed since we last looked
+
         if (leaseDoc.status === 'Sent') {
-           // Don't await this, let it run in background
            handleCheckStatus(leaseDoc.id);
         }
       }
@@ -415,7 +416,7 @@ Landlord                            Tenant
     
     setIsCheckingStatus(true);
     try {
-      const docs = await api.getLegalDocuments(selectedTenant?.id);
+      const docs = await api.getLegalDocuments(selectedApplicant?.id);
       const updatedDoc = docs.find((d: any) => String(d.id) === String(idToCheck));
       if (!updatedDoc) {
         throw new Error('Document not found');
@@ -572,8 +573,13 @@ Landlord                            Tenant
       // Generate lease via API - include custom content if editing
       const customContent = isEditingLease && editedLeaseContent ? editedLeaseContent : undefined;
       const leaseDoc = await api.generateLease(selectedApplicant.id, selectedTemplateId || undefined, customContent);
-      setGeneratedLeaseDoc(leaseDoc);
-      setGeneratedLease(leaseDoc.generated_content || '');
+      setGeneratedLeaseDoc({
+        ...leaseDoc,
+        id: String(leaseDoc.id),
+        generatedContent: leaseDoc.generated_content || leaseDoc.generatedContent || '',
+        pdfUrl: leaseDoc.pdf_url || leaseDoc.pdfUrl,
+      });
+      setGeneratedLease(leaseDoc.generated_content || leaseDoc.generatedContent || '(Lease PDF ready)');
       setLeaseStatus(leaseDoc.status || 'Draft');
       setIsEditingLease(false);
       setEditedLeaseContent('');
