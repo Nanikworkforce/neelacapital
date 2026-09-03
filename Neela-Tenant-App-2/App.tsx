@@ -1,25 +1,60 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import Sidebar from './components/Sidebar';
-import DashboardView from './components/DashboardView';
-import TenantsView from './components/TenantsView';
-import MaintenanceView from './components/MaintenanceView';
-import LegalComplianceView from './components/LegalComplianceView';
-import PublicPortal from './components/PublicPortal';
-import SettingsView from './components/SettingsView';
-import PaymentsView from './components/PaymentsView';
-import ShortStaysView from './components/ShortStaysView';
-import IncomeStatementView from './components/IncomeStatementView';
-import InquiriesView from './components/InquiriesView';
 import PasswordReset from './components/PasswordReset';
-import { Menu } from 'lucide-react';
+import { Menu, Loader2 } from 'lucide-react';
 import NeelaLogo from './components/NeelaLogo';
 import { api } from './services/api';
 import { isAuthenticated, getCurrentUser, logout } from './services/auth';
 import { adminTabMeta, SEO_PAGES, usePageMeta } from './utils/seo';
 import { Tenant, Payment, MaintenanceRequest, Property } from './types';
 import { usePollWhileVisible } from './hooks/usePollWhileVisible';
-import { stripBase, withBase } from './utils/basePath';
+import { stripBase } from './utils/basePath';
+
+const PublicPortal = lazy(() => import('./components/PublicPortal'));
+const Sidebar = lazy(() => import('./components/Sidebar'));
+const DashboardView = lazy(() => import('./components/DashboardView'));
+const TenantsView = lazy(() => import('./components/TenantsView'));
+const MaintenanceView = lazy(() => import('./components/MaintenanceView'));
+const LegalComplianceView = lazy(() => import('./components/LegalComplianceView'));
+const SettingsView = lazy(() => import('./components/SettingsView'));
+const PaymentsView = lazy(() => import('./components/PaymentsView'));
+const ShortStaysView = lazy(() => import('./components/ShortStaysView'));
+const IncomeStatementView = lazy(() => import('./components/IncomeStatementView'));
+const InquiriesView = lazy(() => import('./components/InquiriesView'));
+
+const PROPERTIES_CACHE_KEY = 'neela_portal_properties_v1';
+const PROPERTIES_CACHE_TTL_MS = 5 * 60 * 1000;
+
+async function loadPortalProperties(): Promise<Property[]> {
+  try {
+    const raw = sessionStorage.getItem(PROPERTIES_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { data: Property[]; ts: number };
+      if (Date.now() - parsed.ts < PROPERTIES_CACHE_TTL_MS && Array.isArray(parsed.data)) {
+        return parsed.data;
+      }
+    }
+  } catch {
+    /* ignore cache read errors */
+  }
+
+  const propertiesData = await api.getProperties();
+  try {
+    sessionStorage.setItem(
+      PROPERTIES_CACHE_KEY,
+      JSON.stringify({ data: propertiesData, ts: Date.now() }),
+    );
+  } catch {
+    /* ignore cache write errors */
+  }
+  return propertiesData;
+}
+
+const AdminLoadingFallback = () => (
+  <div className="flex items-center justify-center min-h-[40vh]">
+    <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" aria-label="Loading" />
+  </div>
+);
 
 interface AppProps {
   /** `admin` = staff dashboard at /admin; `portal` = public tenant portal at /portal */
@@ -118,19 +153,20 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
   // Fetch properties when switching to public portal only (admin data loads once on login)
   useEffect(() => {
     if (isInitialLoad || activeTab !== 'public-portal') return;
-
     if (properties.length > 0) return;
 
-    const loadPublicProperties = async () => {
-      try {
-        const propertiesData = await api.getProperties();
-        setProperties(propertiesData);
-      } catch (error) {
+    let cancelled = false;
+    loadPortalProperties()
+      .then((propertiesData) => {
+        if (!cancelled) setProperties(propertiesData);
+      })
+      .catch((error) => {
         console.error('Error fetching properties:', error);
-      }
-    };
+      });
 
-    loadPublicProperties();
+    return () => {
+      cancelled = true;
+    };
   }, [activeTab, isInitialLoad, properties.length]);
 
   // Initial mount — restore admin session and load data in one pass
@@ -147,21 +183,40 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
         if (variant === 'admin' && staffAdmin) {
           setActiveTab('dashboard');
           await loadAdminData({ blockUI: true });
-        } else {
-          if (variant === 'portal') setActiveTab('public-portal');
+        } else if (variant === 'portal') {
+          setActiveTab('public-portal');
+          setLoading(false);
+          setIsAuthChecking(false);
+          setIsInitialLoad(false);
+
+          // Warm cache from sessionStorage immediately, then refresh in background.
           try {
-            const propertiesData = await api.getProperties();
-            if (!cancelled) setProperties(propertiesData);
-          } catch (error) {
-            console.error('Error fetching properties:', error);
+            const raw = sessionStorage.getItem(PROPERTIES_CACHE_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw) as { data: Property[]; ts: number };
+              if (Array.isArray(parsed.data) && parsed.data.length > 0) {
+                setProperties(parsed.data);
+              }
+            }
+          } catch {
+            /* ignore */
           }
-          if (!cancelled) setLoading(false);
+
+          loadPortalProperties()
+            .then((propertiesData) => {
+              if (!cancelled) setProperties(propertiesData);
+            })
+            .catch((error) => {
+              console.error('Error fetching properties:', error);
+            });
+        } else {
+          setLoading(false);
         }
       } catch (error) {
         console.error('Error initializing app:', error);
         if (!cancelled) setLoading(false);
       } finally {
-        if (!cancelled) {
+        if (!cancelled && variant !== 'portal') {
           setIsAuthChecking(false);
           setIsInitialLoad(false);
         }
@@ -402,7 +457,7 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
         uidb64={uidb64} 
         token={token}
         onSuccess={() => {
-          window.location.href = withBase('/tenant');
+          navigate('/portal', { replace: true });
         }}
       />
     );
@@ -412,7 +467,7 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
 
   usePageMeta(isPublic ? SEO_PAGES.home : adminTabMeta(activeTab));
 
-  if (isAuthChecking) {
+  if (isAuthChecking && variant !== 'portal') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-purple-50/30 to-blue-50/30">
         <div className="text-center px-4">
@@ -444,12 +499,14 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
       )}
 
       {!isPublic && (
-        <Sidebar
-          activeTab={activeTab}
-          setActiveTab={handleSidebarNavigation}
-          isMobileMenuOpen={isMobileMenuOpen}
-          onLogout={handleLogout}
-        />
+        <Suspense fallback={null}>
+          <Sidebar
+            activeTab={activeTab}
+            setActiveTab={handleSidebarNavigation}
+            isMobileMenuOpen={isMobileMenuOpen}
+            onLogout={handleLogout}
+          />
+        </Suspense>
       )}
 
       <main className="flex-1 flex flex-col min-w-0 w-full min-h-0 h-[100dvh] overflow-hidden">
@@ -472,15 +529,19 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
 
         <div ref={appScrollRef} data-app-scroll className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
           {isPublic ? (
-            <PublicPortal 
-              onAdminLogin={handleAdminLogin} 
-              tenantId={tenants.length > 0 ? tenants[0].id : undefined}
-              onMaintenanceCreated={refreshMaintenance}
-            />
+            <Suspense fallback={<AdminLoadingFallback />}>
+              <PublicPortal 
+                onAdminLogin={handleAdminLogin} 
+                tenantId={tenants.length > 0 ? tenants[0].id : undefined}
+                onMaintenanceCreated={refreshMaintenance}
+              />
+            </Suspense>
           ) : (
             <div className={adminPagePadding + ' admin-content-wrap'}>
               <div className="max-w-7xl mx-auto w-full min-w-0">
-                {renderAdminContent()}
+                <Suspense fallback={<AdminLoadingFallback />}>
+                  {renderAdminContent()}
+                </Suspense>
               </div>
             </div>
           )}

@@ -47,6 +47,13 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
   const [userStatus, setUserStatus] = useState<UserStatus>('guest');
   const [activeTab, setActiveTab] = useState<ResidentTab>('overview');
   const [showShortStayPromo, setShowShortStayPromo] = useState(false);
+  const [authBootstrapping, setAuthBootstrapping] = useState(() => {
+    try {
+      return typeof window !== 'undefined' && !!localStorage.getItem('neela_tenant_access_token');
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     window.scrollTo({ top: 0 });
@@ -102,6 +109,7 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
     setSelectedListing,
     isSubmittingApplication,
     applicationError,
+    applicationErrorModalOpen,
     applicationSuccess,
     draftSaveMessage,
     handleApply: handleApplyFromHook,
@@ -280,13 +288,19 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
   const invoices: Invoice[] = [];
 
   useEffect(() => {
+    let cancelled = false;
     checkAuthOnMount(
       setCurrentUser,
       setCurrentTenant,
       setLoadingTenant,
       setUserStatus,
       setView
-    );
+    ).finally(() => {
+      if (!cancelled) setAuthBootstrapping(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleRefreshApplicationStatus = async () => {
@@ -708,6 +722,17 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
     return renderPaymentInstructions({ method, residentBalance });
     };
 
+  if (authBootstrapping) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-50 via-white to-blue-50/20">
+        <div className="text-center px-4">
+          <Loader2 className="w-10 h-10 text-indigo-600 animate-spin mx-auto mb-4" aria-label="Loading" />
+          <p className="text-slate-600 font-medium">Loading your dashboard…</p>
+        </div>
+      </div>
+    );
+  }
+
     return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 via-white to-blue-50/20 flex flex-col">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-50/30 via-transparent to-transparent"></div>
@@ -887,6 +912,7 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
             selectedListing={selectedListing}
             isSubmittingApplication={isSubmittingApplication}
             applicationError={applicationError}
+            applicationErrorModalOpen={applicationErrorModalOpen}
             applicationSuccess={applicationSuccess}
             draftSaveMessage={draftSaveMessage}
             handleSubmitApplication={handleSubmitApplication}

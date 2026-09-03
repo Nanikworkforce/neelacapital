@@ -105,13 +105,11 @@ const PasswordReset: React.FC<PasswordResetProps> = ({ uidb64, token, onSuccess 
         }
         
         setSuccess(true);
-        setTimeout(() => {
-          if (onSuccess) {
-            onSuccess();
-          } else {
-            window.location.href = withBase('/');
-          }
-        }, 2000);
+        if (onSuccess) {
+          onSuccess();
+        } else {
+          window.location.href = withBase('/');
+        }
       } else {
         const errorData = await response.json().catch(() => ({ error: 'Failed to reset password' }));
         console.error('Password reset error:', errorData);
@@ -161,8 +159,9 @@ const PasswordReset: React.FC<PasswordResetProps> = ({ uidb64, token, onSuccess 
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full text-center">
           <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-slate-800 mb-2">Password Reset Successful!</h1>
-          <p className="text-slate-600 mb-6">Your password has been updated. Redirecting to login...</p>
+          <h1 className="text-2xl font-bold text-slate-800 mb-2">Password Set Successfully!</h1>
+          <p className="text-slate-600 mb-6">Taking you to your tenant dashboard…</p>
+          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mx-auto" aria-label="Loading" />
         </div>
       </div>
     );

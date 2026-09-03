@@ -577,8 +577,8 @@ export const checkAuthOnMount = async (
     console.warn('Token refresh failed on app load:', error);
   }
 
-  const user = getCurrentUser();
-  if (user && isAuthenticated()) {
+  const user = getCurrentUser('tenant');
+  if (user && isAuthenticated('tenant')) {
     setCurrentUser(user);
     try {
       setLoadingTenant(true);
@@ -586,18 +586,16 @@ export const checkAuthOnMount = async (
       setCurrentTenant(tenantData);
       if (tenantData.status === TenantStatus.ACTIVE) {
         setUserStatus('resident');
-        setView('dashboard');
       } else if (tenantData.status === TenantStatus.APPROVED) {
          if (tenantData.leaseStatus === 'Signed') {
            setUserStatus('resident');
          } else {
            setUserStatus('applicant_approved');
          }
-         setView('dashboard');
       } else if (tenantData.status === TenantStatus.APPLICANT) {
         setUserStatus('applicant_pending');
-        setView('dashboard');
       }
+      setView('dashboard');
     } catch (error: any) {
       if (error?.message?.includes('Not authenticated') || error?.message?.includes('401')) {
         setCurrentUser(null);

@@ -15,6 +15,7 @@ export interface UseApplicationReturn {
   setSelectedListing: (listing: Listing | null) => void;
   isSubmittingApplication: boolean;
   applicationError: string | null;
+  applicationErrorModalOpen: boolean;
   applicationSuccess: string | null;
   draftSaveMessage: string | null;
   
@@ -187,6 +188,7 @@ export const useApplication = (): UseApplicationReturn => {
   // Application Submission State
   const [isSubmittingApplication, setIsSubmittingApplication] = useState(false);
   const [applicationError, setApplicationError] = useState<string | null>(null);
+  const [applicationErrorModalOpen, setApplicationErrorModalOpen] = useState(false);
   const [applicationSuccess, setApplicationSuccess] = useState<string | null>(null);
   const [draftSaveMessage, setDraftSaveMessage] = useState<string | null>(null);
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
@@ -230,12 +232,22 @@ export const useApplication = (): UseApplicationReturn => {
     };
   };
 
+  const reportApplicationError = (message: string) => {
+    setApplicationError(message);
+    setApplicationErrorModalOpen(true);
+  };
+
+  const clearApplicationError = () => {
+    setApplicationError(null);
+    setApplicationErrorModalOpen(false);
+  };
+
   const handleApply = (listing: Listing, setView: (view: string) => void) => {
     setSelectedListing(listing);
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     setView('application');
     // Reset form state when opening application
-    setApplicationError(null);
+    clearApplicationError();
     setApplicationSuccess(null);
     const beds = Math.round(Number(listing.beds ?? 2));
     const baths = Math.round(Number(listing.baths ?? 2));
@@ -254,99 +266,99 @@ export const useApplication = (): UseApplicationReturn => {
   ) => {
     // Validation - Required fields
     if (!formData.firstName || !formData.lastName || !formData.email || !formData.phone) {
-      setApplicationError('Please fill in all required fields (First Name, Last Name, Email, Phone)');
+      reportApplicationError('Please fill in all required fields (First Name, Last Name, Email, Phone)');
       return;
     }
     
     if (!formData.dateOfBirth) {
-      setApplicationError('Please provide your date of birth');
+      reportApplicationError('Please provide your date of birth');
       return;
     }
     
     if (!formData.currentAddressStreet || !formData.currentAddressCity || !formData.currentAddressState || !formData.currentAddressZip) {
-      setApplicationError('Please provide your complete current address (street, city, state, and zip)');
+      reportApplicationError('Please provide your complete current address (street, city, state, and zip)');
       return;
     }
     
     if (!formData.monthlyIncome) {
-      setApplicationError('Please provide your monthly income');
+      reportApplicationError('Please provide your monthly income');
       return;
     }
     
     if (formData.hasOtherAdults === null) {
-      setApplicationError('Please indicate if there are other adults (18+) living in the unit');
+      reportApplicationError('Please indicate if there are other adults (18+) living in the unit');
       return;
     }
     
     const hasValidOccupant = formData.otherOccupantsList.some(o => o.name.trim() !== '');
     if (!hasValidOccupant) {
-      setApplicationError('Please provide at least one other occupant (name and age)');
+      reportApplicationError('Please provide at least one other occupant (name and age)');
       return;
     }
     
     if (formData.hasRentedRecently === null) {
-      setApplicationError('Please indicate if you have rented in the past 2 years');
+      reportApplicationError('Please indicate if you have rented in the past 2 years');
       return;
     }
     
     if (formData.hasRentedRecently && (!formData.previousAddress || !formData.landlordName || !formData.landlordContact)) {
-      setApplicationError('Please provide your previous address, landlord name, and landlord contact');
+      reportApplicationError('Please provide your previous address, landlord name, and landlord contact');
       return;
     }
     
     if (formData.hasEvictionOrFelony === null) {
-      setApplicationError('Please indicate if you have been evicted or convicted of a felony');
+      reportApplicationError('Please indicate if you have been evicted or convicted of a felony');
       return;
     }
     
     if (formData.hasPets === null) {
-      setApplicationError('Please indicate if you will be moving in with pets');
+      reportApplicationError('Please indicate if you will be moving in with pets');
       return;
     }
 
     if (formData.hasPets && !formData.petCount.trim()) {
-      setApplicationError('Please enter how many pets you will have');
+      reportApplicationError('Please enter how many pets you will have');
       return;
     }
 
     if (formData.hasPets && !formData.petsWhich.trim()) {
-      setApplicationError('Please list which pets you will have');
+      reportApplicationError('Please list which pets you will have');
       return;
     }
 
     if (!formData.agreesNoSmoking) {
-      setApplicationError('You must agree to the no-smoking policy');
+      reportApplicationError('You must agree to the no-smoking policy');
       return;
     }
     
     if (!formData.desiredMoveInDate) {
-      setApplicationError('Please provide your desired move-in date');
+      reportApplicationError('Please provide your desired move-in date');
       return;
     }
 
     const leaseMonths = parseInt(formData.desiredLeaseMonths, 10);
     if (!leaseMonths || leaseMonths < 1) {
-      setApplicationError('Please select how long you want to rent (in months)');
+      reportApplicationError('Please select how long you want to rent (in months)');
       return;
     }
     
     if (!formData.emergencyContactName || !formData.emergencyContactRelationship || !formData.emergencyContactPhone) {
-      setApplicationError('Please provide complete emergency contact information (name, relationship, and phone)');
+      reportApplicationError('Please provide complete emergency contact information (name, relationship, and phone)');
       return;
     }
     
     if (!formData.certificationAgreed) {
-      setApplicationError('You must certify that all information provided is true and complete');
+      reportApplicationError('You must certify that all information provided is true and complete');
       return;
     }
     
     if (!selectedListing) {
-      setApplicationError('No property selected');
+      reportApplicationError('No property selected');
       return;
     }
     
     setIsSubmittingApplication(true);
-    setApplicationError(null);
+    clearApplicationError();
     setApplicationSuccess(null);
     
     try {
@@ -429,7 +441,7 @@ export const useApplication = (): UseApplicationReturn => {
       }, 2000);
       
     } catch (error) {
-      setApplicationError(error instanceof Error ? error.message : 'Failed to submit application. Please try again.');
+      reportApplicationError(error instanceof Error ? error.message : 'Failed to submit application. Please try again.');
     } finally {
       setIsSubmittingApplication(false);
     }
@@ -526,6 +538,7 @@ export const useApplication = (): UseApplicationReturn => {
     setSelectedListing,
     isSubmittingApplication,
     applicationError,
+    applicationErrorModalOpen,
     applicationSuccess,
     draftSaveMessage,
     handleApply,
@@ -535,7 +548,7 @@ export const useApplication = (): UseApplicationReturn => {
     propertyToListing,
     confirmModal,
     setConfirmModal,
-    clearApplicationError: () => setApplicationError(null),
+    clearApplicationError: clearApplicationError,
   };
 };
 
@@ -545,6 +558,7 @@ export interface ApplicationFormViewProps {
   selectedListing: Listing | null;
   isSubmittingApplication: boolean;
   applicationError: string | null;
+  applicationErrorModalOpen: boolean;
   applicationSuccess: string | null;
   draftSaveMessage: string | null;
   handleSubmitApplication: () => Promise<void>;
@@ -562,6 +576,7 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
   selectedListing,
   isSubmittingApplication,
   applicationError,
+  applicationErrorModalOpen,
   applicationSuccess,
   draftSaveMessage,
   handleSubmitApplication,
@@ -644,14 +659,6 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
           </div>
           <div className="p-8 md:p-10">
              <div className="space-y-10">
-                {/* Error/Success Messages */}
-                {applicationError && (
-                  <div className="bg-gradient-to-r from-red-50 via-red-100/50 to-red-50 border-2 border-red-200 text-red-800 px-6 py-4 rounded-2xl text-sm shadow-lg shadow-red-500/10 animate-shake">
-                    <p className="font-semibold">Something went wrong. Try again.</p>
-                    <p className="mt-1 text-red-700">{applicationError}</p>
-                    <button type="button" onClick={clearApplicationError} className="mt-3 text-sm font-semibold text-red-700 underline hover:no-underline">Try again</button>
-                  </div>
-                )}
                 {applicationSuccess && (
                   <div className="bg-gradient-to-r from-emerald-50 via-emerald-100/50 to-emerald-50 border-2 border-emerald-200 text-emerald-800 px-6 py-4 rounded-2xl text-sm font-semibold shadow-lg shadow-emerald-500/10">
                     {applicationSuccess}
@@ -1483,6 +1490,15 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
         onConfirm={confirmModal.onConfirm}
         confirmText="Confirm"
         cancelText="Cancel"
+      />
+
+      <Modal
+        isOpen={applicationErrorModalOpen && !!applicationError}
+        onClose={clearApplicationError}
+        title="Please fix the following"
+        message={applicationError || ''}
+        type="error"
+        confirmText="Got it"
       />
     </div>
   );

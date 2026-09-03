@@ -43,18 +43,22 @@
         }
         .button {
             display: inline-block;
-            background-color: #7c3aed;
+            background-color: #1e293b;
             color: #ffffff !important;
-            padding: 15px 30px;
+            padding: 14px 28px;
             text-decoration: none;
-            border-radius: 5px;
+            border-radius: 6px;
             margin: 20px 0;
-            font-weight: bold;
+            font-weight: 600;
+            font-size: 16px;
+            line-height: 1.4;
             text-align: center;
+            border: 2px solid #1e293b;
         }
         .button:hover {
-            background-color: #6d28d9;
+            background-color: #0f172a;
             color: #ffffff !important;
+            border-color: #0f172a;
         }
         .info-section {
             background-color: white;
@@ -96,7 +100,7 @@
         <p>Your property application has been reviewed and approved. To complete your account setup and access your tenant portal, please set up your password using the link below:</p>
         
         <div style="text-align: center;">
-            <a href="{{ reset_url }}" class="button" style="background-color: #7c3aed; color: #ffffff;">Set Up Your Password</a>
+            <a href="{{ reset_url }}" class="button" style="display:inline-block;background-color:#1e293b;color:#ffffff !important;padding:14px 28px;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px;border:2px solid #1e293b;">Set Up Your Password</a>
         </div>
         
         <div class="info-section">

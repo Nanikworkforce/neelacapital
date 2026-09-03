@@ -55,3 +55,7 @@ Desktop.ini
 # Nested git leftovers
 **/.git-portal-backup/
 .git-portal-backup/
+
+# Google OAuth client secrets
+client_secret*.json
+*.apps.googleusercontent.com.json

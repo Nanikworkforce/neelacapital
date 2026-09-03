@@ -10,6 +10,7 @@ from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 import os
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 class TenantListSerializer(serializers.ModelSerializer):
     """Lightweight tenant payload for list views — still normalizes document URLs for admin preview/download."""
@@ -122,54 +123,39 @@ class TenantSerializer(serializers.ModelSerializer):
         
         # Create the tenant instance
         tenant = super().create(validated_data)
-        
-        # Handle photo ID file uploads
+
+        def _save_upload(file, prefix: str):
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"applications/tenant_{tenant.id}/{prefix}_{timestamp}_{file.name}"
+            path = default_storage.save(filename, ContentFile(file.read()))
+            return {
+                'filename': file.name,
+                'path': path,
+                'size': file.size,
+                'uploaded_at': datetime.now().isoformat(),
+            }
+
+        upload_jobs = (
+            [(file, 'photo_id') for file in photo_id_uploads]
+            + [(file, 'income') for file in income_verification_uploads]
+            + [(file, 'background') for file in background_check_uploads]
+        )
+
         photo_id_file_paths = []
-        for file in photo_id_uploads:
-            # Create unique filename with timestamp
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"applications/tenant_{tenant.id}/photo_id_{timestamp}_{file.name}"
-            
-            # Save file to storage
-            path = default_storage.save(filename, ContentFile(file.read()))
-            
-            # Store file metadata
-            photo_id_file_paths.append({
-                'filename': file.name,
-                'path': path,
-                'size': file.size,
-                'uploaded_at': datetime.now().isoformat()
-            })
-        
-        # Handle income verification file uploads
         income_verification_file_paths = []
-        for file in income_verification_uploads:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"applications/tenant_{tenant.id}/income_{timestamp}_{file.name}"
-            
-            path = default_storage.save(filename, ContentFile(file.read()))
-            
-            income_verification_file_paths.append({
-                'filename': file.name,
-                'path': path,
-                'size': file.size,
-                'uploaded_at': datetime.now().isoformat()
-            })
-        
-        # Handle background check file uploads
         background_check_file_paths = []
-        for file in background_check_uploads:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"applications/tenant_{tenant.id}/background_{timestamp}_{file.name}"
-            
-            path = default_storage.save(filename, ContentFile(file.read()))
-            
-            background_check_file_paths.append({
-                'filename': file.name,
-                'path': path,
-                'size': file.size,
-                'uploaded_at': datetime.now().isoformat()
-            })
+
+        if upload_jobs:
+            with ThreadPoolExecutor(max_workers=min(4, len(upload_jobs))) as executor:
+                futures = [executor.submit(_save_upload, file, prefix) for file, prefix in upload_jobs]
+                for (file, prefix), future in zip(upload_jobs, futures):
+                    entry = future.result()
+                    if prefix == 'photo_id':
+                        photo_id_file_paths.append(entry)
+                    elif prefix == 'income':
+                        income_verification_file_paths.append(entry)
+                    else:
+                        background_check_file_paths.append(entry)
         
         # Update tenant with file paths and calculate balance
         tenant.photo_id_files = photo_id_file_paths
