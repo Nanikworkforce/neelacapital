@@ -1496,7 +1496,10 @@ def _send_landlord_lease_ready_to_sign(legal_document_id: int, token: str | None
     if token:
         signing_url = f"{get_frontend_url()}/sign-lease?token={token}"
 
-    subject = f"Action required: Sign lease for {legal_doc.tenant.name} — {legal_doc.tenant.property_unit}"
+    subject = (
+        f"[Neela Capital] Landlord signature needed — "
+        f"{legal_doc.tenant.name} · {legal_doc.tenant.property_unit}"
+    )
 
     message = f"""
 Tenant Signed — Landlord Signature Required
@@ -1560,7 +1563,10 @@ def _send_admin_lease_sent_counter_sign_notice(legal_document_id: int):
     if not recipients:
         return
 
-    subject = f"Lease sent to {legal_doc.tenant.name} — you will counter-sign after they sign"
+    subject = (
+        f"[Neela Capital] Lease sent to tenant — you will counter-sign next "
+        f"({legal_doc.tenant.name} · {legal_doc.tenant.property_unit})"
+    )
     message = f"""
 Lease Sent to Tenant
 
