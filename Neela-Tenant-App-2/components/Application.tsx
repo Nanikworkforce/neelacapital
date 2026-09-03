@@ -77,6 +77,7 @@ export const useApplication = (): UseApplicationReturn => {
       petCount: '',
       petsWhich: '',
       desiredMoveInDate: '',
+      desiredLeaseMonths: '12',
       emergencyContactName: '',
       emergencyContactRelationship: '',
       emergencyContactPhone: '',
@@ -322,6 +323,12 @@ export const useApplication = (): UseApplicationReturn => {
       setApplicationError('Please provide your desired move-in date');
       return;
     }
+
+    const leaseMonths = parseInt(formData.desiredLeaseMonths, 10);
+    if (!leaseMonths || leaseMonths < 1) {
+      setApplicationError('Please select how long you want to rent (in months)');
+      return;
+    }
     
     if (!formData.emergencyContactName || !formData.emergencyContactRelationship || !formData.emergencyContactPhone) {
       setApplicationError('Please provide complete emergency contact information (name, relationship, and phone)');
@@ -398,6 +405,7 @@ export const useApplication = (): UseApplicationReturn => {
           petCount: formData.hasPets ? formData.petCount.trim() : '',
           petsWhich: formData.hasPets ? formData.petsWhich.trim() : '',
           desiredMoveInDate: formData.desiredMoveInDate,
+          desiredLeaseMonths: parseInt(formData.desiredLeaseMonths, 10) || 12,
           emergencyContact: `${formData.emergencyContactName}, ${formData.emergencyContactRelationship}, ${formData.emergencyContactPhone}`.trim(),
           additionalNotes: formData.additionalNotes,
           certificationAgreed: formData.certificationAgreed,
@@ -491,6 +499,7 @@ export const useApplication = (): UseApplicationReturn => {
         petCount: '',
         petsWhich: '',
         desiredMoveInDate: '',
+        desiredLeaseMonths: '12',
         emergencyContactName: '',
         emergencyContactRelationship: '',
         emergencyContactPhone: '',
@@ -1305,6 +1314,26 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
                       onChange={(e) => setFormData({...formData, desiredMoveInDate: e.target.value})}
                       required
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      How long do you want to rent? <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      value={formData.desiredLeaseMonths}
+                      onChange={(e) => setFormData({ ...formData, desiredLeaseMonths: e.target.value })}
+                      required
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24].map((m) => (
+                        <option key={m} value={String(m)}>
+                          {m} {m === 1 ? 'month' : 'months'}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Rent is still billed monthly. This sets your preferred lease length (not a prepaid total).
+                    </p>
                   </div>
                   
                   <div className="space-y-3">

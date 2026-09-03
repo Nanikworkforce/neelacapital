@@ -37,6 +37,43 @@ def _last_day_of_month(d):
     return next_first - timedelta(days=1)
 
 
+def _add_months(start, months: int):
+    year = start.year + (start.month - 1 + months) // 12
+    month = (start.month - 1 + months) % 12 + 1
+    day = min(start.day, _last_day_of_month(start.replace(year=year, month=month, day=1)).day)
+    return start.replace(year=year, month=month, day=day)
+
+
+def apply_lease_dates_from_application(tenant: Tenant) -> None:
+    """Persist lease_start/lease_end from application when missing (monthly rent unchanged)."""
+    app = tenant.application_data or {}
+    update_fields = []
+
+    if not tenant.lease_start:
+        raw_move_in = app.get('desiredMoveInDate') or ''
+        try:
+            if raw_move_in:
+                tenant.lease_start = datetime.strptime(str(raw_move_in)[:10], '%Y-%m-%d').date()
+                update_fields.append('lease_start')
+        except ValueError:
+            pass
+        if not tenant.lease_start:
+            tenant.lease_start = datetime.now().date()
+            update_fields.append('lease_start')
+
+    if not tenant.lease_end and tenant.lease_start:
+        try:
+            months = int(app.get('desiredLeaseMonths') or 12)
+        except (TypeError, ValueError):
+            months = 12
+        months = max(1, min(months, 60))
+        tenant.lease_end = _add_months(tenant.lease_start, months)
+        update_fields.append('lease_end')
+
+    if update_fields:
+        tenant.save(update_fields=update_fields)
+
+
 def fill_lease_template(template_content: str, tenant: Tenant) -> str:
     """
     Fill lease template with tenant data.
@@ -53,12 +90,23 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
     first_name = name_parts[0] if len(name_parts) > 0 else tenant.name
     last_name = name_parts[1] if len(name_parts) > 1 else ''
     
-    # Calculate lease dates (default to 1 year from today)
+    # Lease dates: prefer stored dates; else move-in + desiredLeaseMonths (default 12)
     lease_start = tenant.lease_start or datetime.now().date()
-    if not tenant.lease_end:
-        lease_end = lease_start + timedelta(days=365)
-    else:
+    if tenant.lease_end:
         lease_end = tenant.lease_end
+    else:
+        application_data_preview = tenant.application_data or {}
+        months_raw = application_data_preview.get('desiredLeaseMonths')
+        try:
+            months = int(months_raw) if months_raw not in (None, '') else 12
+        except (TypeError, ValueError):
+            months = 12
+        months = max(1, min(months, 60))
+        # Approximate calendar months without dateutil
+        year = lease_start.year + (lease_start.month - 1 + months) // 12
+        month = (lease_start.month - 1 + months) % 12 + 1
+        day = min(lease_start.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
+        lease_end = lease_start.replace(year=year, month=month, day=day)
     
     # Get employment info from application data
     employment = tenant.application_data.get('employment', {}) if tenant.application_data else {}
@@ -220,6 +268,8 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
     Returns:
         tuple: (PDF BytesIO object, filled content string)
     """
+    apply_lease_dates_from_application(tenant)
+
     # Get template
     if not template:
         template = LeaseTemplate.objects.filter(is_active=True).first()
@@ -292,7 +342,7 @@ The lease term begins on {{lease_start_date}} and ends on {{lease_end_date}}.
 Tenant agrees to pay Landlord monthly rent of {{rent_amount}} per month, due on the first day of each month.
 
 4. SECURITY DEPOSIT
-Tenant has paid a security deposit of {{deposit_amount}} which will be held by Landlord as security for the performance of Tenant's obligations under this Lease.
+Tenant shall pay a security deposit of {{deposit_amount}} prior to move-in (or as otherwise agreed). The deposit will be held by Landlord as security for the performance of Tenant's obligations under this Lease and is not treated as paid until Landlord confirms receipt.
 
 5. TENANT INFORMATION
 Tenant Name: {{tenant_name}}

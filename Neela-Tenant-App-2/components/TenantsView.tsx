@@ -397,7 +397,7 @@ The lease term begins on {{lease_start_date}} and ends on {{lease_end_date}}.
 Tenant agrees to pay Landlord monthly rent of {{rent_amount}} per month, due on the first day of each month.
 
 4. SECURITY DEPOSIT
-Tenant has paid a security deposit of {{deposit_amount}} which will be held by Landlord as security for the performance of Tenant's obligations under this Lease.
+Tenant shall pay a security deposit of {{deposit_amount}} prior to move-in (or as otherwise agreed). The deposit will be held by Landlord as security for the performance of Tenant's obligations under this Lease and is not treated as paid until Landlord confirms receipt.
 
 5. TENANT INFORMATION
 Tenant Name: {{tenant_name}}
@@ -1187,6 +1187,14 @@ Landlord                            Tenant
                              <div>
                                 <p className="text-xs text-slate-500 font-medium">Desired Move-In Date</p>
                                 <p className="text-slate-800">{selectedApplicant.applicationData?.desiredMoveInDate || 'N/A'}</p>
+                             </div>
+                             <div>
+                                <p className="text-xs text-slate-500 font-medium">Preferred Lease Length</p>
+                                <p className="text-slate-800">
+                                  {selectedApplicant.applicationData?.desiredLeaseMonths
+                                    ? `${selectedApplicant.applicationData.desiredLeaseMonths} month${Number(selectedApplicant.applicationData.desiredLeaseMonths) === 1 ? '' : 's'}`
+                                    : 'N/A'}
+                                </p>
                              </div>
                              <div>
                                 <p className="text-xs text-slate-500 font-medium">Emergency Contact</p>

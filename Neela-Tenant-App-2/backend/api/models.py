@@ -39,29 +39,34 @@ class Tenant(models.Model):
 
     def calculate_balance(self):
         """
-        Calculate current balance based on:
-        - Rent amount (what tenant owes)
-        - Deposit paid (reduces balance)
-        - Payments received (reduce balance)
-        - Pending charges (e.g. late fees) increase balance
-        
-        Balance = Rent Amount - Deposit - Total Paid + Total Pending Charges
-        Positive balance = Tenant owes money
-        Negative balance = Tenant has overpaid/credit
+        Balance = Rent Amount + Unpaid Security Deposit - Total Paid + Total Pending Charges
+
+        Security deposit is NOT assumed paid. It stays owed until there is a Paid
+        payment with type 'Deposit'. Positive balance = tenant owes money.
         """
         from decimal import Decimal
         from django.db.models import Sum
-        
+
         total_paid = self.payments.filter(status='Paid').aggregate(
             total=Sum('amount')
         )['total'] or Decimal('0')
         total_pending_charges = self.payments.filter(status='Pending').aggregate(
             total=Sum('amount')
         )['total'] or Decimal('0')
-        
-        balance = self.rent_amount - self.deposit - total_paid + total_pending_charges
-        
+
+        deposit_recorded = self.payments.filter(
+            type='Deposit', status__in=['Paid', 'Pending']
+        ).exists()
+        unpaid_deposit = Decimal('0') if deposit_recorded else (self.deposit or Decimal('0'))
+
+        balance = self.rent_amount + unpaid_deposit - total_paid + total_pending_charges
         return balance
+
+    def deposit_is_paid(self) -> bool:
+        return self.payments.filter(status='Paid', type='Deposit').exists()
+
+    def deposit_payment_pending(self) -> bool:
+        return self.payments.filter(status='Pending', type='Deposit').exists()
     
     def update_balance(self):
         """Update the balance field with the calculated value"""

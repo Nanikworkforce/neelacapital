@@ -43,6 +43,8 @@ export interface ApplicationData {
   petCount?: string;
   petsWhich?: string;
   desiredMoveInDate?: string;
+  /** Preferred lease length in months (regular rentals; rent still billed monthly). */
+  desiredLeaseMonths?: number;
   emergencyContact?: string;
   additionalNotes?: string;
   certificationAgreed?: boolean;
@@ -536,6 +538,8 @@ export interface ApplicationForm {
   petCount: string;
   petsWhich: string;
   desiredMoveInDate: string;
+  /** Preferred stay length in months (1–24+). Does not change monthly rent billing. */
+  desiredLeaseMonths: string;
   emergencyContactName: string;
   emergencyContactRelationship: string;
   emergencyContactPhone: string;

@@ -29,6 +29,10 @@ export interface PaymentModalProps {
   tenantId?: string;
   renderPaymentInstructions: (method: string) => React.ReactNode;
   onSubmitPaymentWithProof?: (data: SubmitPaymentWithProofData) => Promise<void>;
+  /** When set, modal collects this fixed amount as a Deposit (or other) payment. */
+  paymentType?: 'Rent' | 'Deposit' | 'Late Fee' | 'Application Fee';
+  fixedAmount?: number;
+  paymentLabel?: string;
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
@@ -41,6 +45,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   tenantId,
   renderPaymentInstructions,
   onSubmitPaymentWithProof,
+  paymentType = 'Rent',
+  fixedAmount,
+  paymentLabel,
 }) => {
   const [modalMethod, setModalMethod] = useState<string | null>(null);
   const [proofFiles, setProofFiles] = useState<File[]>([]);
@@ -55,6 +62,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     message: '',
     type: 'success' as 'success' | 'error' | 'info' | 'warning',
   });
+
+  const amountDue = typeof fixedAmount === 'number' && fixedAmount > 0 ? fixedAmount : residentBalance;
+  const resolvedType = paymentType || 'Rent';
+  const amountHeading = paymentLabel || (resolvedType === 'Deposit' ? 'Security Deposit Due' : 'Total Amount Due');
 
   const resetForm = () => {
     setProofFiles([]);
@@ -91,9 +102,12 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         <div className="p-6 space-y-6">
            {!modalMethod && (
                <div className="text-center">
-                 <p className="text-sm text-slate-600">Total Amount Due</p>
-                 <p className="text-4xl font-bold text-slate-800 mt-1">${residentBalance}.00</p>
-                 {daysUntilDue < 0 && <span className="inline-block mt-2 px-2 py-1 bg-rose-100 text-rose-700 text-xs font-bold rounded">Includes Late Fees</span>}
+                 <p className="text-sm text-slate-600">{amountHeading}</p>
+                 <p className="text-4xl font-bold text-slate-800 mt-1">${amountDue}.00</p>
+                 {resolvedType === 'Deposit' && (
+                   <span className="inline-block mt-2 px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">Security Deposit</span>
+                 )}
+                 {resolvedType !== 'Deposit' && daysUntilDue < 0 && <span className="inline-block mt-2 px-2 py-1 bg-rose-100 text-rose-700 text-xs font-bold rounded">Includes Late Fees</span>}
                </div>
            )}
 
@@ -106,7 +120,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                             <CreditCard className="w-4 h-4 mr-2 text-indigo-600"/>}
                            {modalMethod}
                        </div>
-                       <span className="text-sm font-bold text-slate-900">${residentBalance}.00</span>
+                       <span className="text-sm font-bold text-slate-900">${amountDue}.00</span>
                    </div>
                    {renderPaymentInstructions(modalMethod)}
                    <div className="pt-4 border-t border-slate-200">
@@ -124,16 +138,16 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                      {proofFiles.length > 0 && <p className="mt-1 text-xs text-slate-500">{proofFiles.length} file(s) selected</p>}
                      <button
                        type="button"
-                       disabled={!tenantId || !onSubmitPaymentWithProof || isSubmitting || residentBalance <= 0}
+                       disabled={!tenantId || !onSubmitPaymentWithProof || isSubmitting || amountDue <= 0}
                        onClick={async () => {
-                         if (!tenantId || !onSubmitPaymentWithProof || residentBalance <= 0) return;
+                         if (!tenantId || !onSubmitPaymentWithProof || amountDue <= 0) return;
                          setIsSubmitting(true);
                          setSubmitError(null);
                          try {
                            await onSubmitPaymentWithProof({
-                             amount: residentBalance,
+                             amount: amountDue,
                              method: modalMethod,
-                             type: 'Rent',
+                             type: resolvedType,
                              date: new Date().toISOString().split('T')[0],
                              proofFiles,
                            });
@@ -264,16 +278,16 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   {proofFiles.length > 0 && <p className="mt-1 text-xs text-slate-500">{proofFiles.length} file(s) selected</p>}
                 </div>
                 <button 
-                  disabled={!tenantId || !onSubmitPaymentWithProof || isSubmitting || residentBalance <= 0}
+                  disabled={!tenantId || !onSubmitPaymentWithProof || isSubmitting || amountDue <= 0}
                   onClick={async () => {
-                    if (!tenantId || !onSubmitPaymentWithProof || residentBalance <= 0) return;
+                    if (!tenantId || !onSubmitPaymentWithProof || amountDue <= 0) return;
                     setIsSubmitting(true);
                     setSubmitError(null);
                     try {
                       await onSubmitPaymentWithProof({
-                        amount: residentBalance,
+                        amount: amountDue,
                         method: manualPaymentType,
-                        type: 'Rent',
+                        type: resolvedType,
                         reference: manualReference || undefined,
                         date: manualDate,
                         proofFiles,
@@ -684,6 +698,12 @@ export const usePayments = (currentTenant: Tenant | null, tenantId?: string): Us
       reference: data.reference,
       proofFiles: data.proofFiles,
     });
+    try {
+      const allPayments = await api.getPayments();
+      setPayments(allPayments.filter((p) => p.tenantId === String(tenantIdToUse)));
+    } catch {
+      /* ignore refresh errors */
+    }
   };
 
   const downloadReceipt = (paymentId: string) => {

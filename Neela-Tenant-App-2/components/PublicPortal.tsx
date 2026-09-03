@@ -129,6 +129,37 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
     submitPaymentWithProof,
   } = usePayments(currentTenant, tenantId);
 
+  const [paymentModalMode, setPaymentModalMode] = useState<'rent' | 'deposit'>('rent');
+  const depositAmount = currentTenant ? parseFloat(String(currentTenant.deposit || 0)) : 0;
+  const hasPaidDeposit = payments.some((p) => p.type === 'Deposit' && p.status === 'Paid');
+  const hasPendingDeposit = payments.some((p) => p.type === 'Deposit' && p.status === 'Pending');
+  const needsDepositPayment =
+    !!currentTenant &&
+    depositAmount > 0 &&
+    !hasPaidDeposit &&
+    (userStatus === 'resident' || currentTenant.status === 'Active' || currentTenant.status === 'Approved');
+
+  const openDepositPayment = () => {
+    setPaymentModalMode('deposit');
+    setManualPaymentMode(false);
+    setShowPaymentModal(true);
+  };
+  const openRentPayment = () => {
+    setPaymentModalMode('rent');
+    setShowPaymentModal(true);
+  };
+
+  const handlePaymentProofSubmit = async (data: Parameters<typeof submitPaymentWithProof>[0]) => {
+    await submitPaymentWithProof(data);
+    setPaymentModalMode('rent');
+    try {
+      const me = await api.getMyTenant();
+      if (me) setCurrentTenant(me);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const handleSendContactMessage = async () => {
     const msg = contactMessage.trim();
     if (!msg) return;
@@ -891,14 +922,20 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
             {showPaymentModal && (
               <PaymentModal
                 showPaymentModal={showPaymentModal}
-                setShowPaymentModal={setShowPaymentModal}
+                setShowPaymentModal={(show) => {
+                  setShowPaymentModal(show);
+                  if (!show) setPaymentModalMode('rent');
+                }}
                 manualPaymentMode={manualPaymentMode}
                 setManualPaymentMode={setManualPaymentMode}
                 residentBalance={residentBalance}
                 daysUntilDue={daysUntilDue}
                 tenantId={currentTenant?.id || tenantId}
                 renderPaymentInstructions={renderPaymentInstructionsWrapper}
-                onSubmitPaymentWithProof={submitPaymentWithProof}
+                onSubmitPaymentWithProof={handlePaymentProofSubmit}
+                paymentType={paymentModalMode === 'deposit' ? 'Deposit' : 'Rent'}
+                fixedAmount={paymentModalMode === 'deposit' ? depositAmount : undefined}
+                paymentLabel={paymentModalMode === 'deposit' ? 'Security Deposit Due' : undefined}
               />
             )}
             
@@ -1048,6 +1085,32 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
 
                 {activeTab === 'overview' && (
                   <div className="space-y-8 animate-fadeIn">
+                    {needsDepositPayment && (
+                      <div className="p-4 sm:p-5 lg:p-6 rounded-xl sm:rounded-2xl border-l-4 border-indigo-500 bg-indigo-50/90 text-indigo-950 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 backdrop-blur-sm">
+                        <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+                          <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 flex-shrink-0 text-indigo-600" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-base sm:text-lg">
+                              {hasPendingDeposit ? 'Security deposit proof under review' : 'Security deposit required'}
+                            </p>
+                            <p className="text-xs sm:text-sm opacity-90 mt-1">
+                              {hasPendingDeposit
+                                ? `We received your proof for $${depositAmount.toLocaleString()}. An admin will confirm once verified — the lease does not treat this as paid until then.`
+                                : `Your lease lists a security deposit of $${depositAmount.toLocaleString()}. It is not marked paid until you submit proof and an admin confirms it.`}
+                            </p>
+                          </div>
+                        </div>
+                        {!hasPendingDeposit && (
+                          <button
+                            type="button"
+                            onClick={openDepositPayment}
+                            className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm w-full sm:w-auto"
+                          >
+                            Pay deposit
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {daysUntilDue <= 3 && residentBalance > 0 && (
                         <div
                         data-onboarding="rent-alert"
@@ -1071,7 +1134,7 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
                             </div>
                           </div>
                         <button 
-                          onClick={() => { setActiveTab('payments'); setShowPaymentModal(true); }} 
+                          onClick={() => { setActiveTab('payments'); openRentPayment(); }} 
                           disabled={residentBalance === 0}
                           className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-xs sm:text-sm font-bold border transition-all duration-200 shadow-sm w-full sm:w-auto ${
                             residentBalance === 0 
@@ -1095,7 +1158,7 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
                         <p className="text-3xl sm:text-4xl font-bold text-gray-900 mb-1 sm:mb-2">${residentBalance}.00</p>
                         <p className="text-xs sm:text-sm text-gray-500 mb-4 sm:mb-6">Includes rent & utilities</p>
                         <button 
-                          onClick={() => setShowPaymentModal(true)} 
+                          onClick={openRentPayment} 
                           disabled={residentBalance === 0}
                           className={`w-full py-2.5 sm:py-3 lg:py-3.5 rounded-lg sm:rounded-xl font-semibold transition-all duration-300 text-sm sm:text-base ${
                             residentBalance === 0 
@@ -1332,7 +1395,7 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
                               </div>
                             </div>
                             <button 
-                              onClick={() => setShowPaymentModal(true)} 
+                              onClick={openRentPayment} 
                               disabled={residentBalance === 0}
                               className={`w-full mt-6 sm:mt-8 py-2.5 sm:py-3 lg:py-3.5 font-bold rounded-lg sm:rounded-xl transition-all duration-300 shadow-lg text-sm sm:text-base ${
                                 residentBalance === 0 

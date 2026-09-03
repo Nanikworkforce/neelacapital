@@ -723,6 +723,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                        <th className="px-6 py-3 font-medium">Date</th>
                        <th className="px-6 py-3 font-medium">Tenant</th>
                        <th className="px-6 py-3 font-medium">Method</th>
+                       <th className="px-6 py-3 font-medium">Type</th>
                        <th className="px-6 py-3 font-medium">Amount</th>
                        <th className="px-6 py-3 font-medium">Proof</th>
                        <th className="px-6 py-3 font-medium text-right">Action</th>
@@ -734,6 +735,11 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                           <td className="px-6 py-4 text-slate-600">{formatDateMMDDYYYY(pay.date)}</td>
                           <td className="px-6 py-4 font-medium text-slate-800">{paymentTenantName(pay)}</td>
                           <td className="px-6 py-4 text-slate-600">{pay.method}</td>
+                          <td className="px-6 py-4">
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${pay.type === 'Deposit' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>
+                              {pay.type}
+                            </span>
+                          </td>
                           <td className="px-6 py-4 font-bold text-slate-800">${pay.amount}</td>
                           <td className="px-6 py-4">
                              <div className="flex flex-wrap gap-2">
