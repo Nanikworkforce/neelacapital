@@ -1887,75 +1887,61 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
             logger.error(f"Error stamping PDF: {e}", exc_info=True)
             return Response({'error': f'Failed to stamp PDF: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        filename = f"signed_lease_{legal_doc.tenant_id}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        from .lease_signing import (
+            STATUS_AWAITING_LANDLORD,
+            STATUS_SIGNED,
+            complete_landlord_signature,
+            complete_tenant_signature,
+            save_stamped_pdf,
+        )
+        from .models import LeaseSigningToken as LST
+
+        signing_token = get_valid_signing_token(raw_token)
+        if signing_token and signing_token.legal_document_id == legal_doc.id:
+            party = signing_token.role or LST.ROLE_TENANT
+        elif legal_doc.status == STATUS_AWAITING_LANDLORD and bool(values.get('landlord_signature')):
+            party = LST.ROLE_LANDLORD
+        else:
+            party = LST.ROLE_TENANT
+
+        filename = (
+            f"{'landlord' if party == LST.ROLE_LANDLORD else 'tenant'}_signed_lease_"
+            f"{legal_doc.tenant_id}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        )
+        save_stamped_pdf(legal_doc, signed_pdf_bytes, filename)
+
         request_obj = request._request if hasattr(request, '_request') else request
         audit = {
             'signed_at': timezone.now().isoformat(),
             'tenant_id': legal_doc.tenant_id,
+            'party': party,
             'ip': request_obj.META.get('REMOTE_ADDR'),
             'user_agent': (request_obj.META.get('HTTP_USER_AGENT') or '')[:500],
         }
 
-        if hasattr(settings, 'CLOUDINARY_STORAGE') and settings.CLOUDINARY_STORAGE.get('CLOUD_NAME'):
-            try:
-                import cloudinary.uploader
-                if not cloudinary.config().api_secret:
-                    cloudinary.config(
-                        cloud_name=settings.CLOUDINARY_STORAGE['CLOUD_NAME'],
-                        api_key=settings.CLOUDINARY_STORAGE['API_KEY'],
-                        api_secret=settings.CLOUDINARY_STORAGE['API_SECRET'],
-                    )
-                public_id_new = f"media/signed_leases/{filename}"
-                if public_id_new.lower().endswith('.pdf'):
-                    public_id_new = public_id_new[:-4]
-                upload_result = cloudinary.uploader.upload(
-                    signed_pdf_bytes,
-                    resource_type="raw",
-                    public_id=public_id_new,
-                    type="upload",
-                    format="pdf",
-                )
-                legal_doc.pdf_file.name = upload_result.get('public_id') or public_id_new
-            except Exception as e:
-                logger.error(f"Cloudinary upload failed for signed PDF: {e}")
-                legal_doc.pdf_file.save(filename, ContentFile(signed_pdf_bytes), save=False)
-        else:
-            legal_doc.pdf_file.save(filename, ContentFile(signed_pdf_bytes), save=False)
-
-        legal_doc.status = 'Signed'
-        legal_doc.signed_at = timezone.now()
-        legal_doc.signing_audit = audit
-        legal_doc.save()
-
-        signing_token = get_valid_signing_token(raw_token)
         if signing_token and signing_token.legal_document_id == legal_doc.id:
             signing_token.used_at = timezone.now()
             signing_token.save(update_fields=['used_at'])
 
-        tenant = legal_doc.tenant
-        tenant.lease_status = 'Signed'
-        # Auto-activate resident once signing is completed (tenant-only or tenant+landlord flow).
-        if tenant.status != 'Active':
-            tenant.status = 'Active'
-            tenant.save(update_fields=['lease_status', 'status'])
-        else:
-            tenant.save(update_fields=['lease_status'])
+        if party == LST.ROLE_TENANT:
+            if legal_doc.status in (STATUS_AWAITING_LANDLORD, STATUS_SIGNED):
+                return Response({'error': 'Tenant has already signed this lease.'}, status=status.HTTP_400_BAD_REQUEST)
+            complete_tenant_signature(legal_doc, audit)
+            serializer = self.get_serializer(legal_doc)
+            data = dict(serializer.data)
+            data['pdf_url'] = request_obj.build_absolute_uri(f"/api/legal-documents/{legal_doc.id}/pdf/")
+            data['status'] = STATUS_AWAITING_LANDLORD
+            data['message'] = 'Tenant signature recorded. Landlord has been notified to counter-sign.'
+            return Response(data, status=status.HTTP_200_OK)
 
-        # Send confirmation emails to tenant and admin
-        try:
-            from .email_service import send_lease_signed_confirmation
-            try:
-                run_async(send_lease_signed_confirmation, legal_doc.id)
-            except Exception:
-                send_lease_signed_confirmation(legal_doc.id)
-        except Exception as e:
-            logger.error(f"Failed to send signed confirmation email: {e}")
-
-        pdf_url = request_obj.build_absolute_uri(f"/api/legal-documents/{legal_doc.id}/pdf/")
+        if legal_doc.status != STATUS_AWAITING_LANDLORD:
+            return Response({'error': 'Tenant must sign before the landlord.'}, status=status.HTTP_400_BAD_REQUEST)
+        complete_landlord_signature(legal_doc, audit)
         serializer = self.get_serializer(legal_doc)
         data = dict(serializer.data)
-        data['pdf_url'] = pdf_url
+        data['pdf_url'] = request_obj.build_absolute_uri(f"/api/legal-documents/{legal_doc.id}/pdf/")
         data['signed_at'] = legal_doc.signed_at.isoformat() if legal_doc.signed_at else None
+        data['status'] = STATUS_SIGNED
         return Response(data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'])
@@ -2155,7 +2141,18 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
             return Response({'error': 'No PDF file available. Generate the lease first.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if legal_doc.status == 'Signed':
-            return Response({'error': 'This lease is already signed.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'This lease is already fully signed.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if legal_doc.status == 'AwaitingLandlord':
+            return Response(
+                {
+                    'error': (
+                        'The tenant has already signed. Check your email for the landlord '
+                        'signing link instead of resending the tenant link.'
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         tenant_email = (getattr(legal_doc.tenant, 'email', None) or '').strip()
         if not tenant_email:
@@ -2171,16 +2168,19 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
 
         from datetime import timedelta
         from .models import LeaseSigningToken
+        from .lease_signing import create_signing_token
 
-        # Create a fresh token (invalidate previous one by deleting it)
-        LeaseSigningToken.objects.filter(legal_document=legal_doc).delete()
-        signing_token = LeaseSigningToken.objects.create(
-            legal_document=legal_doc,
-            expires_at=timezone.now() + timedelta(days=7),
-        )
+        # Create a fresh tenant token (invalidate previous tenant token for this doc)
+        signing_token = create_signing_token(legal_doc, LeaseSigningToken.ROLE_TENANT)
 
         # Send lease-ready email first — only mark Sent if delivery succeeds.
-        from .email_service import _send_lease_ready_for_signing, get_frontend_url
+        from .email_service import (
+            _send_lease_ready_for_signing,
+            get_frontend_url,
+            run_async,
+            send_admin_lease_sent_counter_sign_notice,
+            _send_admin_lease_sent_counter_sign_notice,
+        )
         signing_url = f"{get_frontend_url()}/sign-lease?token={signing_token.token}"
         try:
             sent_to = _send_lease_ready_for_signing(legal_doc.id, token=str(signing_token.token))
@@ -2205,6 +2205,15 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         legal_doc.tenant.lease_status = 'Sent'
         legal_doc.tenant.save(update_fields=['lease_status'])
 
+        # Remind admin they will counter-sign by email after the tenant signs.
+        try:
+            run_async(send_admin_lease_sent_counter_sign_notice, legal_doc.id)
+        except Exception:
+            try:
+                _send_admin_lease_sent_counter_sign_notice(legal_doc.id)
+            except Exception as e:
+                logger.warning(f"Could not send admin counter-sign notice: {e}")
+
         serializer = self.get_serializer(legal_doc)
         return Response(
             {
@@ -2212,6 +2221,10 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
                 'signing_token': str(signing_token.token),
                 'sent_to': tenant_email,
                 'signing_url': signing_url,
+                'admin_notice': (
+                    'Lease sent to the tenant. After they sign, check your email for the '
+                    'landlord signing link. Both signatures are required before move-in.'
+                ),
             },
             status=status.HTTP_200_OK,
         )
@@ -2849,11 +2862,23 @@ class EmailTestViewSet(viewsets.ViewSet):
 @permission_classes([AllowAny])
 def sign_lease_by_token(request):
     """
-    GET  /api/sign-lease/?token=<uuid>  — validate token, return signing metadata
-    POST /api/sign-lease/?token=<uuid>  — submit signed fields, stamp PDF, mark Signed
+    GET  /api/sign-lease/?token=<uuid>  — validate token, return signing metadata for that party
+    POST /api/sign-lease/?token=<uuid>  — submit that party's signature
 
-    No login required. The token is a one-time link sent via email by the admin.
+    Tenant token → stamps tenant fields, status AwaitingLandlord, emails landlord.
+    Landlord token → stamps landlord fields, status Signed, tenant Approved, both-parties emails.
+    Active resident status is only set later via Finalize Move-In.
     """
+    from .lease_signing import (
+        STATUS_AWAITING_LANDLORD,
+        STATUS_SIGNED,
+        complete_landlord_signature,
+        complete_tenant_signature,
+        fields_for_role,
+        stamp_and_save,
+    )
+    from .models import LeaseSigningToken as LST
+
     raw_token = request.query_params.get('token') or request.data.get('token')
     if not raw_token:
         return Response({'error': 'token is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -2869,31 +2894,30 @@ def sign_lease_by_token(request):
         return Response({'error': 'This signing link has already been used or has expired.'}, status=status.HTTP_410_GONE)
 
     legal_doc = signing_token.legal_document
+    role = signing_token.role or LST.ROLE_TENANT
 
     if request.method == 'GET':
+        if role == LST.ROLE_TENANT and legal_doc.status in (STATUS_AWAITING_LANDLORD, STATUS_SIGNED):
+            return Response(
+                {'error': 'This lease has already been signed by the tenant.'},
+                status=status.HTTP_410_GONE,
+            )
+        if role == LST.ROLE_LANDLORD and legal_doc.status == STATUS_SIGNED:
+            return Response(
+                {'error': 'This lease has already been fully signed.'},
+                status=status.HTTP_410_GONE,
+            )
+        if role == LST.ROLE_LANDLORD and legal_doc.status not in (STATUS_AWAITING_LANDLORD, STATUS_SIGNED):
+            return Response(
+                {'error': 'The tenant has not signed this lease yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         request_obj = request._request if hasattr(request, '_request') else request
         pdf_proxy_url = request_obj.build_absolute_uri(
             f"/api/legal-documents/{legal_doc.id}/pdf/?token={raw_token}"
         )
-
-        fields = []
-        if (legal_doc.type or '').lower() == 'lease agreement':
-            fields = [
-                {"id": "agree_terms", "type": "checkbox", "label": "I agree to the terms",
-                 "page": 1, "x": 0.12, "y": 0.72, "width": 0.04, "height": 0.04, "required": True},
-                {"id": "agree_rules", "type": "checkbox", "label": "I agree to community rules",
-                 "page": 1, "x": 0.12, "y": 0.76, "width": 0.04, "height": 0.04, "required": True},
-                {"id": "tenant_initials", "type": "text", "label": "Initials",
-                 "page": 1, "x": 0.55, "y": 0.72, "width": 0.12, "height": 0.04, "required": True},
-                {"id": "tenant_signature", "type": "signature", "label": "Tenant Signature",
-                 "page": 1, "x": 0.12, "y": 0.82, "width": 0.35, "height": 0.07, "required": True},
-                {"id": "tenant_signature_date", "type": "text", "label": "Date",
-                 "page": 1, "x": 0.52, "y": 0.82, "width": 0.15, "height": 0.05, "required": True},
-                {"id": "landlord_signature", "type": "signature", "label": "Landlord Signature",
-                 "page": 1, "x": 0.12, "y": 0.9, "width": 0.35, "height": 0.07, "required": False},
-                {"id": "landlord_signature_date", "type": "text", "label": "Date",
-                 "page": 1, "x": 0.52, "y": 0.9, "width": 0.15, "height": 0.05, "required": False},
-            ]
+        fields = fields_for_role(role) if (legal_doc.type or '').lower() == 'lease agreement' else []
 
         return Response({
             'id': legal_doc.id,
@@ -2902,12 +2926,21 @@ def sign_lease_by_token(request):
             'property_unit': legal_doc.tenant.property_unit,
             'type': legal_doc.type,
             'status': legal_doc.status,
+            'party': role,
+            'tenant_signed': legal_doc.status in (STATUS_AWAITING_LANDLORD, STATUS_SIGNED),
             'pdf_url': pdf_proxy_url,
             'generated_content': legal_doc.generated_content or '',
             'fields': fields,
         }, status=status.HTTP_200_OK)
 
-    # POST — submit signed values
+    # POST — submit signed values for this party
+    if role == LST.ROLE_TENANT and legal_doc.status in (STATUS_AWAITING_LANDLORD, STATUS_SIGNED):
+        return Response({'error': 'Tenant has already signed this lease.'}, status=status.HTTP_400_BAD_REQUEST)
+    if role == LST.ROLE_LANDLORD and legal_doc.status == STATUS_SIGNED:
+        return Response({'error': 'Lease is already fully signed.'}, status=status.HTTP_400_BAD_REQUEST)
+    if role == LST.ROLE_LANDLORD and legal_doc.status != STATUS_AWAITING_LANDLORD:
+        return Response({'error': 'Tenant must sign before the landlord.'}, status=status.HTTP_400_BAD_REQUEST)
+
     values = request.data.get('values')
     fields = request.data.get('fields')
     if not isinstance(values, dict):
@@ -2915,7 +2948,6 @@ def sign_lease_by_token(request):
     if not isinstance(fields, list):
         return Response({'error': 'fields must be an array'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Download original PDF
     pdf_bytes = None
     if hasattr(settings, 'CLOUDINARY_STORAGE') and settings.CLOUDINARY_STORAGE.get('CLOUD_NAME'):
         public_id = (legal_doc.pdf_file.name or '').lstrip('/')
@@ -2930,91 +2962,45 @@ def sign_lease_by_token(request):
     if not pdf_bytes:
         return Response({'error': 'Could not retrieve PDF'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    # Stamp PDF
     try:
-        signed_pdf_bytes = stamp_signed_pdf(pdf_bytes, fields, values)
+        filename = (
+            f"{'landlord' if role == LST.ROLE_LANDLORD else 'tenant'}_signed_lease_"
+            f"{legal_doc.tenant_id}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        )
+        stamp_and_save(legal_doc, pdf_bytes, fields, values, filename)
     except Exception as e:
         logger.error(f"Error stamping PDF (token signing): {e}", exc_info=True)
         return Response({'error': f'Failed to stamp PDF: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    filename = f"signed_lease_{legal_doc.tenant_id}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     request_obj = request._request if hasattr(request, '_request') else request
-    # Collect non-signature inline field values filled in by the tenant
-    inline_filled = {
-        k: v for k, v in values.items()
-        if (k.startswith('inline_') or k.startswith('checkbox_') or k.startswith('p'))
-        and k not in ('tenant_signature', 'landlord_signature')
-        and v not in (None, '', False)
-    }
     audit = {
         'signed_at': timezone.now().isoformat(),
         'tenant_id': legal_doc.tenant_id,
+        'party': role,
         'ip': request_obj.META.get('REMOTE_ADDR'),
         'user_agent': (request_obj.META.get('HTTP_USER_AGENT') or '')[:500],
         'method': 'token_link',
     }
-    if inline_filled:
-        audit['filled_fields'] = inline_filled
 
-    # Save signed PDF
-    if hasattr(settings, 'CLOUDINARY_STORAGE') and settings.CLOUDINARY_STORAGE.get('CLOUD_NAME'):
-        try:
-            import cloudinary.uploader
-            if not cloudinary.config().api_secret:
-                cloudinary.config(
-                    cloud_name=settings.CLOUDINARY_STORAGE['CLOUD_NAME'],
-                    api_key=settings.CLOUDINARY_STORAGE['API_KEY'],
-                    api_secret=settings.CLOUDINARY_STORAGE['API_SECRET'],
-                )
-            public_id_new = f"media/signed_leases/{filename}"
-            if public_id_new.lower().endswith('.pdf'):
-                public_id_new = public_id_new[:-4]
-            upload_result = cloudinary.uploader.upload(
-                signed_pdf_bytes,
-                resource_type="raw",
-                public_id=public_id_new,
-                type="upload",
-                format="pdf",
-            )
-            legal_doc.pdf_file.name = upload_result.get('public_id') or public_id_new
-        except Exception as e:
-            logger.error(f"Cloudinary upload failed for token-signed PDF: {e}")
-            legal_doc.pdf_file.save(filename, ContentFile(signed_pdf_bytes), save=False)
-    else:
-        legal_doc.pdf_file.save(filename, ContentFile(signed_pdf_bytes), save=False)
-
-    legal_doc.status = 'Signed'
-    legal_doc.signed_at = timezone.now()
-    legal_doc.signing_audit = audit
-    legal_doc.save()
-
-    # Mark token as used
     signing_token.used_at = timezone.now()
     signing_token.save(update_fields=['used_at'])
 
-    # Update tenant lease status
-    tenant = legal_doc.tenant
-    tenant.lease_status = 'Signed'
-    # Auto-activate resident once signing is completed (tenant-only or tenant+landlord flow).
-    if tenant.status != 'Active':
-        tenant.status = 'Active'
-        tenant.save(update_fields=['lease_status', 'status'])
-    else:
-        tenant.save(update_fields=['lease_status'])
+    if role == LST.ROLE_TENANT:
+        complete_tenant_signature(legal_doc, audit)
+        pdf_url = request_obj.build_absolute_uri(f"/api/legal-documents/{legal_doc.id}/pdf/")
+        return Response({
+            'status': STATUS_AWAITING_LANDLORD,
+            'party': role,
+            'message': 'Tenant signature recorded. Landlord has been notified to counter-sign.',
+            'pdf_url': pdf_url,
+        }, status=status.HTTP_200_OK)
 
-    # Send confirmation emails
-    try:
-        from .email_service import send_lease_signed_confirmation
-        try:
-            run_async(send_lease_signed_confirmation, legal_doc.id)
-        except Exception:
-            send_lease_signed_confirmation(legal_doc.id)
-    except Exception as e:
-        logger.error(f"Failed to send signed confirmation after token signing: {e}")
-
+    complete_landlord_signature(legal_doc, audit)
     pdf_url = request_obj.build_absolute_uri(f"/api/legal-documents/{legal_doc.id}/pdf/")
     return Response({
-        'status': 'Signed',
+        'status': STATUS_SIGNED,
+        'party': role,
+        'message': 'Lease fully signed by both parties.',
         'pdf_url': pdf_url,
-        'signed_at': legal_doc.signed_at.isoformat(),
+        'signed_at': legal_doc.signed_at.isoformat() if legal_doc.signed_at else None,
     }, status=status.HTTP_200_OK)

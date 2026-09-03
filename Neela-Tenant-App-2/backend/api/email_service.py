@@ -1467,9 +1467,10 @@ def _send_lease_signed_confirmation(legal_document_id):
         )
 
 
-def _send_landlord_lease_ready_to_sign(legal_document_id: int):
+def _send_landlord_lease_ready_to_sign(legal_document_id: int, token: str | None = None):
     """
-    Internal function to notify the landlord/admin that the tenant has signed and landlord should now sign.
+    Notify landlord/admin that the tenant has signed and they must counter-sign.
+    Includes a one-time signing link when `token` is provided.
     """
     from .models import LegalDocument
 
@@ -1479,49 +1480,128 @@ def _send_landlord_lease_ready_to_sign(legal_document_id: int):
         logger.error(f"Legal document with ID {legal_document_id} not found for landlord signing notification.")
         return
 
-    landlord_email = getattr(settings, 'LANDLORD_EMAIL', None)
-    landlord_name = getattr(settings, 'LANDLORD_NAME', 'Landlord')
-    if not landlord_email:
-        logger.warning("LANDLORD_EMAIL not configured; cannot send landlord signing notification.")
+    landlord_name = getattr(settings, 'LANDLORD_NAME', None) or 'Landlord'
+    recipients = []
+    landlord_email = (getattr(settings, 'LANDLORD_EMAIL', None) or '').strip()
+    if landlord_email:
+        recipients.append(landlord_email)
+    else:
+        recipients = get_admin_emails()
+
+    if not recipients:
+        logger.warning("No landlord/admin emails configured; cannot send landlord signing notification.")
         return
 
-    subject = f"Tenant Signed Lease — Finalize Landlord Signature — {legal_doc.tenant.property_unit}"
+    signing_url = None
+    if token:
+        signing_url = f"{get_frontend_url()}/sign-lease?token={token}"
+
+    subject = f"Action required: Sign lease for {legal_doc.tenant.name} — {legal_doc.tenant.property_unit}"
 
     message = f"""
-    Tenant Signed Lease — Landlord Signature Required
+Tenant Signed — Landlord Signature Required
 
-    Hello {landlord_name},
+Hello {landlord_name},
 
-    The tenant has completed their signature for the lease agreement.
-        
-        Tenant: {legal_doc.tenant.name}
-        Property Unit: {legal_doc.tenant.property_unit}
-        
-    Please complete the landlord signature step for this lease in your internal workflow.
-        
-    Thanks,
-    Neela Property Management Team
+{legal_doc.tenant.name} has signed the lease for {legal_doc.tenant.property_unit}.
+
+Their signature is already on the document. Open the link below to review the tenant-signed lease and add the landlord signature.
+
+"""
+    if signing_url:
+        message += f"Sign as landlord:\n{signing_url}\n\n"
+    else:
+        message += "Open the admin portal lease for this applicant to complete the landlord signature.\n\n"
+
+    message += """Only after you sign will both parties be marked complete and the tenant receive their account setup email.
+
+Thanks,
+Neela Property Management Team
+"""
+
+    html_message = f"""
+    <p>Hello {landlord_name},</p>
+    <p><strong>{legal_doc.tenant.name}</strong> has signed the lease for <strong>{legal_doc.tenant.property_unit}</strong>.</p>
+    <p>Their signature is already on the document. Please review it and add the landlord signature.</p>
+    """
+    if signing_url:
+        html_message += f"""
+        <p style="margin:24px 0;">
+          <a href="{signing_url}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">
+            Review &amp; Sign as Landlord
+          </a>
+        </p>
+        <p style="color:#64748b;font-size:13px;">Or copy this link: {signing_url}</p>
         """
-        
+    html_message += """
+    <p>Only after you sign will both parties be marked complete and the tenant receive their account setup email.</p>
+    """
+
     send_email_with_logging(
-    subject=subject,
-    message=message,
+        subject=subject,
+        message=message,
         from_email=settings.DEFAULT_FROM_EMAIL,
-    recipient_list=[landlord_email],
-    email_type=f"landlord signing notification (document {legal_doc.id})"
+        recipient_list=recipients,
+        html_message=html_message,
+        email_type=f"landlord signing notification (document {legal_doc.id})",
+    )
+
+
+def _send_admin_lease_sent_counter_sign_notice(legal_document_id: int):
+    """Remind admin that after the tenant signs they must check email to counter-sign."""
+    from .models import LegalDocument
+
+    try:
+        legal_doc = LegalDocument.objects.select_related('tenant').get(id=legal_document_id)
+    except LegalDocument.DoesNotExist:
+        return
+
+    recipients = get_admin_emails()
+    if not recipients:
+        return
+
+    subject = f"Lease sent to {legal_doc.tenant.name} — you will counter-sign after they sign"
+    message = f"""
+Lease Sent to Tenant
+
+The lease for {legal_doc.tenant.name} ({legal_doc.tenant.property_unit}) was emailed for signature.
+
+What happens next:
+1. Tenant signs via their email link.
+2. You will receive a separate email with a landlord signing link.
+3. After you sign, both parties are complete, the application is approved in the system, and the tenant gets their account setup email.
+4. Then use Finalize Move-In in the admin portal when they are ready to move in.
+
+Please watch your inbox for the landlord signature request after the tenant signs.
+"""
+    send_email_with_logging(
+        subject=subject,
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
+        email_type=f"admin lease sent counter-sign notice (document {legal_doc.id})",
     )
 
 
 @shared_task
-def send_landlord_lease_ready_to_sign(legal_document_id: int):
+def send_landlord_lease_ready_to_sign(legal_document_id: int, token: str | None = None):
     """
     Celery task to notify landlord/admin to sign after tenant has signed.
     """
     email_backend = getattr(settings, 'EMAIL_BACKEND', 'unknown')
     logger.info(
         f"Celery task executing: send_landlord_lease_ready_to_sign for document {legal_document_id}, using email backend: {email_backend}"
-        )
-    _send_landlord_lease_ready_to_sign(legal_document_id)
+    )
+    _send_landlord_lease_ready_to_sign(legal_document_id, token=token)
+
+
+@shared_task
+def send_admin_lease_sent_counter_sign_notice(legal_document_id: int):
+    email_backend = getattr(settings, 'EMAIL_BACKEND', 'unknown')
+    logger.info(
+        f"Celery task executing: send_admin_lease_sent_counter_sign_notice for document {legal_document_id}, using email backend: {email_backend}"
+    )
+    _send_admin_lease_sent_counter_sign_notice(legal_document_id)
 
 
 

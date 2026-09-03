@@ -216,18 +216,35 @@ class LegalDocument(models.Model):
 
 class LeaseSigningToken(models.Model):
     """
-    One-time token that lets a tenant open and sign their lease without needing
-    to log in first. Created when admin sends a lease. Expires after 7 days.
+    One-time signing link for a lease party (tenant or landlord).
+    Tenant token is created when admin sends the lease; landlord token is created
+    after the tenant signs. Expires after 7 days.
     """
+    ROLE_TENANT = 'tenant'
+    ROLE_LANDLORD = 'landlord'
+    ROLE_CHOICES = [
+        (ROLE_TENANT, 'Tenant'),
+        (ROLE_LANDLORD, 'Landlord'),
+    ]
+
     token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    legal_document = models.OneToOneField(
+    legal_document = models.ForeignKey(
         LegalDocument,
         on_delete=models.CASCADE,
-        related_name='signing_token',
+        related_name='signing_tokens',
     )
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_TENANT)
     created_at = models.DateTimeField(default=timezone.now)
     expires_at = models.DateTimeField()
     used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['legal_document', 'role'],
+                name='uniq_lease_signing_token_doc_role',
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.expires_at:
@@ -240,7 +257,7 @@ class LeaseSigningToken(models.Model):
         return self.used_at is None and timezone.now() < self.expires_at
 
     def __str__(self):
-        return f"SigningToken for doc {self.legal_document_id}"
+        return f"SigningToken({self.role}) for doc {self.legal_document_id}"
 
 
 class Listing(models.Model):

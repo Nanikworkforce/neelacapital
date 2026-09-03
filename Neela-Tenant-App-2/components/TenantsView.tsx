@@ -43,7 +43,7 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
   const [generatedLease, setGeneratedLease] = useState('');
   const [generatedLeaseDoc, setGeneratedLeaseDoc] = useState<any>(null);
   const [isGeneratingLease, setIsGeneratingLease] = useState(false);
-  const [leaseStatus, setLeaseStatus] = useState<'Draft' | 'Sent' | 'Signed'>('Draft');
+  const [leaseStatus, setLeaseStatus] = useState<'Draft' | 'Sent' | 'AwaitingLandlord' | 'Signed'>('Draft');
   const [isSending, setIsSending] = useState(false);
   const [isEditingLease, setIsEditingLease] = useState(false);
   const [editedLeaseContent, setEditedLeaseContent] = useState('');
@@ -82,8 +82,17 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
   const documentPreviewBlobUrlRef = useRef<string | null>(null);
 
   // Filter Lists
-  const residents = tenants.filter(t => t.status !== TenantStatus.APPLICANT && t.status !== TenantStatus.DECLINED);
-  const applicants = tenants.filter(t => t.status === TenantStatus.APPLICANT || t.status === TenantStatus.DECLINED);
+  const residents = tenants.filter(t =>
+    t.status === TenantStatus.ACTIVE ||
+    t.status === TenantStatus.PAST ||
+    t.status === TenantStatus.EVICTION_PENDING
+  );
+  // Keep Approved in Applications until Finalize Move-In (Active)
+  const applicants = tenants.filter(t =>
+    t.status === TenantStatus.APPLICANT ||
+    t.status === TenantStatus.DECLINED ||
+    t.status === TenantStatus.APPROVED
+  );
   const declined = tenants.filter(t => t.status === TenantStatus.DECLINED);
 
   const getStatusColor = (status: TenantStatus) => {
@@ -471,12 +480,15 @@ Landlord                            Tenant
       }
       setGeneratedLeaseDoc(updatedDoc);
       
-      const newStatus = updatedDoc.status || 'Sent';
+      const newStatus = (updatedDoc.status as 'Draft' | 'Sent' | 'AwaitingLandlord' | 'Signed') || 'Draft';
       setLeaseStatus(newStatus);
       
       if (newStatus === 'Signed') {
-         setSuccessMessage("Lease status updated: Signed! Document captured.");
+         setSuccessMessage("Lease fully signed by both parties. Tenant account setup email sent — use Finalize Move-In when ready.");
          // Update tenant list locally to reflect status change
+         if (onTenantsChange) onTenantsChange();
+      } else if (newStatus === 'AwaitingLandlord') {
+         setSuccessMessage("Tenant has signed. Check your email for the landlord signing link.");
          if (onTenantsChange) onTenantsChange();
       }
     } catch (error) {
@@ -592,10 +604,10 @@ Landlord                            Tenant
     setInternalNotes(applicant.applicationData?.internalNotes || '');
     setApplicantModalTab('overview');
     
-    // Reset local state
+    // Reset local state — status comes from the lease document, not tenant.leaseStatus
     setGeneratedLease('');
     setGeneratedLeaseDoc(null);
-    setLeaseStatus(applicant.leaseStatus || 'Draft');
+    setLeaseStatus('Draft');
     
     // Fetch latest lease document info
     fetchLeaseDocument(applicant.id);
@@ -668,15 +680,19 @@ Landlord                            Tenant
     setSuccessMessage(null);
 
     try {
-      const result = await api.sendLeaseInhouse(generatedLeaseDoc.id);
-      const sentTo = result?.sent_to || recipientEmail;
-      setSuccessMessage(`Lease email sent to ${sentTo}. Ask them to check inbox and spam.`);
+      await api.sendLeaseInhouse(generatedLeaseDoc.id);
+      setSuccessMessage(
+        'Lease sent to the tenant. After they sign, check your email for the landlord signing link — both signatures are required before Finalize Move-In.'
+      );
 
       const updatedDoc = await api.getLegalDocuments(selectedApplicant!.id);
       const leaseDocs = updatedDoc.filter((d: any) => d.type === 'Lease Agreement');
       if (leaseDocs.length > 0) {
-        setGeneratedLeaseDoc(leaseDocs[leaseDocs.length - 1]);
-        setLeaseStatus(leaseDocs[leaseDocs.length - 1].status || 'Sent');
+        const latest = leaseDocs[leaseDocs.length - 1];
+        setGeneratedLeaseDoc(latest);
+        setLeaseStatus((latest.status as 'Draft' | 'Sent' | 'AwaitingLandlord' | 'Signed') || 'Sent');
+      } else {
+        setLeaseStatus('Sent');
       }
     } catch (error) {
       const err = error as Error & { signingUrl?: string };
@@ -879,17 +895,19 @@ Landlord                            Tenant
                    {selectedApplicant.name.charAt(0)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-lg sm:text-xl font-bold text-slate-800 truncate">{selectedApplicant.name}</h3>
+                  <h3 className="text-lg sm:text-xl font-bold text-slate-800 truncate">
+                    {(selectedApplicant.name || '').trim().split(/\s+/)[0] || selectedApplicant.name}
+                  </h3>
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1 sm:gap-2 text-xs sm:text-sm text-slate-500">
-                     <span className="truncate">{selectedApplicant.email}</span>
-                     <span className="hidden sm:inline">•</span>
                      <span className="truncate">Applying for: {selectedApplicant.propertyUnit}</span>
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
                  <div className={`px-2.5 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-bold ${getStatusColor(selectedApplicant.status)}`}>
-                    {selectedApplicant.status}
+                    {selectedApplicant.status === TenantStatus.APPROVED && leaseStatus === 'Signed'
+                      ? 'Ready for Move-In'
+                      : selectedApplicant.status}
                  </div>
                  <button onClick={() => setSelectedApplicant(null)} className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full transition-colors" aria-label="Close modal">
                     <X className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -926,12 +944,12 @@ Landlord                            Tenant
                     </button>
                  ))}
 
-                 {/* Action Buttons */}
+                 {/* Action Buttons — dual lease signature = approved in backend; Finalize → Active */}
                  <div className="mt-auto space-y-2 pt-4 sm:pt-6 border-t border-slate-200 hidden sm:block">
                     {leaseStatus === 'Signed' ? (
                        <button 
                          onClick={handleFinalizeMoveIn}
-                         disabled={isSaving}
+                         disabled={isSaving || selectedApplicant.status === TenantStatus.ACTIVE}
                          className="w-full py-2 sm:py-2.5 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 shadow-sm flex items-center justify-center gap-2 disabled:bg-emerald-400 disabled:cursor-not-allowed text-sm"
                        >
                          {isSaving ? (
@@ -945,22 +963,18 @@ Landlord                            Tenant
                          )}
                        </button>
                     ) : (
-                      <>
-                        <button 
-                          onClick={handleApproveApplication}
-                          disabled={isSaving}
-                          className="w-full py-2 sm:py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm flex items-center justify-center gap-2 disabled:bg-indigo-400 disabled:cursor-not-allowed text-sm"
-                        >
-                          {isSaving && processingAction === 'approve' ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" /> Approving...
-                            </>
-                          ) : (
-                            <>
-                              <Check className="w-4 h-4" /> Approve Application
-                            </>
-                          )}
-                        </button>
+                      <button
+                        onClick={() => setApplicantModalTab('lease')}
+                        className="w-full py-2 sm:py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm flex items-center justify-center gap-2 text-sm"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        {leaseStatus === 'AwaitingLandlord'
+                          ? 'Awaiting Landlord Signature'
+                          : leaseStatus === 'Sent'
+                            ? 'Lease Sent — Waiting on Tenant'
+                            : 'Generate & Send Lease'}
+                      </button>
+                    )}
                         <button 
                           onClick={() => {
                             setConfirmModal({
@@ -981,8 +995,6 @@ Landlord                            Tenant
                              </>
                            ) : 'Decline'}
                         </button>
-                      </>
-                    )}
                  </div>
               </div>
 
@@ -1590,12 +1602,14 @@ Landlord                            Tenant
                        <div className="flex items-center justify-between mb-6">
                           <h3 className="font-bold text-slate-800">Lease Generation & Signing</h3>
                           <div className="flex items-center gap-2 flex-wrap">
-                             <span className={`px-3 py-1 rounded-full text-xs font-bold border
-                                ${leaseStatus === 'Draft' ? 'bg-slate-100 text-slate-600 border-slate-200' : 
-                                  leaseStatus === 'Sent' ? 'bg-amber-100 text-amber-700 border-amber-200' : 
-                                  'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
-                                {leaseStatus.toUpperCase()}
-                             </span>
+                             {generatedLeaseDoc && (leaseStatus === 'Sent' || leaseStatus === 'AwaitingLandlord' || leaseStatus === 'Signed') && (
+                               <span className={`px-3 py-1 rounded-full text-xs font-bold border
+                                  ${leaseStatus === 'Sent' ? 'bg-amber-100 text-amber-700 border-amber-200' : 
+                                    leaseStatus === 'AwaitingLandlord' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' :
+                                    'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                                  {leaseStatus === 'AwaitingLandlord' ? 'TENANT SIGNED — AWAITING LANDLORD' : leaseStatus.toUpperCase()}
+                               </span>
+                             )}
                              {generatedLeaseDoc?.signedAt && (
                                <span className="text-xs text-slate-500">
                                  Signed {formatDateMMDDYYYY(generatedLeaseDoc.signedAt)}
@@ -1703,12 +1717,17 @@ Landlord                            Tenant
                                   className="px-4 py-2 text-white rounded-lg text-sm font-bold flex items-center gap-2 shadow-lg bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200 disabled:bg-indigo-400 disabled:cursor-not-allowed"
                                >
                                   {isSending ? <Loader2 className="animate-spin w-4 h-4"/> : <Send className="w-4 h-4"/>}
-                                  {isSending ? 'Sending...' : `Send Lease to ${selectedApplicant.email || 'Tenant'}`}
+                                  {isSending ? 'Sending...' : 'Send Lease'}
                                </button>
                              )}
                              {leaseStatus === 'Sent' && (
                                 <p className="text-xs text-slate-500 px-2">
-                                  Waiting for the tenant to sign via email link.
+                                  Waiting for the tenant to sign. After they sign, check your email to counter-sign as landlord.
+                                </p>
+                             )}
+                             {leaseStatus === 'AwaitingLandlord' && (
+                                <p className="text-xs text-indigo-600 px-2 font-medium">
+                                  Tenant signed. Open the landlord signing link from your email to complete execution.
                                 </p>
                              )}
                              {leaseStatus === 'Draft' && generatedLeaseDoc?.pdfUrl && !isEditingLease && (
@@ -1735,14 +1754,14 @@ Landlord                            Tenant
                        )}
 
                        {/* Lease Status Messages */}
-                       {leaseStatus === 'Sent' && (
+                       {generatedLeaseDoc && leaseStatus === 'Sent' && (
                           <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
                              <div className="flex items-center gap-3">
                                 <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
                                 <div>
-                                   <p className="text-sm font-bold text-blue-800">Waiting for Signature</p>
+                                   <p className="text-sm font-bold text-blue-800">Waiting for tenant signature</p>
                                    <p className="text-xs text-blue-600">
-                                     Signing link emailed to {selectedApplicant.email || 'unknown email'}
+                                     Lease sent. After they sign, you will get an email to add the landlord signature.
                                    </p>
                                 </div>
                              </div>
@@ -1765,12 +1784,35 @@ Landlord                            Tenant
                              </div>
                           </div>
                        )}
+                       {generatedLeaseDoc && leaseStatus === 'AwaitingLandlord' && (
+                          <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg flex items-center justify-between gap-3">
+                             <div className="flex items-center gap-3">
+                                <PenTool className="w-5 h-5 text-indigo-600" />
+                                <div>
+                                   <p className="text-sm font-bold text-indigo-900">Tenant signed — your turn</p>
+                                   <p className="text-xs text-indigo-700">
+                                     Check your email for the landlord signing link. The tenant-signed lease is attached to that link.
+                                   </p>
+                                </div>
+                             </div>
+                             <button
+                               onClick={() => handleCheckStatus()}
+                               disabled={isCheckingStatus}
+                               className="text-xs text-indigo-700 font-bold hover:text-indigo-900 flex items-center gap-1 bg-indigo-100 px-2 py-1 rounded shrink-0"
+                             >
+                               <RefreshCw className={`w-3 h-3 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                               {isCheckingStatus ? 'Checking...' : 'Refresh'}
+                             </button>
+                          </div>
+                       )}
                        {leaseStatus === 'Signed' && (
                           <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-3">
                              <CheckCircle className="w-5 h-5 text-emerald-600" />
                              <div>
-                                <p className="text-sm font-bold text-emerald-800">Lease Signed & Executed!</p>
-                                <p className="text-xs text-emerald-600">Document stored in Tenant Profile.</p>
+                                <p className="text-sm font-bold text-emerald-800">Lease signed by both parties</p>
+                                <p className="text-xs text-emerald-600">
+                                  Account setup email sent to the tenant. Use Finalize Move-In when they are ready to move in.
+                                </p>
                              </div>
                           </div>
                        )}

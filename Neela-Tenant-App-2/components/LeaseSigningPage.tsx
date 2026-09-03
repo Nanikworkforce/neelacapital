@@ -24,6 +24,9 @@ interface TokenData {
   status: string;
   generated_content: string;
   fields: Field[];
+  party?: 'tenant' | 'landlord';
+  tenant_signed?: boolean;
+  pdf_url?: string;
 }
 
 // ─── Signature Pad ───────────────────────────────────────────────────────────
@@ -490,7 +493,9 @@ const LeaseSigningPage: React.FC = () => {
   );
 
   // ── Done ──
-  if (done) return (
+  if (done) {
+    const isLandlord = data?.party === 'landlord';
+    return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">
         <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -498,22 +503,32 @@ const LeaseSigningPage: React.FC = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h2 className="text-xl font-bold text-slate-900 mb-2">Lease Signed!</h2>
-        <p className="text-slate-600 text-sm mb-1">Thank you, <strong>{data?.tenant_name}</strong>.</p>
-        <p className="text-slate-600 text-sm">Your signed lease for <strong>{data?.property_unit}</strong> has been submitted. You will receive a confirmation email shortly.</p>
+        <h2 className="text-xl font-bold text-slate-900 mb-2">
+          {isLandlord ? 'Lease Fully Executed!' : 'Tenant Signature Submitted!'}
+        </h2>
+        <p className="text-slate-600 text-sm mb-1">Thank you, <strong>{isLandlord ? 'Landlord' : data?.tenant_name}</strong>.</p>
+        <p className="text-slate-600 text-sm">
+          {isLandlord
+            ? `The lease for ${data?.property_unit} is now signed by both parties. The tenant will receive their account setup email.`
+            : `Your signature for ${data?.property_unit} has been submitted. The landlord will counter-sign next, then you will receive a confirmation email to set up your account.`}
+        </p>
         <button onClick={() => window.print()}
           className="mt-6 w-full py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 text-sm">
           Save / Print a Copy
         </button>
-        <p className="text-slate-400 text-xs mt-4">
-          To access your tenant portal, visit <a href={withBase('/tenant')} className="text-indigo-600 underline">your login page</a>.
-        </p>
+        {!isLandlord && (
+          <p className="text-slate-400 text-xs mt-4">
+            To access your tenant portal after both parties sign, visit <a href={withBase('/tenant')} className="text-indigo-600 underline">your login page</a>.
+          </p>
+        )}
       </div>
     </div>
   );
+  }
 
   // ── Helpers ──
   const fields = data?.fields ?? [];
+  const isLandlordParty = data?.party === 'landlord';
   const checkboxFields = fields.filter((f) => f.type === 'checkbox');
   const initialsField = fields.find((f) => f.id === 'tenant_initials');
   const tenantSig = fields.find((f) => f.id === 'tenant_signature');
@@ -550,41 +565,62 @@ const LeaseSigningPage: React.FC = () => {
               </svg>
               Save / Print
             </button>
-            <div className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">
-              Signature Required
+            <div className={`px-2.5 py-1 rounded-full text-xs font-bold ${isLandlordParty ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
+              {isLandlordParty ? 'Landlord Signature Required' : 'Tenant Signature Required'}
             </div>
           </div>
         </div>
 
         {/* Document */}
         <div className="max-w-3xl mx-auto px-4 py-8 print:px-0 print:py-0">
-          {/* Fill-in guidance banner */}
-          <div className="no-print mb-4 flex items-start gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
-            <svg className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" />
-            </svg>
-            <span>
-              Fields already filled from your application are shown as text. Blank underlined fields and checkboxes
-              (<span className="font-semibold">[ ]</span>) are interactive — click or tap to fill them in before signing.
-            </span>
-          </div>
+          {isLandlordParty ? (
+            <div className="no-print mb-4 flex items-start gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-900">
+              <svg className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span>
+                <strong>{tenantName}</strong> has already signed. Review the tenant-signed lease below, then add the landlord signature.
+              </span>
+            </div>
+          ) : (
+            <div className="no-print mb-4 flex items-start gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
+              <svg className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" />
+              </svg>
+              <span>
+                Fields already filled from your application are shown as text. Blank underlined fields and checkboxes
+                (<span className="font-semibold">[ ]</span>) are interactive — click or tap to fill them in before signing.
+              </span>
+            </div>
+          )}
+
+          {isLandlordParty && data?.pdf_url && (
+            <div className="mb-6 bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-800">Tenant-signed lease PDF</p>
+                <a href={data.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+                  Open in new tab
+                </a>
+              </div>
+              <iframe src={data.pdf_url} title="Tenant-signed lease" className="w-full min-h-[70vh] bg-slate-100" />
+            </div>
+          )}
 
           <div className="lease-paper bg-white rounded-2xl shadow-md border border-slate-200 p-8 md:p-12 print:rounded-none print:shadow-none print:border-none">
 
-            {/* Body of the lease — blank fields (____) become inputs, [ ] become checkboxes */}
-            {renderInteractiveBody(body, values, update)}
+            {!isLandlordParty && renderInteractiveBody(body, values, update)}
 
             {/* ── SIGNATURES section ── */}
-            <div className="mt-8 pt-6 border-t-2 border-slate-300 print:border-black">
+            <div className={`${isLandlordParty ? '' : 'mt-8 pt-6 border-t-2 border-slate-300'} print:border-black`}>
               <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wide mb-3 print:text-black">
-                Signatures
+                {isLandlordParty ? 'Landlord Signature' : 'Signatures'}
               </h3>
-              {sigIntro && (
+              {!isLandlordParty && sigIntro && (
                 <p className="text-[13px] text-slate-700 mb-5 print:text-black">{sigIntro}</p>
               )}
 
-              {/* Acknowledgements + Initials */}
-              {(checkboxFields.length > 0 || initialsField) && (
+              {/* Acknowledgements + Initials (tenant only) */}
+              {!isLandlordParty && (checkboxFields.length > 0 || initialsField) && (
                 <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200 no-print">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Acknowledgements</p>
                   <div className="flex flex-col gap-3 mb-4">
@@ -614,31 +650,35 @@ const LeaseSigningPage: React.FC = () => {
               )}
 
               {/* Landlord signature block */}
-              <div className="mb-8">
-                <SigBlock
-                  sigField={landlordSig}
-                  dateFieldId="landlord_signature_date"
-                  signerLabel="Landlord Signature"
-                  signerName={data?.type || 'Landlord'}
-                  values={values}
-                  update={update}
-                />
-              </div>
-
-              {/* Divider */}
-              <div className="border-t border-slate-200 my-6 print:border-slate-400" />
+              {landlordSig && (
+                <div className="mb-8">
+                  <SigBlock
+                    sigField={landlordSig}
+                    dateFieldId="landlord_signature_date"
+                    signerLabel="Landlord Signature"
+                    signerName="Landlord"
+                    values={values}
+                    update={update}
+                  />
+                </div>
+              )}
 
               {/* Tenant signature block */}
-              <div className="mb-8">
-                <SigBlock
-                  sigField={tenantSig}
-                  dateFieldId="tenant_signature_date"
-                  signerLabel="Tenant Signature"
-                  signerName={tenantName}
-                  values={values}
-                  update={update}
-                />
-              </div>
+              {!isLandlordParty && tenantSig && (
+                <>
+                  <div className="border-t border-slate-200 my-6 print:border-slate-400" />
+                  <div className="mb-8">
+                    <SigBlock
+                      sigField={tenantSig}
+                      dateFieldId="tenant_signature_date"
+                      signerLabel="Tenant Signature"
+                      signerName={tenantName}
+                      values={values}
+                      update={update}
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Submit */}
               <div className="mt-6 no-print">
@@ -649,10 +689,16 @@ const LeaseSigningPage: React.FC = () => {
                 )}
                 <button onClick={handleSubmit} disabled={submitting}
                   className="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm">
-                  {submitting ? 'Submitting…' : 'Complete & Sign Lease'}
+                  {submitting
+                    ? 'Submitting…'
+                    : isLandlordParty
+                      ? 'Complete Landlord Signature'
+                      : 'Complete & Sign Lease'}
                 </button>
                 <p className="text-xs text-slate-400 text-center mt-2">
-                  By signing, you agree to all terms stated in this lease.
+                  {isLandlordParty
+                    ? 'By signing, you execute this lease as landlord on behalf of Neela Capital.'
+                    : 'By signing, you agree to all terms stated in this lease.'}
                 </p>
               </div>
             </div>
