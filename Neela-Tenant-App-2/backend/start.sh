@@ -4,6 +4,10 @@
 echo "Running database migrations..."
 python manage.py migrate
 
+# Keep balances consistent: Pending proof-of-payment does not count until Paid
+echo "Recalculating tenant balances..."
+python manage.py recalculate_balances
+
 # Collect static files
 echo "Collecting static files..."
 python manage.py collectstatic --noinput

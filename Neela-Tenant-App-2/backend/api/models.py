@@ -39,10 +39,10 @@ class Tenant(models.Model):
 
     def calculate_balance(self):
         """
-        Balance = Rent Amount + Unpaid Security Deposit - Total Paid + Total Pending Charges
+        Balance = Rent + Unpaid Security Deposit - Paid collections + Admin pending charges
 
-        Security deposit is NOT assumed paid. It stays owed until there is a Paid
-        payment with type 'Deposit'. Positive balance = tenant owes money.
+        Tenant proof-of-payment submissions stay status=Pending until an admin confirms.
+        Those Pending+proof rows must NOT change balance or income until status=Paid.
         """
         from decimal import Decimal
         from django.db.models import Sum
@@ -50,17 +50,21 @@ class Tenant(models.Model):
         total_paid = self.payments.filter(status='Paid').aggregate(
             total=Sum('amount')
         )['total'] or Decimal('0')
-        total_pending_charges = self.payments.filter(status='Pending').aggregate(
-            total=Sum('amount')
-        )['total'] or Decimal('0')
 
-        deposit_recorded = self.payments.filter(
-            type='Deposit', status__in=['Paid', 'Pending']
-        ).exists()
-        unpaid_deposit = Decimal('0') if deposit_recorded else (self.deposit or Decimal('0'))
+        # Only confirmed Paid Deposit clears the deposit obligation.
+        deposit_paid = self.payments.filter(status='Paid', type='Deposit').exists()
+        unpaid_deposit = Decimal('0') if deposit_paid else (self.deposit or Decimal('0'))
 
-        balance = self.rent_amount + unpaid_deposit - total_paid + total_pending_charges
-        return balance
+        # Admin invoices / late fees (Pending, no proof yet). Ignore Pending+proof
+        # (awaiting admin approval) so they do not affect rent/deposit/income figures.
+        pending_charges = Decimal('0')
+        for payment in self.payments.filter(status='Pending').only('amount', 'type', 'proof_of_payment_files'):
+            has_proof = bool(payment.proof_of_payment_files)
+            if has_proof:
+                continue
+            pending_charges += payment.amount or Decimal('0')
+
+        return self.rent_amount + unpaid_deposit - total_paid + pending_charges
 
     def deposit_is_paid(self) -> bool:
         return self.payments.filter(status='Paid', type='Deposit').exists()

@@ -85,7 +85,9 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
     .filter(t => t.status === 'Active')
     .reduce((acc, t) => acc + (t.rentAmount || 0), 0);
 
-  const recentActivity = [...initialPayments].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
+  const recentActivity = [...initialPayments]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 8);
 
   const overdueTenants = initialTenants.filter(t => t.balance > 0);
 
@@ -180,7 +182,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
       setModalState({
         isOpen: true,
         title: 'Payment Confirmed',
-        message: 'Payment has been confirmed. Tenant balance has been updated and a receipt email has been sent.',
+        message: 'Payment approved. It now counts toward rent collections, tenant balance, and the income statement. A receipt email was sent.',
         type: 'success',
       });
       if (onDataChange) await onDataChange();
@@ -573,20 +575,29 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                  <h3 className="font-bold text-slate-800 mb-4">Recent Activity</h3>
                  <div className="space-y-4">
-                    {recentActivity.map((p) => (
+                    {recentActivity.map((p) => {
+                      const awaitingApproval = p.status === 'Pending' && (p.proofOfPaymentFiles?.length ?? 0) > 0;
+                      const isPaid = p.status === 'Paid';
+                      return (
                        <div key={p.id} className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                             <div className={`p-2 rounded-full ${p.status === 'Paid' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                {p.status === 'Paid' ? <ArrowDownLeft className="w-4 h-4"/> : <AlertCircle className="w-4 h-4"/>}
+                             <div className={`p-2 rounded-full ${isPaid ? 'bg-emerald-100 text-emerald-600' : awaitingApproval ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                                {isPaid ? <ArrowDownLeft className="w-4 h-4"/> : <AlertCircle className="w-4 h-4"/>}
                              </div>
                              <div>
                                 <p className="text-sm font-medium text-slate-800">{paymentTenantName(p)}</p>
-                                <p className="text-xs text-slate-500">{formatDateMMDDYYYY(p.date)} • {p.type}</p>
+                                <p className="text-xs text-slate-500">
+                                  {formatDateMMDDYYYY(p.date)} • {p.type}
+                                  {awaitingApproval ? ' • Awaiting approval' : isPaid ? '' : ` • ${p.status}`}
+                                </p>
                              </div>
                           </div>
-                          <span className="font-bold text-slate-700">+${p.amount}</span>
+                          <span className={`font-bold ${isPaid ? 'text-emerald-700' : 'text-slate-500'}`}>
+                            {isPaid ? `+$${p.amount}` : `$${p.amount}`}
+                          </span>
                        </div>
-                    ))}
+                      );
+                    })}
                  </div>
                  <button onClick={() => setActiveTab('transactions')} className="w-full mt-6 py-2 text-sm text-indigo-600 font-medium hover:bg-indigo-50 rounded-lg transition-colors">
                     View All Transactions

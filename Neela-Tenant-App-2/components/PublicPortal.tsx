@@ -1357,7 +1357,9 @@ const PublicPortal: React.FC<PublicPortalProps> = ({ onAdminLogin, tenantId, onM
                                       <td className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 lg:py-5 text-gray-900 font-bold">${payment.amount.toFixed(2)}</td>
                                       <td className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 lg:py-5">
                                         <span className={`inline-flex px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs font-bold ${payment.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' : payment.status === 'Overdue' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                                          {payment.status}
+                                          {payment.status === 'Pending' && (payment.proofOfPaymentFiles?.length ?? 0) > 0
+                                            ? 'Awaiting approval'
+                                            : payment.status}
                                         </span>
                                       </td>
                                       <td className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 lg:py-5 text-right">

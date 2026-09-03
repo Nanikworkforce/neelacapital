@@ -765,34 +765,36 @@ class PaymentViewSet(viewsets.ModelViewSet):
         payment = serializer.save()
         invoice_email_sent = False
 
-        # Send invoice email to tenant (same pattern as Legal & Compliance)
-        try:
-            try:
-                run_async(send_payment_invoice_to_tenant, payment.id)
-                logger.info(f"Queued invoice email to tenant {payment.tenant.email if payment.tenant else 'unknown'} for payment {payment.id}")
-                invoice_email_sent = True
-            except Exception:
-                # Celery not available or misconfigured; run inline
-                send_payment_invoice_to_tenant(payment.id)
-                logger.info(f"Sent invoice email inline to tenant {payment.tenant.email if payment.tenant else 'unknown'} for payment {payment.id}")
-                invoice_email_sent = True
-        except Exception as e:
-            logger.error(f"Failed to send invoice email: {e}")
-            # Don't fail the whole request if email fails
-
-        # Send confirmation email if payment method is provided
-        if payment.method:
+        # Pending proof / invoices are not collected income until admin marks Paid.
+        if payment.status == 'Paid':
+            # Send invoice email to tenant (same pattern as Legal & Compliance)
             try:
                 try:
-                    run_async(send_payment_confirmation_to_tenant, payment.id)
-                    logger.info(f"Queued confirmation email to tenant {payment.tenant.email if payment.tenant else 'unknown'} for payment {payment.id}")
+                    run_async(send_payment_invoice_to_tenant, payment.id)
+                    logger.info(f"Queued invoice email to tenant {payment.tenant.email if payment.tenant else 'unknown'} for payment {payment.id}")
+                    invoice_email_sent = True
                 except Exception:
                     # Celery not available or misconfigured; run inline
-                    send_payment_confirmation_to_tenant(payment.id)
-                    logger.info(f"Sent confirmation email inline to tenant {payment.tenant.email if payment.tenant else 'unknown'} for payment {payment.id}")
+                    send_payment_invoice_to_tenant(payment.id)
+                    logger.info(f"Sent invoice email inline to tenant {payment.tenant.email if payment.tenant else 'unknown'} for payment {payment.id}")
+                    invoice_email_sent = True
             except Exception as e:
-                logger.error(f"Failed to send confirmation email: {e}")
+                logger.error(f"Failed to send invoice email: {e}")
                 # Don't fail the whole request if email fails
+
+            # Send confirmation email if payment method is provided
+            if payment.method:
+                try:
+                    try:
+                        run_async(send_payment_confirmation_to_tenant, payment.id)
+                        logger.info(f"Queued confirmation email to tenant {payment.tenant.email if payment.tenant else 'unknown'} for payment {payment.id}")
+                    except Exception:
+                        # Celery not available or misconfigured; run inline
+                        send_payment_confirmation_to_tenant(payment.id)
+                        logger.info(f"Sent confirmation email inline to tenant {payment.tenant.email if payment.tenant else 'unknown'} for payment {payment.id}")
+                except Exception as e:
+                    logger.error(f"Failed to send confirmation email: {e}")
+                    # Don't fail the whole request if email fails
 
         # Send admin notification when tenant uploads proof of payment
         if payment.proof_of_payment_files and len(payment.proof_of_payment_files) > 0:
