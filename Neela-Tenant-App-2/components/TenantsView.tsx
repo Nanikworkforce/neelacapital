@@ -268,15 +268,23 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
         status: TenantStatus.APPROVED
       });
       
-      // Auto-generate lease
+      // Auto-generate Wills lease application packet (blank + tenant fields filled by app)
       try {
         const templates = await api.getLeaseTemplates();
-        // Prefer "Standard Residential Lease" or first available
-        const templateToUse = templates.find(t => t.name === 'Standard Residential Lease') || templates[0];
+        const preferNames = [
+          'Wills Residential Lease Application',
+          'Wills Lease Packet',
+          'Texas Standard Residential Lease',
+          'Standard Residential Lease',
+        ];
+        const templateToUse =
+          preferNames.map((n) => templates.find((t) => t.name === n)).find(Boolean) ||
+          templates.find((t) => t.name?.includes('Wills')) ||
+          templates[0];
         
         if (templateToUse) {
            await api.generateLease(selectedApplicant.id, templateToUse.id);
-           setSuccessMessage('Application approved! Lease generated and email notification sent.');
+           setSuccessMessage('Application approved! Lease packet generated and email notification sent.');
         } else {
            setSuccessMessage('Application approved! Email notification sent. Please generate a lease template.');
         }
@@ -357,15 +365,25 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
       try {
         const templates = await api.getLeaseTemplates();
         
-        // Filter out "Notice" type templates from the Lease dropdown
+        // Filter out notice/termination templates from the Lease dropdown
         const leaseOnlyTemplates = templates.filter(t => 
             !t.name.includes('Notice') && 
             !t.name.includes('Termination')
         );
+        // Prefer Wills application packet first in the dropdown
+        const sorted = [...leaseOnlyTemplates].sort((a, b) => {
+          const score = (name: string) => {
+            if (name === 'Wills Residential Lease Application') return 0;
+            if (name === 'Wills Authorization to Release Information') return 1;
+            if (name.includes('Wills')) return 2;
+            return 3;
+          };
+          return score(a.name || '') - score(b.name || '');
+        });
         
-        setLeaseTemplates(leaseOnlyTemplates);
-        if (leaseOnlyTemplates.length > 0 && !selectedTemplateId) {
-          setSelectedTemplateId(String(leaseOnlyTemplates[0].id));
+        setLeaseTemplates(sorted);
+        if (sorted.length > 0 && !selectedTemplateId) {
+          setSelectedTemplateId(String(sorted[0].id));
         }
       } catch (error) {
         console.error('Failed to load lease templates:', error);

@@ -1,11 +1,8 @@
 from django.core.management.base import BaseCommand
 from api.models import LeaseTemplate
 
-class Command(BaseCommand):
-    help = 'Seeds the database with the Wills Lease Packet template'
 
-    def handle(self, *args, **kwargs):
-        content = """LEASE APPLICATION PACKET
+WILLS_LEASE_APPLICATION = """LEASE APPLICATION PACKET (BLANK TEMPLATE)
 
 Please submit the attached completed lease application:
 with a copy of all applicant's photo ID's
@@ -14,19 +11,19 @@ proof of employment
 and current email addresses and phone numbers
 to:
 
-Will Reschke via:
+{{landlord_name}} via:
 
-Email: reschke_will@yahoo.com
+Email: {{landlord_email}}
 
-Or call @ 346-255-6143 = Will
+Or call @ {{landlord_phone}}
 
 to arrange dropping all pages to the office.
 For faster processing.
 
 Thank you,
 
-Will
-346-255-6143
+{{landlord_name}}
+{{landlord_phone}}
 
 ----------------------------------------------------------------------------------
 Received on __________________ (date) at __________________ (time)
@@ -38,11 +35,12 @@ Each occupant and co-applicant 18 years or older must submit a separate applicat
 
 Property Address: {{property_unit}}
 Anticipated Move-in Date: {{move_in_date}}
-Initial Lease Term Requested: __________ (months)
+Initial Lease Term Requested: {{lease_term_months}} (months)
 Monthly Rent: {{rent_amount}}
 Security Deposit: {{deposit_amount}}
 
 Property Condition: Applicant is strongly encouraged to view the Property prior to submitting any application. Landlord makes no express or implied warranties as to the Property's condition. Applicant requests Landlord consider the following repairs or treatments should Applicant and Landlord enter into a lease:
+__________________________________________________________________________________
 __________________________________________________________________________________
 
 Applicant was referred to Landlord by:
@@ -58,22 +56,19 @@ Work Phone: __________________
 Home Phone: __________________
 Mobile/Pager: {{tenant_phone}}
 Soc. Sec. No.: __________________
-Driver License No.: __________________ in ______ (state)
+Driver License No.: {{driver_license}} in {{dl_state}} (state)
 Date of Birth: {{date_of_birth}}
-Height: ______ Weight: ______
-Hair Color: ______ Eye Color: ______
-Marital Status: __________________ Citizenship: ______ (country)
+Height: {{height}} Weight: {{weight}}
+Hair Color: {{hair_color}} Eye Color: {{eye_color}}
+Marital Status: {{marital_status}} Citizenship: {{citizenship}} (country)
 
 Emergency Contact: (Do not insert the name of an occupant or co-applicant.)
 Name: {{emergency_contact_name}}
-Address: ___________________________________
+Address: {{emergency_contact_address}}
 Phone: {{emergency_contact_phone}} E-mail: {{emergency_contact_email}}
 
 Name all other persons who will occupy the Property:
-Name: ______________________ Relationship: _______________ Age: ______
-Name: ______________________ Relationship: _______________ Age: ______
-Name: ______________________ Relationship: _______________ Age: ______
-Name: ______________________ Relationship: _______________ Age: ______
+{{occupants_detailed}}
 
 Applicant's Current Address:
 {{tenant_current_address}}
@@ -86,20 +81,20 @@ Date Moved-In: __________________ Move-Out Date: __________________ Rent $: ____
 Reason for move: ______________________________________________________________________
 
 Applicant's Previous Address:
-__________________________________________________________________________________
+{{previous_address}}
 Apt. No. ______
 (city, state, zip)
-Landlord or Property Manager's Name: ___________________________________
-Phone: Day: _______________ Nt: _______________ Mb: _______________ Fax: _______________
-Email: ___________________________________
-Date Moved-In: __________________ Move-Out Date: __________________ Rent $: __________
-Reason for move: ______________________________________________________________________
+Landlord or Property Manager's Name: {{previous_landlord_name}}
+Phone: Day: _______________ Nt: _______________ Mb: {{previous_landlord_phone}} Fax: _______________
+Email: {{previous_landlord_email}}
+Date Moved-In: {{move_in_date_prev}} Move-Out Date: {{move_out_date_prev}} Rent $: {{previous_rent}}
+Reason for move: {{reason_for_leaving}}
 
 Applicant's Current Employer: {{employer}}
 Address: ______________________________________________________________________
-Supervisor's Name: __________________ Phone: __________________ Fax: __________________
+Supervisor's Name: {{supervisor_name}} Phone: {{supervisor_phone}} Fax: __________________
 E-mail: __________________
-Start Date: __________________ Gross Monthly Income: {{monthly_income}} Position: {{job_title}}
+Start Date: {{employment_start_date}} Gross Monthly Income: {{monthly_income}} Position: {{job_title}}
 
 Note: If Applicant is self-employed, Landlord may require one or more previous year's tax return attested by a CPA, attorney, or other tax professional.
 
@@ -113,34 +108,31 @@ Gross Monthly Income: $__________ Position: __________________
 Describe other income Applicant wants considered: ___________________________________
 
 List all vehicles to be parked on the Property:
-Type      Year      Make      Model      License Plate No./State      Mo.Pymnt.
-_______   ______    ______    ______     _______________________      __________
-_______   ______    ______    ______     _______________________      __________
+{{vehicles_list}}
 
-Will any pets (dogs, cats, birds, reptiles, fish, and other pets) be kept on the Property? [ ] yes [ ] no
+Will any pets (dogs, cats, birds, reptiles, fish, and other pets) be kept on the Property? {{has_pets_yes}} yes {{has_pets_no}} no
 If yes, list all pets to be kept on the Property:
-Type & Breed      Name      Color     Weight    Age      Gender    Neutered?    Declawed?    Shots Current?
-______________    ______    ______    ______    ___      ______    [ ]Y [ ]N    [ ]Y [ ]N    [ ]Y [ ]N
-______________    ______    ______    ______    ___      ______    [ ]Y [ ]N    [ ]Y [ ]N    [ ]Y [ ]N
+{{pets_description}}
 
 Will any waterbeds or water-filled furniture be on the Property? [ ] Yes [ ] No
-Does anyone who will occupy the Property smoke? [ ] Yes [ ] No
+Does anyone who will occupy the Property smoke? {{smokes_yes}} Yes {{smokes_no}} No
 Will Applicant maintain renter's insurance? [ ] Yes [ ] No
 Is Applicant or Applicant's spouse, even if separated, in military? [ ] Yes [ ] No
 If yes, is the military person serving under orders limiting the military person's stay to one year or less? [ ] Yes [ ] No
 
 Has Applicant ever:
-been evicted? [ ] Yes [ ] No
+been evicted? {{eviction_yes}} Yes {{eviction_no}} No
 been asked to move out by a landlord? [ ] Yes [ ] No
 breached a lease or rental agreement? [ ] Yes [ ] No
 filed for bankruptcy? [ ] Yes [ ] No
 lost property in a foreclosure? [ ] Yes [ ] No
 had any credit problems, including any outstanding debt (e.g., student loans or medical bills), slow-pays or delinquencies? [ ] Yes [ ] No
-been convicted of a crime? [ ] Yes [ ] No If yes, provide the location, year, and type of conviction below.
+been convicted of a crime? {{felony_yes}} Yes {{felony_no}} No If yes, provide the location, year, and type of conviction below.
+{{eviction_felony_explanation}}
 Is any occupant a registered sex offender? [ ] Yes [ ] No If yes, provide the location, year, and type of conviction below.
 Is there additional information Applicant wants considered? ___________________________________
 
-Additional comments: ______________________________________________________________________
+Additional comments: {{additional_notes}}
 
 Authorization: Applicant authorizes Landlord and Landlord's agent, at any time before, during, or after any tenancy, to:
 (1) obtain a copy of Applicant's credit report;
@@ -163,20 +155,23 @@ Date: {{current_date}}
 
 For Landlord's Use:
 On __________________ (name/initials) notified Applicant by [ ] phone [ ] mail [ ] e-mail [ ] fax [ ] in person that Applicant was [ ] approved [ ] not approved. Reason for disapproval: ___________________________________
+"""
 
-----------------------------------------------------------------------------------
 
+WILLS_AUTHORIZATION_RELEASE = """TEXAS ASSOCIATION OF REALTORS®
 AUTHORIZATION TO RELEASE INFORMATION RELATED TO A RESIDENTIAL LEASE APPLICANT
+
+Residential Lease Application concerning {{property_unit}}
 
 I, {{tenant_name}} (Applicant), have submitted an application to lease a property located at {{property_unit}} (address, city, state, zip).
 
 The landlord, broker, or landlord's representative is:
-Will Reschke (name)
-___________________________________ (address)
-___________________________________ (city, state, zip)
-346-255-6143 (phone)
-___________________________________ (fax)
-reschke_will@yahoo.com (e-mail)
+{{landlord_name}} (name)
+{{landlord_address}} (address)
+{{property_city_state_zip}} (city, state, zip)
+{{landlord_phone}} (phone)
+__________________ (fax)
+{{landlord_email}} (e-mail)
 
 I give my permission:
 (1) to my current and former employers to release any information about my employment history and income history to the above-named person;
@@ -187,19 +182,36 @@ I give my permission:
 
 Applicant's Signature: ___________________________________
 Date: {{current_date}}
-"""
-        template, created = LeaseTemplate.objects.get_or_create(
-            name='Wills Lease Packet',
-            defaults={
-                'content': content,
-                'is_active': True
-            }
-        )
-        
-        if not created:
-            template.content = content
-            template.save()
-            self.stdout.write(self.style.SUCCESS('Updated "Wills Lease Packet" template'))
-        else:
-            self.stdout.write(self.style.SUCCESS('Created "Wills Lease Packet" template'))
 
+Note: Brokers acting under specific instructions may verify information and maintain a privacy policy available upon request.
+"""
+
+
+class Command(BaseCommand):
+    help = 'Seeds Wills blank lease application + authorization templates (no sample tenant data)'
+
+    def handle(self, *args, **kwargs):
+        # Remove old combined packet name if present so Legal shows the two clear docs
+        LeaseTemplate.objects.filter(name='Wills Lease Packet').update(is_active=False)
+
+        specs = [
+            ('Wills Residential Lease Application', WILLS_LEASE_APPLICATION),
+            ('Wills Authorization to Release Information', WILLS_AUTHORIZATION_RELEASE),
+        ]
+
+        for name, content in specs:
+            template, created = LeaseTemplate.objects.get_or_create(
+                name=name,
+                defaults={'content': content, 'is_active': True},
+            )
+            if not created:
+                template.content = content
+                template.is_active = True
+                template.save(update_fields=['content', 'is_active', 'updated_at'])
+                self.stdout.write(self.style.SUCCESS(f'Updated "{name}"'))
+            else:
+                self.stdout.write(self.style.SUCCESS(f'Created "{name}"'))
+
+        # Prefer Wills application over the short default lease when multiple active templates exist
+        LeaseTemplate.objects.filter(name='Standard Residential Lease').update(is_active=True)
+        self.stdout.write(self.style.SUCCESS('Wills blank templates ready for Legal / lease generation.'))

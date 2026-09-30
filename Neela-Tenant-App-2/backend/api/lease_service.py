@@ -115,14 +115,84 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
     # Parse emergency contact (stored as "Name, Relationship, Phone")
     ec_full = application_data.get('emergencyContact', '')
     ec_parts = [p.strip() for p in ec_full.split(',')] if ec_full else []
-    ec_name = ec_parts[0] if len(ec_parts) >= 1 else ''
-    ec_phone = ec_parts[2] if len(ec_parts) >= 3 else ''
+    ec_name = (
+        application_data.get('emergencyContactName')
+        or (ec_parts[0] if len(ec_parts) >= 1 else '')
+    )
+    ec_phone = (
+        application_data.get('emergencyContactPhone')
+        or (ec_parts[2] if len(ec_parts) >= 3 else '')
+    )
 
-    # Get other occupants
-    other_occupants = application_data.get('otherOccupants', 'None')
-    if not other_occupants and application_data.get('hasOtherAdults'):
-         # specific handling if needed
-         pass
+    # Get other occupants (prefer structured list from application form)
+    occupants_list = application_data.get('otherOccupantsList')
+    if isinstance(occupants_list, list) and occupants_list:
+        occupant_lines = []
+        for o in occupants_list:
+            if not isinstance(o, dict):
+                continue
+            oname = str(o.get('name') or '').strip()
+            if not oname:
+                continue
+            oage = str(o.get('age') or '').strip()
+            occupant_lines.append(
+                f"Name: {oname}  Relationship: __________  Age: {oage or '______'}"
+            )
+        other_occupants = ', '.join(
+            f"{str(o.get('name') or '').strip()}"
+            + (f" (age {str(o.get('age') or '').strip()})" if str(o.get('age') or '').strip() else '')
+            for o in occupants_list
+            if isinstance(o, dict) and str(o.get('name') or '').strip()
+        ) or 'None'
+        occupants_detailed = '\n'.join(occupant_lines) if occupant_lines else (
+            'Name: ______________________ Relationship: _______________ Age: ______\n'
+            'Name: ______________________ Relationship: _______________ Age: ______'
+        )
+    else:
+        other_occupants = application_data.get('otherOccupants') or 'None'
+        occupants_detailed = (
+            f"Name: {other_occupants}  Relationship: _______________ Age: ______"
+            if other_occupants and other_occupants != 'None'
+            else (
+                'Name: ______________________ Relationship: _______________ Age: ______\n'
+                'Name: ______________________ Relationship: _______________ Age: ______'
+            )
+        )
+
+    # Previous landlord may be combined "address, name, contact" or separate fields
+    prev_combined = application_data.get('previousLandlordInfo') or ''
+    prev_parts = [p.strip() for p in prev_combined.split(',')] if prev_combined else []
+    previous_address = application_data.get('previousAddress') or (prev_parts[0] if prev_parts else '')
+    previous_landlord_name = application_data.get('landlordName') or (prev_parts[1] if len(prev_parts) >= 2 else '')
+    previous_landlord_phone = (
+        application_data.get('landlordContact')
+        or application_data.get('previousLandlordPhone')
+        or (prev_parts[2] if len(prev_parts) >= 3 else '')
+    )
+
+    has_pets = application_data.get('hasPets')
+    pets_desc = application_data.get('petsWhich') or application_data.get('pets_description') or ''
+    if has_pets and application_data.get('petCount'):
+        pets_desc = (
+            f"{application_data.get('petCount')} pet(s)"
+            + (f": {pets_desc}" if pets_desc else '')
+        ).strip()
+
+    eviction_or_felony = application_data.get('hasEvictionOrFelony')
+    agrees_no_smoking = application_data.get('agreesNoSmoking')
+
+    try:
+        lease_term_months = str(int(application_data.get('desiredLeaseMonths') or 12))
+    except (TypeError, ValueError):
+        lease_term_months = '12'
+
+    move_in_raw = application_data.get('desiredMoveInDate') or ''
+    move_in_display = move_in_raw
+    try:
+        if move_in_raw:
+            move_in_display = datetime.strptime(str(move_in_raw)[:10], '%Y-%m-%d').strftime('%m/%d/%Y')
+    except ValueError:
+        pass
 
     # Extract bedrooms/bathrooms from application data
     # We use the first desired option as the default for the lease if specific unit details aren't available
@@ -186,10 +256,24 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
         '{{move_out_deadline}}': (datetime.now() + timedelta(days=30)).strftime('%B %d, %Y'),
         
         # New helpers for Application Packet
-        '{{tenant_current_address}}': application_data.get('currentAddress', ''),
-        '{{move_in_date}}': application_data.get('desiredMoveInDate', ''),
+        '{{tenant_current_address}}': (
+            application_data.get('currentAddress')
+            or ', '.join(
+                p for p in [
+                    application_data.get('currentAddressStreet'),
+                    application_data.get('currentAddressCity'),
+                    f"{application_data.get('currentAddressState') or ''} {application_data.get('currentAddressZip') or ''}".strip(),
+                ]
+                if p
+            )
+            or ''
+        ),
+        '{{move_in_date}}': move_in_display,
+        '{{lease_term_months}}': lease_term_months,
+        '{{additional_notes}}': application_data.get('additionalNotes') or '__________',
         
         '{{occupants}}': other_occupants,
+        '{{occupants_detailed}}': occupants_detailed,
         
         # --- APPLICATION DATA MAPPING ---
         # This maps fields from the frontend Application Form directly to the Lease/Notice
@@ -221,9 +305,25 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
         '{{vehicles_list}}': ', '.join([f"{v.get('year')} {v.get('make')} {v.get('model')}" for v in application_data.get('vehicles', [])]) if application_data.get('vehicles') else 'None',
         
         # Pets
-        '{{pets_description}}': ', '.join([f"{p.get('type')} ({p.get('name')})" for p in application_data.get('pets', [])]) if application_data.get('pets') else 'No Pets',
-        '{{has_pets_check}}': '[x]' if application_data.get('pets') else '[_PetY_]',
-        '{{no_pets_check}}': '[ ]' if application_data.get('pets') else '[_PetN_]',
+        '{{pets_description}}': (
+            pets_desc
+            or (
+                ', '.join([f"{p.get('type')} ({p.get('name')})" for p in application_data.get('pets', [])])
+                if application_data.get('pets')
+                else ('No Pets' if has_pets is False else '__________')
+            )
+        ),
+        '{{has_pets_check}}': '[x]' if has_pets else '[ ]',
+        '{{no_pets_check}}': '[x]' if has_pets is False else '[ ]',
+        '{{has_pets_yes}}': '[x]' if has_pets else '[ ]',
+        '{{has_pets_no}}': '[x]' if has_pets is False else '[ ]',
+        '{{smokes_yes}}': '[ ]',
+        '{{smokes_no}}': '[x]' if agrees_no_smoking else '[ ]',
+        '{{eviction_yes}}': '[x]' if eviction_or_felony else '[ ]',
+        '{{eviction_no}}': '[x]' if eviction_or_felony is False else '[ ]',
+        '{{felony_yes}}': '[x]' if eviction_or_felony else '[ ]',
+        '{{felony_no}}': '[x]' if eviction_or_felony is False else '[ ]',
+        '{{eviction_felony_explanation}}': application_data.get('evictionFelonyExplanation') or '',
         
         # Employment (Extended)
         '{{supervisor_name}}': employment.get('supervisorName') or '__________',
@@ -232,9 +332,10 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
         '{{employment_duration}}': employment.get('duration') or '__________',
         
         # Rental History
-        '{{previous_address}}': application_data.get('previousAddress') or '__________',
-        '{{previous_landlord}}': application_data.get('previousLandlordInfo') or '__________',
-        '{{previous_landlord_phone}}': application_data.get('previousLandlordPhone') or '__________',
+        '{{previous_address}}': previous_address or '__________',
+        '{{previous_landlord}}': prev_combined or previous_landlord_name or '__________',
+        '{{previous_landlord_name}}': previous_landlord_name or '__________',
+        '{{previous_landlord_phone}}': previous_landlord_phone or '__________',
         '{{previous_landlord_email}}': application_data.get('previousLandlordEmail') or '__________',
         '{{previous_rent}}': application_data.get('previousRent') or '__________',
         '{{reason_for_leaving}}': application_data.get('reasonForLeaving') or '__________',
@@ -270,9 +371,18 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
     """
     apply_lease_dates_from_application(tenant)
 
-    # Get template
+    # Get template — prefer Wills Residential Lease Application (blank packet)
     if not template:
-        template = LeaseTemplate.objects.filter(is_active=True).first()
+        template = (
+            LeaseTemplate.objects.filter(
+                is_active=True, name__iexact='Wills Residential Lease Application'
+            ).first()
+            or LeaseTemplate.objects.filter(
+                is_active=True, name__icontains='Wills Residential Lease Application'
+            ).first()
+            or LeaseTemplate.objects.filter(is_active=True, name__icontains='Wills').first()
+            or LeaseTemplate.objects.filter(is_active=True).first()
+        )
         if not template:
             # Create default template if none exists
             template = LeaseTemplate.objects.create(
@@ -287,8 +397,8 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
     # Create PDF
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter,
-                           rightMargin=72, leftMargin=72,
-                           topMargin=72, bottomMargin=18)
+                           rightMargin=54, leftMargin=54,
+                           topMargin=54, bottomMargin=36)
     
     # Container for the 'Flowable' objects
     elements = []
@@ -298,24 +408,38 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=16,
+        fontSize=14,
         textColor=colors.HexColor('#1e293b'),
-        spaceAfter=30,
+        spaceAfter=18,
         alignment=1,  # Center
     )
+    body_style = ParagraphStyle(
+        'LeaseBody',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor('#0f172a'),
+    )
     
-    # Add title
-    elements.append(Paragraph("RESIDENTIAL LEASE AGREEMENT", title_style))
-    elements.append(Spacer(1, 0.2*inch))
+    # Title from template name (Wills application / auth / lease)
+    doc_title = (template.name or 'RESIDENTIAL LEASE APPLICATION').upper()
+    elements.append(Paragraph(doc_title.replace('&', '&amp;'), title_style))
+    elements.append(Spacer(1, 0.15*inch))
     
     # Split content into paragraphs and add to PDF
     paragraphs = filled_content.split('\n\n')
     for para in paragraphs:
         if para.strip():
-            # Clean up the paragraph
-            para = para.strip().replace('\n', '<br/>')
-            elements.append(Paragraph(para, styles['Normal']))
-            elements.append(Spacer(1, 0.1*inch))
+            # Clean up the paragraph (escape ReportLab-sensitive chars lightly)
+            para = (
+                para.strip()
+                .replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+                .replace('\n', '<br/>')
+            )
+            elements.append(Paragraph(para, body_style))
+            elements.append(Spacer(1, 0.08*inch))
     
     # Build PDF
     doc.build(elements)

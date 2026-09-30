@@ -1389,6 +1389,22 @@ export const api = {
     return await response.json();
   },
 
+  updateLeaseTemplate: async (
+    id: string,
+    templateData: { name?: string; content?: string; is_active?: boolean },
+  ): Promise<any> => {
+    const response = await fetchWithAuth(`${API_URL}/lease-templates/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(templateData),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to update lease template' }));
+      throw new Error(error.detail || error.error || error.message || 'Failed to update lease template');
+    }
+    return await response.json();
+  },
+
   // Lease Generation API
   generateLease: async (tenantId: string, templateId?: string, customContent?: string): Promise<any> => {
     const body: any = {

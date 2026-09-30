@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Tenant, LegalNoticeType, LegalDocument, NoticeTemplate } from '../types';
 import { api } from '../services/api';
 import { 
@@ -32,25 +32,51 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
     type: 'info' as 'success' | 'error' | 'info' | 'warning',
   });
 
-  // Templates State
-  const [templates, setTemplates] = useState<NoticeTemplate[]>([
-    {
-      id: 'tpl-1',
-      name: 'Standard 3-Day Notice (Texas)',
-      type: LegalNoticeType.NOTICE_TO_VACATE_3_DAY,
-      content: `NOTICE TO VACATE FOR NON-PAYMENT OF RENT\n\nTo: {{Tenant Name}}\nAddress: {{Unit Address}}\n\nDate: {{Date}}\n\nDear {{Tenant Name}},\n\nYou are hereby notified that your rent is past due...`,
-      lastUpdated: '2024-01-15'
-    },
-    {
-      id: 'tpl-2',
-      name: 'Late Fee Reminder',
-      type: LegalNoticeType.LATE_RENT_NOTICE,
-      content: `LATE RENT NOTICE\n\nDear {{Tenant Name}},\n\nThis is a friendly reminder that we have not received your rent payment for {{Month}}...`,
-      lastUpdated: '2024-03-10'
-    }
-  ]);
+  // Templates State — loaded from backend LeaseTemplate (includes Wills packet docs)
+  const [templates, setTemplates] = useState<NoticeTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [editingTemplateContent, setEditingTemplateContent] = useState('');
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setIsLoadingTemplates(true);
+      try {
+        const apiTemplates = await api.getLeaseTemplates();
+        if (cancelled) return;
+        const mapped: NoticeTemplate[] = (apiTemplates || []).map((t: any) => ({
+          id: String(t.id),
+          name: t.name,
+          type: t.name?.includes('Notice')
+            ? LegalNoticeType.NOTICE_TO_VACATE_3_DAY
+            : t.name?.includes('Termination')
+              ? LegalNoticeType.LEASE_TERMINATION_30_DAY
+              : LegalNoticeType.LEASE_VIOLATION,
+          content: t.content || '',
+          lastUpdated: t.updated_at || t.updatedAt || new Date().toISOString().slice(0, 10),
+        }));
+        // Wills docs first so they are visible in Legal → Templates
+        mapped.sort((a, b) => {
+          const score = (n: string) => (n.includes('Wills') ? 0 : 1);
+          return score(a.name) - score(b.name) || a.name.localeCompare(b.name);
+        });
+        setTemplates(mapped);
+        if (mapped.length > 0 && !selectedTemplateId) {
+          setSelectedTemplateId(mapped[0].id);
+          setEditingTemplateContent(mapped[0].content);
+        }
+      } catch (e) {
+        console.error('Failed to load legal templates:', e);
+      } finally {
+        if (!cancelled) setIsLoadingTemplates(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const tenantsMap = tenants.reduce((acc, t) => ({ ...acc, [t.id]: t }), {} as Record<string, Tenant>);
   // Legal/Compliance actions should only be available for actual tenants
@@ -192,27 +218,52 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
     link.click();
   };
 
-  const handleSaveTemplate = () => {
-    if (selectedTemplateId) {
-      setTemplates(templates.map(t => t.id === selectedTemplateId ? { ...t, content: editingTemplateContent, lastUpdated: new Date().toISOString().split('T')[0] } : t));
-    } else {
-      // Create new
-      const newTpl: NoticeTemplate = {
-        id: `tpl-${Date.now()}`,
-        name: 'New Custom Template',
-        type: LegalNoticeType.LEASE_VIOLATION,
-        content: editingTemplateContent,
-        lastUpdated: new Date().toISOString().split('T')[0]
-      };
-      setTemplates([...templates, newTpl]);
-      setSelectedTemplateId(newTpl.id);
+  const handleSaveTemplate = async () => {
+    try {
+      if (selectedTemplateId) {
+        const existing = templates.find((t) => t.id === selectedTemplateId);
+        await api.updateLeaseTemplate(selectedTemplateId, {
+          name: existing?.name,
+          content: editingTemplateContent,
+          is_active: true,
+        });
+        setTemplates(
+          templates.map((t) =>
+            t.id === selectedTemplateId
+              ? { ...t, content: editingTemplateContent, lastUpdated: new Date().toISOString().split('T')[0] }
+              : t,
+          ),
+        );
+      } else {
+        const created = await api.createLeaseTemplate({
+          name: 'New Custom Template',
+          content: editingTemplateContent,
+          is_active: true,
+        });
+        const newTpl: NoticeTemplate = {
+          id: String(created.id),
+          name: created.name || 'New Custom Template',
+          type: LegalNoticeType.LEASE_VIOLATION,
+          content: created.content || editingTemplateContent,
+          lastUpdated: new Date().toISOString().split('T')[0],
+        };
+        setTemplates([...templates, newTpl]);
+        setSelectedTemplateId(newTpl.id);
+      }
+      setModalState({
+        isOpen: true,
+        title: 'Template Saved',
+        message: 'Template saved to the server.',
+        type: 'success',
+      });
+    } catch (e) {
+      setModalState({
+        isOpen: true,
+        title: 'Save Failed',
+        message: e instanceof Error ? e.message : 'Could not save template.',
+        type: 'error',
+      });
     }
-    setModalState({
-      isOpen: true,
-      title: 'Template Saved',
-      message: 'Template saved!',
-      type: 'success',
-    });
   };
 
   // --- Renderers ---
@@ -428,6 +479,14 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
                     </button>
                  </div>
                  <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+                    {isLoadingTemplates && (
+                      <div className="p-6 text-sm text-slate-500 flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Loading templates…
+                      </div>
+                    )}
+                    {!isLoadingTemplates && templates.length === 0 && (
+                      <div className="p-6 text-sm text-slate-500">No templates found. Run seed_wills_packet on the backend.</div>
+                    )}
                     {templates.map(t => (
                        <div 
                           key={t.id} 
