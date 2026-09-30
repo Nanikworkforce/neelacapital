@@ -188,15 +188,21 @@ Note: Brokers acting under specific instructions may verify information and main
 
 
 class Command(BaseCommand):
-    help = 'Seeds Wills blank lease application + authorization templates (no sample tenant data)'
+    help = 'Seeds blank residential lease application + authorization templates (no sample tenant data)'
 
     def handle(self, *args, **kwargs):
-        # Remove old combined packet name if present so Legal shows the two clear docs
-        LeaseTemplate.objects.filter(name='Wills Lease Packet').update(is_active=False)
+        # Retire old Wills-named templates (rename content into standard names below)
+        LeaseTemplate.objects.filter(
+            name__in=[
+                'Wills Lease Packet',
+                'Wills Residential Lease Application',
+                'Wills Authorization to Release Information',
+            ]
+        ).update(is_active=False)
 
         specs = [
-            ('Wills Residential Lease Application', WILLS_LEASE_APPLICATION),
-            ('Wills Authorization to Release Information', WILLS_AUTHORIZATION_RELEASE),
+            ('Residential Lease Application', WILLS_LEASE_APPLICATION),
+            ('Authorization to Release Information', WILLS_AUTHORIZATION_RELEASE),
         ]
 
         for name, content in specs:
@@ -212,6 +218,5 @@ class Command(BaseCommand):
             else:
                 self.stdout.write(self.style.SUCCESS(f'Created "{name}"'))
 
-        # Prefer Wills application over the short default lease when multiple active templates exist
         LeaseTemplate.objects.filter(name='Standard Residential Lease').update(is_active=True)
-        self.stdout.write(self.style.SUCCESS('Wills blank templates ready for Legal / lease generation.'))
+        self.stdout.write(self.style.SUCCESS('Residential lease templates ready for Legal / lease generation.'))

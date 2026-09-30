@@ -371,16 +371,16 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
     """
     apply_lease_dates_from_application(tenant)
 
-    # Get template — prefer Wills Residential Lease Application (blank packet)
+    # Get template — prefer Residential Lease Application (blank packet)
     if not template:
         template = (
             LeaseTemplate.objects.filter(
-                is_active=True, name__iexact='Wills Residential Lease Application'
+                is_active=True, name__iexact='Residential Lease Application'
             ).first()
             or LeaseTemplate.objects.filter(
-                is_active=True, name__icontains='Wills Residential Lease Application'
+                is_active=True, name__icontains='Residential Lease Application'
             ).first()
-            or LeaseTemplate.objects.filter(is_active=True, name__icontains='Wills').first()
+            or LeaseTemplate.objects.filter(is_active=True, name__icontains='Residential Lease').first()
             or LeaseTemplate.objects.filter(is_active=True).first()
         )
         if not template:
@@ -421,7 +421,7 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
         textColor=colors.HexColor('#0f172a'),
     )
     
-    # Title from template name (Wills application / auth / lease)
+    # Title from template name (application / auth / lease)
     doc_title = (template.name or 'RESIDENTIAL LEASE APPLICATION').upper()
     elements.append(Paragraph(doc_title.replace('&', '&amp;'), title_style))
     elements.append(Spacer(1, 0.15*inch))

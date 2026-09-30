@@ -268,18 +268,17 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
         status: TenantStatus.APPROVED
       });
       
-      // Auto-generate Wills lease application packet (blank + tenant fields filled by app)
+      // Auto-generate residential lease application packet (blank + tenant fields filled by app)
       try {
         const templates = await api.getLeaseTemplates();
         const preferNames = [
-          'Wills Residential Lease Application',
-          'Wills Lease Packet',
+          'Residential Lease Application',
           'Texas Standard Residential Lease',
           'Standard Residential Lease',
         ];
         const templateToUse =
           preferNames.map((n) => templates.find((t) => t.name === n)).find(Boolean) ||
-          templates.find((t) => t.name?.includes('Wills')) ||
+          templates.find((t) => t.name?.includes('Residential Lease')) ||
           templates[0];
         
         if (templateToUse) {
@@ -370,12 +369,12 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
             !t.name.includes('Notice') && 
             !t.name.includes('Termination')
         );
-        // Prefer Wills application packet first in the dropdown
+        // Prefer residential lease application packet first in the dropdown
         const sorted = [...leaseOnlyTemplates].sort((a, b) => {
           const score = (name: string) => {
-            if (name === 'Wills Residential Lease Application') return 0;
-            if (name === 'Wills Authorization to Release Information') return 1;
-            if (name.includes('Wills')) return 2;
+            if (name === 'Residential Lease Application') return 0;
+            if (name === 'Authorization to Release Information') return 1;
+            if (name.includes('Residential Lease')) return 2;
             return 3;
           };
           return score(a.name || '') - score(b.name || '');

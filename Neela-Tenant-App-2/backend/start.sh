@@ -8,8 +8,8 @@ python manage.py migrate
 echo "Recalculating tenant balances..."
 python manage.py recalculate_balances
 
-# Ensure Wills blank lease application templates exist in Legal
-echo "Seeding Wills lease packet templates..."
+# Ensure residential lease application templates exist in Legal
+echo "Seeding residential lease packet templates..."
 python manage.py seed_wills_packet
 
 # Collect static files

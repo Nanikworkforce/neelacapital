@@ -32,7 +32,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
     type: 'info' as 'success' | 'error' | 'info' | 'warning',
   });
 
-  // Templates State — loaded from backend LeaseTemplate (includes Wills packet docs)
+  // Templates State — loaded from backend LeaseTemplate
   const [templates, setTemplates] = useState<NoticeTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [editingTemplateContent, setEditingTemplateContent] = useState('');
@@ -56,9 +56,14 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
           content: t.content || '',
           lastUpdated: t.updated_at || t.updatedAt || new Date().toISOString().slice(0, 10),
         }));
-        // Wills docs first so they are visible in Legal → Templates
+        // Residential lease docs first in Legal → Templates
         mapped.sort((a, b) => {
-          const score = (n: string) => (n.includes('Wills') ? 0 : 1);
+          const score = (n: string) => {
+            if (n === 'Residential Lease Application') return 0;
+            if (n === 'Authorization to Release Information') return 1;
+            if (n.includes('Residential Lease')) return 2;
+            return 3;
+          };
           return score(a.name) - score(b.name) || a.name.localeCompare(b.name);
         });
         setTemplates(mapped);
@@ -485,7 +490,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
                       </div>
                     )}
                     {!isLoadingTemplates && templates.length === 0 && (
-                      <div className="p-6 text-sm text-slate-500">No templates found. Run seed_wills_packet on the backend.</div>
+                      <div className="p-6 text-sm text-slate-500">No templates found. Seed residential lease templates on the backend.</div>
                     )}
                     {templates.map(t => (
                        <div 

@@ -34,7 +34,7 @@ def main():
     steps = [
         ("Default lease template", [sys.executable, "create_lease_template.py"]),
         ("Texas Standard Residential Lease", [sys.executable, "manage.py", "seed_lease_templates"]),
-        ("Wills Lease Packet", [sys.executable, "manage.py", "seed_wills_packet"]),
+        ("Residential lease templates", [sys.executable, "manage.py", "seed_wills_packet"]),
         ("Termination letter template", [sys.executable, "manage.py", "seed_termination_letter"]),
         ("Eviction notice template", [sys.executable, "manage.py", "seed_eviction_notice"]),
     ]
