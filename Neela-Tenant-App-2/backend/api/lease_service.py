@@ -358,6 +358,90 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
     return filled_content
 
 
+def bake_inline_fills(content: str, values: dict) -> str:
+    """
+    Apply interactive HTML blank fills (____ / [ ]) into lease text so they
+    persist into regenerated PDFs. Keys match frontend ids: p{para}l{line}_t{token}.
+    """
+    if not content or not isinstance(values, dict):
+        return content or ''
+
+    paragraphs = content.split('\n\n')
+    out_paras = []
+    for pi, para in enumerate(paragraphs):
+        lines = para.split('\n')
+        out_lines = []
+        for li, line in enumerate(lines):
+            tokens = re.split(r'(_{4,}|\[\s*\])', line)
+            if len(tokens) == 1:
+                out_lines.append(line)
+                continue
+            rebuilt = []
+            for ti, token in enumerate(tokens):
+                fid = f'p{pi}l{li}_t{ti}'
+                if re.fullmatch(r'_{4,}', token or ''):
+                    raw = values.get(fid, '')
+                    text = str(raw).strip() if raw not in (None, False) else ''
+                    rebuilt.append(text if text else token)
+                elif re.fullmatch(r'\[\s*\]', token or ''):
+                    checked = values.get(fid) is True or str(values.get(fid, '')).lower() in (
+                        'true', '1', 'yes', 'x', 'on',
+                    )
+                    rebuilt.append('[x]' if checked else '[ ]')
+                else:
+                    rebuilt.append(token)
+            out_lines.append(''.join(rebuilt))
+        out_paras.append('\n'.join(out_lines))
+    return '\n\n'.join(out_paras)
+
+
+def render_lease_pdf_bytes(filled_content: str, title: str = 'RESIDENTIAL LEASE APPLICATION') -> bytes:
+    """Render lease/application text content to a PDF byte string."""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=54,
+        leftMargin=54,
+        topMargin=54,
+        bottomMargin=36,
+    )
+    elements = []
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=14,
+        textColor=colors.HexColor('#1e293b'),
+        spaceAfter=18,
+        alignment=1,
+    )
+    body_style = ParagraphStyle(
+        'LeaseBody',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor('#0f172a'),
+    )
+    doc_title = (title or 'RESIDENTIAL LEASE APPLICATION').upper()
+    elements.append(Paragraph(doc_title.replace('&', '&amp;'), title_style))
+    elements.append(Spacer(1, 0.15 * inch))
+    for para in (filled_content or '').split('\n\n'):
+        if para.strip():
+            cleaned = (
+                para.strip()
+                .replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+                .replace('\n', '<br/>')
+            )
+            elements.append(Paragraph(cleaned, body_style))
+            elements.append(Spacer(1, 0.08 * inch))
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer.read()
+
+
 def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
     """
     Generate PDF lease document from template.
@@ -393,60 +477,9 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
     
     # Fill template with tenant data
     filled_content = fill_lease_template(template.content, tenant)
-    
-    # Create PDF
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter,
-                           rightMargin=54, leftMargin=54,
-                           topMargin=54, bottomMargin=36)
-    
-    # Container for the 'Flowable' objects
-    elements = []
-    
-    # Define styles
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=14,
-        textColor=colors.HexColor('#1e293b'),
-        spaceAfter=18,
-        alignment=1,  # Center
-    )
-    body_style = ParagraphStyle(
-        'LeaseBody',
-        parent=styles['Normal'],
-        fontSize=9,
-        leading=12,
-        textColor=colors.HexColor('#0f172a'),
-    )
-    
-    # Title from template name (application / auth / lease)
-    doc_title = (template.name or 'RESIDENTIAL LEASE APPLICATION').upper()
-    elements.append(Paragraph(doc_title.replace('&', '&amp;'), title_style))
-    elements.append(Spacer(1, 0.15*inch))
-    
-    # Split content into paragraphs and add to PDF
-    paragraphs = filled_content.split('\n\n')
-    for para in paragraphs:
-        if para.strip():
-            # Clean up the paragraph (escape ReportLab-sensitive chars lightly)
-            para = (
-                para.strip()
-                .replace('&', '&amp;')
-                .replace('<', '&lt;')
-                .replace('>', '&gt;')
-                .replace('\n', '<br/>')
-            )
-            elements.append(Paragraph(para, body_style))
-            elements.append(Spacer(1, 0.08*inch))
-    
-    # Build PDF
-    doc.build(elements)
-    
-    # Reset buffer position
+    pdf_bytes = render_lease_pdf_bytes(filled_content, template.name or 'RESIDENTIAL LEASE APPLICATION')
+    buffer = BytesIO(pdf_bytes)
     buffer.seek(0)
-    
     return buffer, filled_content
 
 

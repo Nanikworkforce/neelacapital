@@ -75,80 +75,79 @@ def download_cloudinary_file(resource_path, resource_types=None, formats=None):
     """
     try:
         # Remove leading slash and get clean path
-        clean_path = resource_path.lstrip('/').replace('\\', '/')
-        
-        # Keep the full path including extension
-        # (Our uploads include .pdf in the public_id)
-        public_id = clean_path
-        
-        logger.info(f"Attempting to download Cloudinary file: {public_id}")
-        
-        # Try different delivery types and methods
+        clean_path = (resource_path or '').lstrip('/').replace('\\', '/')
+        if not clean_path:
+            return None
+
+        # After tenant/landlord stamp, public_id may be stored with or without .pdf /
+        # with or without a media/ prefix. Try common variants.
+        candidates = []
+        for pid in (
+            clean_path,
+            clean_path[:-4] if clean_path.lower().endswith('.pdf') else f"{clean_path}.pdf",
+            clean_path[6:] if clean_path.startswith('media/') else f"media/{clean_path}",
+        ):
+            if pid and pid not in candidates:
+                candidates.append(pid)
+            no_ext = pid[:-4] if pid.lower().endswith('.pdf') else pid
+            if no_ext and no_ext not in candidates:
+                candidates.append(no_ext)
+
         resource_types = resource_types or ['raw']
         formats = formats or ['pdf']
         delivery_types = ['upload', 'authenticated', 'private']
-        
-        for resource_type in resource_types:
-            for file_format in formats:
-                for delivery_type in delivery_types:
-                    try:
-                        # Method 1: Use Cloudinary's private_download_url with API key signing
-                        if hasattr(cloudinary.utils, 'private_download_url'):
-                            # private_download_url requires `format`; skip invalid entries.
-                            if not file_format:
-                                continue
-                            download_url = cloudinary.utils.private_download_url(
-                                public_id,
-                                format=file_format,
-                                resource_type=resource_type,
-                                type=delivery_type,
-                                attachment=False,
-                            )
-                            
-                            logger.info(
-                                f"Trying private download URL ({resource_type}/{file_format or 'auto'}/{delivery_type}): {download_url[:100]}..."
-                            )
-                            response = requests.get(download_url, timeout=30)
-                            
-                            if response.status_code == 200:
-                                logger.info(f"Successfully downloaded file using {resource_type}/{delivery_type}")
-                                return response.content
-                            else:
-                                logger.warning(f"Failed with {resource_type}/{delivery_type}: HTTP {response.status_code}")
-                                
-                    except Exception as e:
-                        logger.warning(f"Error with {resource_type}/{delivery_type}: {e}")
-                        continue
-        
-        # Method 2: Try using Cloudinary Admin API to get resource details
-        try:
-            logger.info("Attempting to fetch resource details via Admin API")
+
+        for public_id in candidates:
+            logger.info(f"Attempting to download Cloudinary file: {public_id}")
+
+            for resource_type in resource_types:
+                for file_format in formats:
+                    for delivery_type in delivery_types:
+                        try:
+                            if hasattr(cloudinary.utils, 'private_download_url'):
+                                if not file_format:
+                                    continue
+                                download_url = cloudinary.utils.private_download_url(
+                                    public_id,
+                                    format=file_format,
+                                    resource_type=resource_type,
+                                    type=delivery_type,
+                                    attachment=False,
+                                )
+                                response = requests.get(download_url, timeout=30)
+                                if response.status_code == 200:
+                                    logger.info(
+                                        f"Downloaded Cloudinary file via {resource_type}/{delivery_type}: {public_id}"
+                                    )
+                                    return response.content
+                        except Exception as e:
+                            logger.warning(f"Error with {public_id}/{resource_type}/{delivery_type}: {e}")
+                            continue
+
+            # Admin API fallback for this candidate
             for resource_type in resource_types:
                 try:
                     resource_info = cloudinary.api.resource(
                         public_id,
                         resource_type=resource_type,
-                        type='upload'
+                        type='upload',
                     )
                 except Exception:
                     continue
-
-                if 'secure_url' in resource_info:
-                    secure_url = resource_info['secure_url']
-                    logger.info(f"Got secure_url from Admin API ({resource_type}): {secure_url[:100]}...")
+                secure_url = resource_info.get('secure_url')
+                if not secure_url:
+                    continue
+                try:
                     response = requests.get(secure_url, timeout=30)
-                    
                     if response.status_code == 200:
-                        logger.info("Successfully downloaded file using Admin API secure_url")
+                        logger.info(f"Downloaded Cloudinary file via Admin API: {public_id}")
                         return response.content
-                    else:
-                        logger.warning(f"Admin API secure_url failed: HTTP {response.status_code}")
-        except Exception as e:
-            logger.warning(f"Admin API method failed: {e}")
-        
-        logger.error(f"All download methods failed for: {public_id}")
+                except Exception as e:
+                    logger.warning(f"Admin API secure_url failed for {public_id}: {e}")
+
+        logger.error(f"All download methods failed for: {clean_path} (tried {candidates})")
         return None
-        
+
     except Exception as e:
         logger.error(f"Error in download_cloudinary_file: {e}")
         import traceback
@@ -2945,22 +2944,48 @@ def sign_lease_by_token(request):
 
     values = request.data.get('values')
     fields = request.data.get('fields')
+    filled_content = request.data.get('filled_content')
     if not isinstance(values, dict):
         return Response({'error': 'values must be an object'}, status=status.HTTP_400_BAD_REQUEST)
     if not isinstance(fields, list):
         return Response({'error': 'fields must be an array'}, status=status.HTTP_400_BAD_REQUEST)
 
-    pdf_bytes = None
-    if hasattr(settings, 'CLOUDINARY_STORAGE') and settings.CLOUDINARY_STORAGE.get('CLOUD_NAME'):
-        public_id = (legal_doc.pdf_file.name or '').lstrip('/')
-        pdf_bytes = download_cloudinary_file(public_id)
+    # Bake interactive blank fills into text and rebuild PDF so ticks/inputs
+    # land on the document (not only the HTML signing view).
+    try:
+        from .lease_service import bake_inline_fills, render_lease_pdf_bytes
+
+        base_content = (
+            filled_content
+            if isinstance(filled_content, str) and filled_content.strip()
+            else (legal_doc.generated_content or '')
+        )
+        baked = bake_inline_fills(base_content, values)
+        if baked and baked != (legal_doc.generated_content or ''):
+            legal_doc.generated_content = baked
+            legal_doc.save(update_fields=['generated_content'])
+        if role == LST.ROLE_TENANT and baked:
+            pdf_bytes = render_lease_pdf_bytes(
+                baked,
+                title=(legal_doc.type or 'RESIDENTIAL LEASE APPLICATION'),
+            )
+        else:
+            pdf_bytes = None
+    except Exception as e:
+        logger.warning(f"Could not bake/rebuild lease content before stamp: {e}")
+        pdf_bytes = None
+
     if not pdf_bytes:
-        try:
-            legal_doc.pdf_file.open('rb')
-            pdf_bytes = legal_doc.pdf_file.read()
-            legal_doc.pdf_file.close()
-        except Exception as e:
-            logger.warning(f"Could not read PDF for token signing: {e}")
+        if hasattr(settings, 'CLOUDINARY_STORAGE') and settings.CLOUDINARY_STORAGE.get('CLOUD_NAME'):
+            public_id = (legal_doc.pdf_file.name or '').lstrip('/')
+            pdf_bytes = download_cloudinary_file(public_id)
+        if not pdf_bytes:
+            try:
+                legal_doc.pdf_file.open('rb')
+                pdf_bytes = legal_doc.pdf_file.read()
+                legal_doc.pdf_file.close()
+            except Exception as e:
+                logger.warning(f"Could not read PDF for token signing: {e}")
     if not pdf_bytes:
         return Response({'error': 'Could not retrieve PDF'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

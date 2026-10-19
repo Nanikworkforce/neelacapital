@@ -155,11 +155,14 @@ def save_stamped_pdf(legal_doc, signed_pdf_bytes: bytes, filename: str) -> None:
                 format="pdf",
             )
             legal_doc.pdf_file.name = upload_result.get('public_id') or public_id_new
+            # Proxy URL (auth or signing token) — signed_pdf_url was never written before.
+            legal_doc.signed_pdf_url = f"/api/legal-documents/{legal_doc.id}/pdf/"
             return
         except Exception as e:
             logger.error(f"Cloudinary upload failed for signed PDF: {e}")
 
     legal_doc.pdf_file.save(filename, ContentFile(signed_pdf_bytes), save=False)
+    legal_doc.signed_pdf_url = f"/api/legal-documents/{legal_doc.id}/pdf/"
 
 
 def stamp_and_save(legal_doc, pdf_bytes: bytes, fields, values, filename: str) -> bytes:
@@ -178,7 +181,7 @@ def complete_tenant_signature(legal_doc, audit: dict) -> LeaseSigningToken:
         **(legal_doc.signing_audit or {}),
         'tenant': audit,
     }
-    legal_doc.save(update_fields=['status', 'signing_audit', 'pdf_file'])
+    legal_doc.save(update_fields=['status', 'signing_audit', 'pdf_file', 'signed_pdf_url'])
 
     tenant = legal_doc.tenant
     tenant.lease_status = STATUS_AWAITING_LANDLORD
@@ -216,7 +219,7 @@ def complete_landlord_signature(legal_doc, audit: dict) -> None:
         'landlord': audit,
         'fully_signed_at': legal_doc.signed_at.isoformat(),
     }
-    legal_doc.save(update_fields=['status', 'signed_at', 'signing_audit', 'pdf_file'])
+    legal_doc.save(update_fields=['status', 'signed_at', 'signing_audit', 'pdf_file', 'signed_pdf_url'])
 
     tenant = legal_doc.tenant
     tenant.lease_status = STATUS_SIGNED

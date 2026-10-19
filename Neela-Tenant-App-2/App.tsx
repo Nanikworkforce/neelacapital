@@ -446,6 +446,17 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
     }
   };
 
+  // Hooks must run unconditionally — never after the password-reset early return
+  // (that caused React #310 when navigating to /portal after set-password).
+  const isPublic = activeTab === 'public-portal';
+  usePageMeta(
+    resetPasswordMatch
+      ? { title: 'Set Password', description: 'Set your Neela Capital portal password.', robots: 'noindex, nofollow' }
+      : isPublic
+        ? SEO_PAGES.home
+        : adminTabMeta(activeTab),
+  );
+
   // If we're on password reset page, render that component
   if (resetPasswordMatch) {
     const [, uidb64Raw, tokenRaw] = resetPasswordMatch;
@@ -462,10 +473,6 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
       />
     );
   }
-
-  const isPublic = activeTab === 'public-portal';
-
-  usePageMeta(isPublic ? SEO_PAGES.home : adminTabMeta(activeTab));
 
   if (isAuthChecking && variant !== 'portal') {
     return (

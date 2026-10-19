@@ -212,7 +212,39 @@ const SigPad: React.FC<SigPadProps> = ({ label, required, value, onChange }) => 
 };
 
 // ─── Interactive inline field renderer ───────────────────────────────────────
-// Converts blank fields (____) to text inputs and [ ] to checkboxes inline.
+// Converts blank fields (____) to text inputs and [ ] / ☐ to checkboxes inline.
+const BLANK_SPLIT_RE = /(_{4,}|\[\s*\]|☐)/g;
+
+const bakeInlineFills = (
+  content: string,
+  vals: Record<string, string | boolean>,
+): string => {
+  const paragraphs = content.split(/\n\n+/);
+  return paragraphs
+    .map((para, pi) =>
+      para
+        .split('\n')
+        .map((line, li) => {
+          const tokens = line.split(BLANK_SPLIT_RE);
+          if (tokens.length === 1) return line;
+          return tokens
+            .map((token, ti) => {
+              const fid = `p${pi}l${li}_t${ti}`;
+              if (/^_{4,}$/.test(token)) {
+                const v = String(vals[fid] ?? '').trim();
+                return v || token;
+              }
+              if (/^\[\s*\]$/.test(token) || token === '☐') {
+                return vals[fid] ? '[x]' : '[ ]';
+              }
+              return token;
+            })
+            .join('');
+        })
+        .join('\n'),
+    )
+    .join('\n\n');
+};
 
 const renderLineInteractive = (
   line: string,
@@ -220,8 +252,8 @@ const renderLineInteractive = (
   vals: Record<string, string | boolean>,
   updateFn: (id: string, val: string | boolean) => void
 ): React.ReactNode => {
-  // Split line by 4+ underscores (blank fields) or unchecked checkbox markers [ ]
-  const tokens = line.split(/(_{4,}|\[ \])/g);
+  // Split line by 4+ underscores (blank fields) or unchecked checkbox markers
+  const tokens = line.split(BLANK_SPLIT_RE);
   if (tokens.length === 1) return <>{tokens[0]}</>;
 
   return (
@@ -238,9 +270,10 @@ const renderLineInteractive = (
                 type="text"
                 value={v}
                 onChange={(e) => updateFn(fid, e.target.value)}
-                className="no-print border-b border-indigo-400 bg-transparent focus:outline-none focus:border-indigo-600 text-[13px] text-slate-900 inline-block align-baseline leading-none px-0.5"
+                className="no-print border-b-2 border-indigo-500 bg-indigo-50/40 focus:outline-none focus:border-indigo-700 text-[13px] text-slate-900 inline-block align-baseline leading-none px-0.5 rounded-sm"
                 style={{ width: w }}
                 aria-label="fill in field"
+                placeholder="…"
               />
               <span
                 className="print-only border-b border-black inline-block"
@@ -252,7 +285,7 @@ const renderLineInteractive = (
           );
         }
 
-        if (token === '[ ]') {
+        if (/^\[\s*\]$/.test(token) || token === '☐') {
           const checked = !!vals[fid];
           return (
             <React.Fragment key={ti}>
@@ -261,7 +294,7 @@ const renderLineInteractive = (
                   type="checkbox"
                   checked={checked}
                   onChange={(e) => updateFn(fid, e.target.checked)}
-                  className="w-3.5 h-3.5 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500"
+                  className="w-4 h-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500"
                 />
               </label>
               <span className="print-only">{checked ? '[x]' : '[ ]'}</span>
@@ -452,10 +485,11 @@ const LeaseSigningPage: React.FC = () => {
         id: f.id, type: f.type, page: f.page ?? 1,
         x: f.x ?? 0, y: f.y ?? 0, width: f.width ?? 0.1, height: f.height ?? 0.05,
       }));
+      const filled_content = bakeInlineFills(data.generated_content || '', values);
       const res = await fetch(`${BASE_URL}/api/sign-lease/?token=${encodeURIComponent(token)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values, fields: fieldsPayload }),
+        body: JSON.stringify({ values, fields: fieldsPayload, filled_content }),
       });
       if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || 'Submission failed.'); }
       setDone(true);

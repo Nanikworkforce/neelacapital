@@ -190,6 +190,34 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
     }
   };
 
+  /** Lease PDF open/download must use auth blob — raw pdfUrl links 403 without JWT. */
+  const openLeasePdfAuthenticated = async (mode: 'view' | 'download' = 'view') => {
+    const docId = generatedLeaseDoc?.id;
+    if (!docId) {
+      setErrorMessage('No lease document to open.');
+      return;
+    }
+    try {
+      const blob = await api.getLegalDocumentPdfAsBlob(String(docId));
+      const objectUrl = URL.createObjectURL(blob);
+      if (mode === 'download') {
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = `lease-${docId}.pdf`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(objectUrl);
+      } else {
+        window.open(objectUrl, '_blank', 'noopener,noreferrer');
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 120_000);
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to open lease PDF');
+    }
+  };
+
   const buildDocumentPreview = (file: any, fallbackName: string, tenantId?: string | number) => {
     const url = getFilePreviewUrl(file, tenantId) || '';
     const filename = file?.filename || fallbackName;
@@ -475,7 +503,7 @@ Landlord                            Tenant
           setGeneratedLease('(Lease PDF ready)');
         }
 
-        if (leaseDoc.status === 'Sent') {
+        if (leaseDoc.status === 'Sent' || leaseDoc.status === 'AwaitingLandlord') {
            handleCheckStatus(leaseDoc.id);
         }
       }
@@ -519,7 +547,8 @@ Landlord                            Tenant
     }
   };
 
-  // Fetch PDF as blob for iframe preview (avoids "refused to connect" when backend blocks embedding)
+  // Fetch PDF as blob for iframe preview (avoids "refused to connect" when backend blocks embedding).
+  // Re-fetch when status changes so tenant-signed / fully-signed PDFs replace the draft blob.
   useEffect(() => {
     const docId = generatedLeaseDoc?.id;
     if (!docId || !generatedLeaseDoc?.pdfUrl) {
@@ -532,7 +561,7 @@ Landlord                            Tenant
     }
     let cancelled = false;
     setLeasePdfBlobLoading(true);
-    api.getLegalDocumentPdfAsBlob(docId)
+    api.getLegalDocumentPdfAsBlob(String(docId))
       .then((blob) => {
         if (cancelled) return;
         if (leasePdfBlobUrlRef.current) URL.revokeObjectURL(leasePdfBlobUrlRef.current);
@@ -554,7 +583,14 @@ Landlord                            Tenant
       }
       setLeasePdfBlobUrl(null);
     };
-  }, [generatedLeaseDoc?.id, generatedLeaseDoc?.pdfUrl]);
+  }, [
+    generatedLeaseDoc?.id,
+    generatedLeaseDoc?.pdfUrl,
+    leaseStatus,
+    generatedLeaseDoc?.status,
+    generatedLeaseDoc?.signedAt,
+    generatedLeaseDoc?.signed_at,
+  ]);
 
   // Fetch document preview files as blob URLs (avoids iframe/embed issues on direct backend/media URLs)
   useEffect(() => {
@@ -1755,25 +1791,19 @@ Landlord                            Tenant
                                   Tenant signed. Open the landlord signing link from your email to complete execution.
                                 </p>
                              )}
-                             {leaseStatus === 'Draft' && generatedLeaseDoc?.pdfUrl && !isEditingLease && (
-                                <a 
-                                  href={generatedLeaseDoc.pdfUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-50 flex items-center gap-2"
+                             {generatedLeaseDoc?.pdfUrl && !isEditingLease && (
+                                <button
+                                  type="button"
+                                  onClick={() => openLeasePdfAuthenticated('download')}
+                                  className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 ${
+                                    leaseStatus === 'Signed'
+                                      ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-200'
+                                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                                  }`}
                                 >
-                                   <Download className="w-4 h-4" /> Download PDF
-                                </a>
-                             )}
-                             {leaseStatus === 'Signed' && generatedLeaseDoc?.signedPdfUrl && (
-                                <a 
-                                  href={generatedLeaseDoc.signedPdfUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold hover:bg-emerald-700 flex items-center gap-2 shadow-lg shadow-emerald-200"
-                                >
-                                   <Download className="w-4 h-4" /> Download Executed PDF
-                                </a>
+                                   <Download className="w-4 h-4" />
+                                   {leaseStatus === 'Signed' ? 'Download Executed PDF' : 'Download PDF'}
+                                </button>
                              )}
                           </div>
                        )}
@@ -1851,17 +1881,23 @@ Landlord                            Tenant
                                 </span>
                                 <div className="flex gap-2">
                                    {generatedLeaseDoc?.pdfUrl && (
-                                     <a 
-                                       href={generatedLeaseDoc.pdfUrl}
-                                       target="_blank"
-                                       rel="noopener noreferrer"
+                                     <button
+                                       type="button"
+                                       onClick={() => openLeasePdfAuthenticated('download')}
                                        className="p-1.5 hover:bg-slate-200 rounded text-slate-500"
                                        title="Download PDF"
                                      >
                                        <Download className="w-4 h-4"/>
-                                     </a>
+                                     </button>
                                    )}
-                                   <button className="p-1.5 hover:bg-slate-200 rounded text-slate-500"><Printer className="w-4 h-4"/></button>
+                                   <button
+                                     type="button"
+                                     onClick={() => openLeasePdfAuthenticated('view')}
+                                     className="p-1.5 hover:bg-slate-200 rounded text-slate-500"
+                                     title="Open PDF"
+                                   >
+                                     <Printer className="w-4 h-4"/>
+                                   </button>
                                 </div>
                              </div>
                              {isEditingLease ? (
@@ -1887,15 +1923,23 @@ Landlord                            Tenant
                                  )}
                                  {!leasePdfBlobLoading && !leasePdfBlobUrl && (
                                    <div className="flex-1 flex flex-col items-center justify-center gap-2 bg-slate-50 p-6">
-                                     <p className="text-slate-600 text-sm">Preview could not load. You can still download the PDF.</p>
-                                     <a 
-                                       href={generatedLeaseDoc.pdfUrl}
-                                       target="_blank"
-                                       rel="noopener noreferrer"
-                                       className="text-indigo-600 hover:underline text-sm"
-                                     >
-                                       Open PDF in new tab
-                                     </a>
+                                     <p className="text-slate-600 text-sm">Preview could not load. Try opening or downloading with your admin session.</p>
+                                     <div className="flex gap-3">
+                                       <button
+                                         type="button"
+                                         onClick={() => openLeasePdfAuthenticated('view')}
+                                         className="text-indigo-600 hover:underline text-sm font-semibold"
+                                       >
+                                         Open PDF in new tab
+                                       </button>
+                                       <button
+                                         type="button"
+                                         onClick={() => openLeasePdfAuthenticated('download')}
+                                         className="text-indigo-600 hover:underline text-sm font-semibold"
+                                       >
+                                         Download PDF
+                                       </button>
+                                     </div>
                                    </div>
                                  )}
                                </>
