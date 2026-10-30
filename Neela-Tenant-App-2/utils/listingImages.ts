@@ -9,11 +9,8 @@ const GROUP_DEFAULT: Record<string, string> = {
   'Avenue Q': `${DIR}/ga-avenue-q-unit-a.jpg`,
   'Avenue H': `${DIR}/the-hideaway.jpg`,
   '70th Street': `${DIR}/70th-unit-1.jpg`,
-  'Avenue F': `${DIR}/wooding-ga-unit-4.jpg`,
+  'Avenue F': `${DIR}/avenue-f-unit-1.jpg`,
   'Wooding St': `${DIR}/wooding-house-unit-1.jpg`,
-  'Bella Jess': `${DIR}/bella-spring.jpg`,
-  Tomball: `${DIR}/westlock-house.jpg`,
-  Conroe: `${DIR}/sweet-magnolia.jpg`,
 };
 
 const UNIT_FILES: Record<string, Record<string, string>> = {
@@ -24,7 +21,7 @@ const UNIT_FILES: Record<string, Record<string, string>> = {
     d: `${DIR}/ga-avenue-q-unit-d.jpg`,
   },
   'Sherman St': {
-    '1': `${DIR}/duplex-on-sherman.jpg`,
+    '1': `${DIR}/sherman-unit-1.jpg`,
     '2': `${DIR}/duplex-on-sherman-unit-2.jpg`,
     '3': `${DIR}/ga-on-sherman-unit-3.jpg`,
     '4': `${DIR}/ga-on-sherman-unit-4.jpg`,
@@ -49,10 +46,10 @@ const UNIT_FILES: Record<string, Record<string, string>> = {
     '3': `${DIR}/wooding-ga-unit-3.jpg`,
   },
   'Avenue F': {
-    '1': `${DIR}/wooding-ga-unit-4.jpg`,
-    '2': `${DIR}/wooding-ga-unit-4.jpg`,
-    '3': `${DIR}/wooding-ga-unit-4.jpg`,
-    '4': `${DIR}/wooding-ga-unit-4.jpg`,
+    '1': `${DIR}/avenue-f-unit-1.jpg`,
+    '2': `${DIR}/avenue-f-unit-2.jpg`,
+    '3': `${DIR}/avenue-f-unit-3.jpg`,
+    '4': `${DIR}/avenue-f-unit-4.jpg`,
   },
 };
 

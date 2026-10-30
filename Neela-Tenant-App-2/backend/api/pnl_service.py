@@ -9,9 +9,9 @@ Per property / month:
 Financing (mortgage, depreciation) sits below NOI and is excluded from operating totals.
 Live rents and manager/admin expenses affect the income statement for most properties.
 
-Bella Jess, Tomball, Conroe, Avenue Q, Sherman, 70th Street, Avenue H, Wooding, and
-Avenue F are sheet / PropertyMonthInput only — rent collections and recorded operating
-expenses are excluded from their Income Statement totals (2026 corrected yearly seeds).
+Avenue Q, Sherman, 70th Street, Avenue H, Wooding, and Avenue F are sheet /
+PropertyMonthInput only — rent collections and recorded operating expenses are
+excluded from their Income Statement totals (2026 corrected yearly seeds).
 """
 import re
 from collections import defaultdict
@@ -239,10 +239,7 @@ def avenue_f_property_ids(properties) -> set:
 def sheet_pnl_property_ids(properties) -> set:
     """Properties that use Excel sheet / month-input totals only."""
     return (
-        bella_jess_property_ids(properties)
-        | tomball_property_ids(properties)
-        | conroe_property_ids(properties)
-        | avenue_q_property_ids(properties)
+        avenue_q_property_ids(properties)
         | sherman_property_ids(properties)
         | seventieth_property_ids(properties)
         | avenue_h_property_ids(properties)
@@ -257,13 +254,7 @@ def build_sheet_seed_map(properties, year) -> dict:
         return {}
     seed_map = {}
     for prop in properties:
-        if is_bella_jess_property(prop):
-            seed_map[prop.id] = BELLA_JESS_2026_YEARLY
-        elif is_tomball_property(prop):
-            seed_map[prop.id] = TOMBALL_2026_YEARLY
-        elif is_conroe_property(prop):
-            seed_map[prop.id] = CONROE_2026_YEARLY
-        elif is_avenue_q_property(prop):
+        if is_avenue_q_property(prop):
             seed_map[prop.id] = AVENUE_Q_2026_YEARLY
         elif is_sherman_property(prop):
             seed_map[prop.id] = SHERMAN_2026_YEARLY
@@ -766,7 +757,7 @@ def compute_property_pnl(
                 month_exp[month] += amount
 
     if summary_only:
-        # When sheet properties are in scope, portfolio totals are sheet-only (Bella + Tomball).
+        # When sheet properties are in scope, portfolio totals are sheet-only.
         total_rent = Decimal('0')
         total_short = Decimal('0')
         total_expenses = Decimal('0')

@@ -292,7 +292,7 @@ export const Listings: React.FC<ListingsProps> = ({ setView, setLoginType, handl
       <div className="bg-gradient-to-br from-indigo-900 via-blue-900 to-indigo-900 text-white py-20 md:py-28 px-6 md:px-12 relative overflow-hidden">
         <div
           className="absolute inset-0 opacity-20 bg-cover bg-center"
-          style={{ backgroundImage: `url(${assetUrl('/property-images/bella-spring.jpg')})` }}
+          style={{ backgroundImage: `url(${assetUrl('/property-images/the-hideaway.jpg')})` }}
         ></div>
         <div className="absolute inset-0 bg-gradient-to-br from-indigo-900/80 via-blue-900/80 to-indigo-900/80"></div>
         <div className="relative z-10 max-w-7xl mx-auto">

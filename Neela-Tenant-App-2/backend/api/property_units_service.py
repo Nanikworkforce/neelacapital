@@ -9,12 +9,7 @@ PROPERTY_GROUPS = [
     ('Avenue H', ['avenue h', 'ave h']),
     ('70th Street', ['70th']),
     ('Wooding St', ['wooding', 'wooden']),
-    ('Bella Jess', ['bella jess']),
     ('Avenue F', ['avenue f', 'ave f']),
-    ('Conroe', ['conroe']),
-    ('Tomball', ['tomball', 'tomabll']),
-    ('Magnolia Dr', ['magnolia']),
-    ('Westlock Dr', ['westlock']),
 ]
 
 # Canonical doors per building. Empty list = single-door (no unit picker).
@@ -26,9 +21,6 @@ PORTFOLIO_UNIT_CATALOG = {
         'Unit C',
         'Unit D (Eado Studio)',
     ],
-    'Bella Jess': [],
-    'Tomball': [],
-    'Conroe': [],
     'Sherman St': [
         'Unit 1',
         'Unit 2 (Urban Nesting)',
@@ -69,8 +61,6 @@ def get_property_group_key(prop):
     if prop.area and prop.area.strip():
         area = prop.area.strip().lower()
         area_aliases = {
-            'tomabll': 'Tomball',
-            'tomball': 'Tomball',
             'ave q': 'Avenue Q',
             'aveq': 'Avenue Q',
             'ave h': 'Avenue H',
@@ -87,13 +77,9 @@ def get_property_group_key(prop):
         for key, _ in PROPERTY_GROUPS:
             if key.lower() == area:
                 return key
-    # Name-first for known roll-ups (avoid address contamination like Tomball on Avenue F)
+    # Name-first for known roll-ups (avoid address contamination like Avenue F on other homes)
     name_norm = normalize(prop.name)
     name_aliases = {
-        'tomball': 'Tomball',
-        'tomabll': 'Tomball',
-        'conroe': 'Conroe',
-        'bellajess': 'Bella Jess',
         'aveq': 'Avenue Q',
         'aveh': 'Avenue H',
         'avef': 'Avenue F',
@@ -167,10 +153,6 @@ def is_portfolio_parent(prop, group_key):
         'wooden': 'Wooding St',
         'wooding': 'Wooding St',
         'avef': 'Avenue F',
-        'tomabll': 'Tomball',
-        'tomball': 'Tomball',
-        'bellajess': 'Bella Jess',
-        'conroe': 'Conroe',
     }
     if name_norm in short_keys and short_keys[name_norm] == group_key:
         return True

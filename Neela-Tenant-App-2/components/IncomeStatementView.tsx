@@ -1543,9 +1543,6 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
   const sheetPortfolioYear = useMemo(() => {
     if (year !== 2026) return null;
     if (
-      !bellaYearSheet &&
-      !tomballYearSheet &&
-      !conroeYearSheet &&
       !avenueQYearSheet &&
       !shermanYearSheet &&
       !seventiethYearSheet &&
@@ -1555,9 +1552,6 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     ) {
       return null;
     }
-    const b = bellaYearSheet || { income: 0, expenses: 0, net: 0 };
-    const t = tomballYearSheet || { income: 0, expenses: 0, net: 0 };
-    const c = conroeYearSheet || { income: 0, expenses: 0, net: 0 };
     const a = avenueQYearSheet || { income: 0, expenses: 0, net: 0 };
     const s = shermanYearSheet || { income: 0, expenses: 0, net: 0 };
     const sev = seventiethYearSheet || { income: 0, expenses: 0, net: 0 };
@@ -1565,15 +1559,12 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     const w = woodingYearSheet || { income: 0, expenses: 0, net: 0 };
     const f = avenueFYearSheet || { income: 0, expenses: 0, net: 0 };
       return {
-      income: b.income + t.income + c.income + a.income + s.income + sev.income + h.income + w.income + f.income,
-      expenses: b.expenses + t.expenses + c.expenses + a.expenses + s.expenses + sev.expenses + h.expenses + w.expenses + f.expenses,
-      net: b.net + t.net + c.net + a.net + s.net + sev.net + h.net + w.net + f.net,
+      income: a.income + s.income + sev.income + h.income + w.income + f.income,
+      expenses: a.expenses + s.expenses + sev.expenses + h.expenses + w.expenses + f.expenses,
+      net: a.net + s.net + sev.net + h.net + w.net + f.net,
     };
   }, [
     year,
-    bellaYearSheet,
-    tomballYearSheet,
-    conroeYearSheet,
     avenueQYearSheet,
     shermanYearSheet,
     seventiethYearSheet,
@@ -1592,39 +1583,9 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
       if (aUnits !== bUnits) return aUnits - bUnits;
       return (a.propertyName || a.groupKey || '').localeCompare(b.propertyName || b.groupKey || '');
     });
-    // Sheet mode: only Bella Jess + Tomball + Conroe + Avenue Q + Sherman + 70th + Avenue H + Wooding + Avenue F contribute; other properties forced to $0.
+    // Sheet mode: Avenue Q + Sherman + 70th + Avenue H + Wooding + Avenue F only; other properties forced to $0.
     return sorted.map((row) => {
       const name = row.propertyName || row.groupKey || '';
-      if (isBellaJessName(name) && bellaYearSheet) {
-        return {
-          ...row,
-          totalIncome: bellaYearSheet.income,
-          totalExpenses: bellaYearSheet.expenses,
-          netIncome: bellaYearSheet.net,
-          rentIncome: bellaYearSheet.income,
-          shortStayIncome: 0,
-        };
-      }
-      if (isTomballName(name) && tomballYearSheet) {
-      return {
-          ...row,
-          totalIncome: tomballYearSheet.income,
-          totalExpenses: tomballYearSheet.expenses,
-          netIncome: tomballYearSheet.net,
-          rentIncome: tomballYearSheet.income,
-          shortStayIncome: 0,
-        };
-      }
-      if (isConroeName(name) && conroeYearSheet) {
-    return {
-          ...row,
-          totalIncome: conroeYearSheet.income,
-          totalExpenses: conroeYearSheet.expenses,
-          netIncome: conroeYearSheet.net,
-          rentIncome: conroeYearSheet.income,
-          shortStayIncome: 0,
-        };
-      }
       if (isAvenueQName(name) && avenueQYearSheet) {
         return {
           ...row,
@@ -1700,9 +1661,6 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
   }, [
     summary,
     properties,
-    bellaYearSheet,
-    tomballYearSheet,
-    conroeYearSheet,
     avenueQYearSheet,
     shermanYearSheet,
     seventiethYearSheet,
@@ -1716,7 +1674,7 @@ const IncomeStatementView: React.FC<Props> = ({ properties }) => {
     if (!summary) {
       return { totalIncome: 0, totalExpenses: 0, netIncome: 0 };
     }
-    // Portfolio totals = sheet properties only (Bella + Tomball + Conroe + Avenue Q + Sherman + 70th + Avenue H + Wooding + Avenue F).
+    // Portfolio totals = sheet properties only (Avenue Q + Sherman + 70th + Avenue H + Wooding + Avenue F).
     if (sheetPortfolioYear) {
       return {
         ...summary.portfolio,

@@ -647,7 +647,7 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
       <div className="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl shadow-indigo-500/10 border-2 border-slate-200/60 overflow-hidden relative">
           <div
             className="absolute inset-0 opacity-[0.07] bg-cover bg-center pointer-events-none"
-            style={{ backgroundImage: `url(${assetUrl('/property-images/sweet-magnolia.jpg')})` }}
+            style={{ backgroundImage: `url(${assetUrl('/property-images/the-hideaway.jpg')})` }}
             aria-hidden
           />
           <div className="p-4 sm:p-6 border-b-2 border-slate-100 bg-gradient-to-r from-slate-50/95 via-white/95 to-slate-50/95 relative">

@@ -6,12 +6,7 @@ export const PROPERTY_GROUPS: { key: string; patterns: string[] }[] = [
   { key: 'Avenue H', patterns: ['avenue h', 'ave h'] },
   { key: '70th Street', patterns: ['70th'] },
   { key: 'Wooding St', patterns: ['wooding', 'wooden'] },
-  { key: 'Bella Jess', patterns: ['bella jess'] },
   { key: 'Avenue F', patterns: ['avenue f', 'ave f'] },
-  { key: 'Conroe', patterns: ['conroe'] },
-  { key: 'Tomball', patterns: ['tomball', 'tomabll'] },
-  { key: 'Magnolia Dr', patterns: ['magnolia'] },
-  { key: 'Westlock Dr', patterns: ['westlock'] },
 ];
 
 /**
@@ -25,9 +20,6 @@ export const PORTFOLIO_UNIT_CATALOG: Record<string, string[]> = {
     'Unit C',
     'Unit D (Eado Studio)',
   ],
-  'Bella Jess': [],
-  Tomball: [],
-  Conroe: [],
   'Sherman St': [
     'Unit 1',
     'Unit 2 (Urban Nesting)',
@@ -54,11 +46,8 @@ export function portfolioUnitLabels(groupKey: string): string[] | null {
   return null;
 }
 
-/** Same order as Income Statement: singles first, then buildings with units. */
+/** Same order as Income Statement. */
 export const PORTFOLIO_DISPLAY_ORDER = [
-  'Bella Jess',
-  'Tomball',
-  'Conroe',
   'Wooding St',
   'Avenue F',
   '70th Street',
@@ -75,9 +64,6 @@ export const LISTINGS_DISPLAY_ORDER = [
   '70th Street',
   'Avenue F',
   'Wooding St',
-  'Bella Jess',
-  'Tomball',
-  'Conroe',
 ];
 
 /** Building roll-up row (e.g. "Ave Q") vs a real unit row. */
@@ -87,7 +73,7 @@ export function isBuildingRollup(prop: Property): boolean {
 
 /**
  * Public listings / short stays / pickers: one card per unit on multi-door
- * buildings, one card for Bella Jess / Tomball / Conroe. Drops parent duplicates.
+ * buildings. Drops parent duplicates.
  */
 export function propertiesForPortfolioDisplay(properties: Property[]): Property[] {
   return properties.filter((prop) => {
@@ -185,8 +171,6 @@ function normalizeName(s?: string): string {
 export function getPropertyGroupKeyFromProperty(prop: Property): string {
   const text = propertySearchText(prop);
   const areaAliases: Record<string, string> = {
-    tomabll: 'Tomball',
-    tomball: 'Tomball',
     'ave q': 'Avenue Q',
     aveq: 'Avenue Q',
     'ave h': 'Avenue H',
@@ -206,10 +190,6 @@ export function getPropertyGroupKeyFromProperty(prop: Property): string {
   }
   const nameNorm = normalizeName(prop.name);
   const nameAliases: Record<string, string> = {
-    tomball: 'Tomball',
-    tomabll: 'Tomball',
-    conroe: 'Conroe',
-    bellajess: 'Bella Jess',
     aveq: 'Avenue Q',
     aveh: 'Avenue H',
     avef: 'Avenue F',
@@ -486,10 +466,6 @@ function isLikelyPortfolioParent(prop: Property, groupKey: string): boolean {
     wooden: 'woodingst',
     wooding: 'woodingst',
     avef: 'avenuef',
-    tomabll: 'tomball',
-    tomball: 'tomball',
-    bellajess: 'bellajess',
-    conroe: 'conroe',
   };
   return short[name] === key || name === key.replace(/st$/, '') || name === key.replace(/street$/, '');
 }
