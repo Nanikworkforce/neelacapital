@@ -461,39 +461,12 @@ def get_configured_manager_emails() -> list:
 
 def get_manager_emails_for_tenant(tenant) -> list:
     """
-    Property manager notification recipients:
-    - configured PROPERTY_MANAGER_EMAIL (always)
-    - plus approved PMs assigned to properties matching this tenant's unit
-    """
-    emails = list(get_configured_manager_emails())
-    if tenant is None:
-        return merge_email_recipients(emails)
-    try:
-        from .models import PropertyManagerProfile
+    Property manager notification recipients.
 
-        profiles = (
-            PropertyManagerProfile.objects.filter(status='approved')
-            .select_related('user')
-            .prefetch_related('properties')
-        )
-        unit = (getattr(tenant, 'property_unit', None) or '').strip()
-        for profile in profiles:
-            props = list(profile.properties.all())
-            if not props:
-                continue
-            # Reuse same text matching used for PM tenant scoping
-            if unit and any(
-                (p.name and p.name.lower() in unit.lower())
-                or (p.address and p.address.lower() in unit.lower())
-                for p in props
-            ):
-                email = (getattr(profile.user, 'email', None) or '').strip()
-                if email:
-                    emails.append(email)
-        return merge_email_recipients(emails)
-    except Exception as e:
-        logger.warning(f"Error fetching manager emails for tenant: {e}")
-        return merge_email_recipients(emails)
+    Only the configured PROPERTY_MANAGER_EMAIL inbox(es) — do not fan out to
+    every assigned PM user account (e.g. personal Gmails on the dashboard).
+    """
+    return merge_email_recipients(get_configured_manager_emails())
 
 
 def merge_email_recipients(*groups) -> list:
@@ -527,9 +500,10 @@ def _send_application_notification_to_admin(tenant_id):
     except Tenant.DoesNotExist:
         return
     
+    # Staff new-application notices: admin (info@) + configured PM only.
     recipients = merge_email_recipients(
         get_admin_emails(),
-        get_manager_emails_for_tenant(tenant),
+        get_configured_manager_emails(),
     )
     
     if not recipients:
