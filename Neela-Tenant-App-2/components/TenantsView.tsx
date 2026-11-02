@@ -190,6 +190,25 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
     }
   };
 
+  /** Safe filename segment: letters/numbers/dashes only, collapsed. */
+  const leaseFilenamePart = (raw: string | undefined | null, max = 40) => {
+    const cleaned = String(raw || '')
+      .trim()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
+    return (cleaned || 'Unknown').slice(0, max);
+  };
+
+  /** e.g. Lease_Jane_Doe_6705_Sherman_Street_2026-11-02.pdf */
+  const buildLeaseDownloadName = () => {
+    const name = leaseFilenamePart(selectedApplicant?.name, 48);
+    const unit = leaseFilenamePart(selectedApplicant?.propertyUnit, 48);
+    const date = new Date().toISOString().slice(0, 10);
+    return `Lease_${name}_${unit}_${date}.pdf`;
+  };
+
   /** Lease PDF open/download must use auth blob — raw pdfUrl links 403 without JWT. */
   const openLeasePdfAuthenticated = async (mode: 'view' | 'download' = 'view') => {
     const docId = generatedLeaseDoc?.id;
@@ -203,7 +222,7 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
       if (mode === 'download') {
         const anchor = document.createElement('a');
         anchor.href = objectUrl;
-        anchor.download = `lease-${docId}.pdf`;
+        anchor.download = buildLeaseDownloadName();
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();

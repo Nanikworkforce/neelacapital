@@ -1905,10 +1905,9 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         else:
             party = LST.ROLE_TENANT
 
-        filename = (
-            f"{'landlord' if party == LST.ROLE_LANDLORD else 'tenant'}_signed_lease_"
-            f"{legal_doc.tenant_id}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        )
+        from .lease_service import build_lease_pdf_filename
+        party_prefix = 'Landlord_Signed_Lease' if party == LST.ROLE_LANDLORD else 'Tenant_Signed_Lease'
+        filename = build_lease_pdf_filename(legal_doc.tenant, prefix=party_prefix)
         save_stamped_pdf(legal_doc, signed_pdf_bytes, filename)
 
         request_obj = request._request if hasattr(request, '_request') else request
@@ -2990,10 +2989,9 @@ def sign_lease_by_token(request):
         return Response({'error': 'Could not retrieve PDF'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     try:
-        filename = (
-            f"{'landlord' if role == LST.ROLE_LANDLORD else 'tenant'}_signed_lease_"
-            f"{legal_doc.tenant_id}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        )
+        from .lease_service import build_lease_pdf_filename
+        party_prefix = 'Landlord_Signed_Lease' if role == LST.ROLE_LANDLORD else 'Tenant_Signed_Lease'
+        filename = build_lease_pdf_filename(legal_doc.tenant, prefix=party_prefix)
         stamp_and_save(legal_doc, pdf_bytes, fields, values, filename)
     except Exception as e:
         logger.error(f"Error stamping PDF (token signing): {e}", exc_info=True)

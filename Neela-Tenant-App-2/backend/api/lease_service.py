@@ -111,6 +111,21 @@ def apply_lease_dates_from_application(tenant: Tenant) -> None:
         tenant.save(update_fields=update_fields)
 
 
+def build_lease_pdf_filename(tenant: Tenant, prefix: str = 'Lease') -> str:
+    """
+    Human-readable lease PDF name, e.g.
+    Lease_Jane_Doe_6705_Sherman_Street_2026-11-02.pdf
+    """
+    def part(raw, max_len=48):
+        cleaned = re.sub(r'[^\w\s-]', '', str(raw or '').strip())
+        cleaned = re.sub(r'\s+', '_', cleaned)
+        cleaned = re.sub(r'_+', '_', cleaned).strip('_')
+        return (cleaned or 'Unknown')[:max_len]
+
+    date = datetime.now().strftime('%Y-%m-%d')
+    return f"{prefix}_{part(tenant.name)}_{part(tenant.property_unit)}_{date}.pdf"
+
+
 def fill_lease_template(template_content: str, tenant: Tenant) -> str:
     """
     Fill lease template with tenant data.
@@ -653,8 +668,8 @@ def save_lease_document(tenant: Tenant, pdf_buffer: BytesIO, filled_content: str
         status='Draft',
     )
     
-    # Save PDF file
-    filename = f"lease_{tenant.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    # Save PDF file — human-readable: Lease_Name_Unit_YYYY-MM-DD.pdf
+    filename = build_lease_pdf_filename(tenant)
     
     # Check if using Cloudinary storage
     if hasattr(settings, 'CLOUDINARY_STORAGE') and settings.CLOUDINARY_STORAGE.get('CLOUD_NAME'):
