@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import Modal from './Modal';
 import ViewportPortal from './ViewportPortal';
-import { formatDateMMDDYYYY } from '../utils/date';
+import { formatDateMMDDYYYY, formatDateTimeUTC } from '../utils/date';
 import { getApiOrigin } from '../utils/apiOrigin';
 
 interface TenantsProps {
@@ -2293,7 +2293,7 @@ Landlord                            Tenant
                         )}
                         {activeTab === 'applicants' && (
                           <>
-                            <span className="text-xs text-slate-500 md:hidden mt-0.5">Submitted: {t.applicationData?.submissionDate || 'N/A'}</span>
+                            <span className="text-xs text-slate-500 md:hidden mt-0.5">Submitted: {formatDateTimeUTC(t.applicationData?.submissionDate) || 'N/A'}</span>
                             <span className="text-xs text-slate-500 lg:hidden mt-0.5">
                               {t.backgroundCheckStatus === 'Clear' ? (
                                 <span className="text-emerald-600 font-bold">Credit: {t.creditScore}</span>
@@ -2343,7 +2343,7 @@ Landlord                            Tenant
                       </>
                     ) : (
                       <>
-                        <td className="px-3 sm:px-4 lg:px-6 py-3 sm:py-4 text-slate-500 hidden md:table-cell">{t.applicationData?.submissionDate || 'N/A'}</td>
+                        <td className="px-3 sm:px-4 lg:px-6 py-3 sm:py-4 text-slate-500 hidden md:table-cell">{formatDateTimeUTC(t.applicationData?.submissionDate) || 'N/A'}</td>
                         <td className="px-3 sm:px-4 lg:px-6 py-3 sm:py-4 hidden lg:table-cell">
                            {t.backgroundCheckStatus === 'Clear' ? (
                               <span className="flex items-center text-emerald-600 text-xs font-bold"><CheckCircle className="w-3 h-3 mr-1"/> {t.creditScore}</span>

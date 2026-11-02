@@ -448,12 +448,26 @@ def get_admin_emails():
         return ['admin@example.com']  # Final fallback
 
 
+def get_configured_manager_emails() -> list:
+    """Always-notify property manager inbox(es) from PROPERTY_MANAGER_EMAIL."""
+    raw = getattr(settings, 'PROPERTY_MANAGER_EMAIL', None) or ''
+    emails = []
+    for part in str(raw).split(','):
+        cleaned = part.strip()
+        if cleaned:
+            emails.append(cleaned)
+    return emails
+
+
 def get_manager_emails_for_tenant(tenant) -> list:
     """
-    Approved property managers assigned to properties matching this tenant's unit text.
+    Property manager notification recipients:
+    - configured PROPERTY_MANAGER_EMAIL (always)
+    - plus approved PMs assigned to properties matching this tenant's unit
     """
+    emails = list(get_configured_manager_emails())
     if tenant is None:
-        return []
+        return merge_email_recipients(emails)
     try:
         from .models import PropertyManagerProfile
 
@@ -463,7 +477,6 @@ def get_manager_emails_for_tenant(tenant) -> list:
             .prefetch_related('properties')
         )
         unit = (getattr(tenant, 'property_unit', None) or '').strip()
-        emails = []
         for profile in profiles:
             props = list(profile.properties.all())
             if not props:
@@ -477,18 +490,10 @@ def get_manager_emails_for_tenant(tenant) -> list:
                 email = (getattr(profile.user, 'email', None) or '').strip()
                 if email:
                     emails.append(email)
-        # Dedupe while preserving order
-        seen = set()
-        out = []
-        for e in emails:
-            key = e.lower()
-            if key not in seen:
-                seen.add(key)
-                out.append(e)
-        return out
+        return merge_email_recipients(emails)
     except Exception as e:
         logger.warning(f"Error fetching manager emails for tenant: {e}")
-        return []
+        return merge_email_recipients(emails)
 
 
 def merge_email_recipients(*groups) -> list:

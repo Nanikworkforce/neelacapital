@@ -55,6 +55,29 @@ export function formatDateTime(value: Date | string | null | undefined): string 
 }
 
 /**
+ * Format date + time in UTC (admin application timestamps).
+ * Example: 10/19/2026 1:09 AM UTC
+ */
+export function formatDateTimeUTC(value: Date | string | null | undefined): string {
+  if (value == null || value === '') return '';
+  const date = typeof value === 'string' ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return formatDateMMDDYYYY(value);
+  }
+
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const year = date.getUTCFullYear();
+  const hours = date.getUTCHours();
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  return `${month}/${day}/${year} ${displayHours}:${minutes} ${ampm} UTC`;
+}
+
+/**
  * Human-readable relative time for activity feeds (e.g. "5m ago", "Yesterday").
  * Future or invalid dates fall back to MM/DD/YYYY — never negative "Xm ago".
  */

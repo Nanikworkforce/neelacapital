@@ -299,6 +299,11 @@ LANDLORD_ADDRESS = os.environ.get('LANDLORD_ADDRESS', '').strip() or None
 LANDLORD_PHONE = os.environ.get('LANDLORD_PHONE', '').strip() or None
 # Property manager / company name in leases and notices
 PROPERTY_MANAGER_NAME = os.environ.get('PROPERTY_MANAGER_NAME', '').strip() or 'Neela Capital Investment'
+# Comma-separated PM inbox(es) for application / lease notifications
+PROPERTY_MANAGER_EMAIL = (
+    os.environ.get('PROPERTY_MANAGER_EMAIL', '').strip()
+    or 'Reschke_will@yahoo.com'
+)
 # Default city/state/zip when not derivable from tenant property_unit (e.g. "Houston, Texas, 77011")
 PROPERTY_DEFAULT_CITY_STATE_ZIP = os.environ.get('PROPERTY_DEFAULT_CITY_STATE_ZIP', '').strip() or None
 
