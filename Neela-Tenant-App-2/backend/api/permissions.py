@@ -233,3 +233,16 @@ def user_can_access_legal_document(user, legal_doc, raw_token=None):
     from .models import Tenant
 
     return Tenant.objects.filter(id=legal_doc.tenant_id, email__iexact=email).exists()
+
+
+def user_can_manage_tenant_lease(user, tenant) -> bool:
+    """Admin or PM assigned to the tenant's property — generate/send/sign lease."""
+    if not user or not user.is_authenticated or tenant is None:
+        return False
+    if is_admin_user(user):
+        return True
+    if not is_property_manager(user):
+        return False
+    from .models import Tenant
+
+    return filter_tenants_for_user(Tenant.objects.filter(id=tenant.id), user).exists()

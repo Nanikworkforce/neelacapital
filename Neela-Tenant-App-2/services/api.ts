@@ -1463,6 +1463,22 @@ export const api = {
     return await response.json();
   },
 
+  /** Admin/PM: open landlord counter-sign link after tenant has signed. */
+  getLandlordSigningLink: async (legalDocumentId: string): Promise<{ signing_url: string }> => {
+    const response = await fetchWithAuth(
+      `${API_URL}/legal-documents/${legalDocumentId}/landlord_signing_link/`,
+      {
+        method: 'POST',
+        headers: getHeaders(true, true),
+      }
+    );
+    if (!response.ok) {
+      let error: any = { detail: 'Failed to get signing link' };
+      try { error = await response.json(); } catch { /* keep default */ }
+      throw new Error(error.error || error.detail || error.message || 'Failed to get signing link');
+    }
+    return await response.json();
+  },
 
   // Get legal documents for a tenant (uses auth and same API base URL)
   getLegalDocuments: async (tenantId?: string): Promise<any[]> => {

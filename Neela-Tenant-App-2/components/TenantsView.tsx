@@ -17,9 +17,12 @@ interface TenantsProps {
   tenants: Tenant[];
   initialTab?: 'residents' | 'applicants';
   onTenantsChange?: () => void;
+  /** When 'manager', hide admin-only chrome (add resident / create template). */
+  mode?: 'admin' | 'manager';
 }
 
-const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents', onTenantsChange }) => {
+const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents', onTenantsChange, mode = 'admin' }) => {
+  const isManagerMode = mode === 'manager';
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: '',
@@ -48,6 +51,7 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
   const [isEditingLease, setIsEditingLease] = useState(false);
   const [editedLeaseContent, setEditedLeaseContent] = useState('');
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [isOpeningLandlordSign, setIsOpeningLandlordSign] = useState(false);
   const [leasePdfBlobUrl, setLeasePdfBlobUrl] = useState<string | null>(null);
   const [leasePdfBlobLoading, setLeasePdfBlobLoading] = useState(false);
   const leasePdfBlobUrlRef = useRef<string | null>(null);
@@ -735,6 +739,25 @@ Landlord                            Tenant
     setEditedLeaseContent('');
   };
 
+  const handleOpenLandlordSign = async () => {
+    if (!generatedLeaseDoc?.id) {
+      setErrorMessage('No lease document available.');
+      return;
+    }
+    setIsOpeningLandlordSign(true);
+    setErrorMessage(null);
+    try {
+      const res = await api.getLandlordSigningLink(String(generatedLeaseDoc.id));
+      const url = res?.signing_url;
+      if (!url) throw new Error('No signing link returned');
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to open landlord signing link');
+    } finally {
+      setIsOpeningLandlordSign(false);
+    }
+  };
+
   const handleSendLease = async () => {
     if (!generatedLeaseDoc?.id) {
       setErrorMessage('No lease document available. Please generate the lease first.');
@@ -939,7 +962,7 @@ Landlord                            Tenant
                 <span className="hidden sm:inline">Applications </span>({applicants.length})
              </button>
            </div>
-           {activeTab === 'residents' && (
+           {activeTab === 'residents' && !isManagerMode && (
              <button
                onClick={openAddResidentModal}
                className="px-3 sm:px-4 py-1.5 sm:py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-xs sm:text-sm font-medium flex items-center gap-1.5 sm:gap-2 whitespace-nowrap"
@@ -1724,7 +1747,7 @@ Landlord                            Tenant
                                         ))
                                       )}
                                    </select>
-                                   {leaseTemplates.length === 0 && !isLoadingTemplates && !templateError && (
+                                   {leaseTemplates.length === 0 && !isLoadingTemplates && !templateError && !isManagerMode && (
                                       <button 
                                         onClick={handleCreateDefaultTemplate}
                                         disabled={isCreatingTemplate}
@@ -1859,24 +1882,36 @@ Landlord                            Tenant
                           </div>
                        )}
                        {generatedLeaseDoc && leaseStatus === 'AwaitingLandlord' && (
-                          <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg flex items-center justify-between gap-3">
+                          <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                              <div className="flex items-center gap-3">
-                                <PenTool className="w-5 h-5 text-indigo-600" />
+                                <PenTool className="w-5 h-5 text-indigo-600 shrink-0" />
                                 <div>
                                    <p className="text-sm font-bold text-indigo-900">Tenant signed — your turn</p>
                                    <p className="text-xs text-indigo-700">
-                                     Check your email for the landlord signing link. The tenant-signed lease is attached to that link.
+                                     Counter-sign the lease now, or use the link from your email.
                                    </p>
                                 </div>
                              </div>
-                             <button
-                               onClick={() => handleCheckStatus()}
-                               disabled={isCheckingStatus}
-                               className="text-xs text-indigo-700 font-bold hover:text-indigo-900 flex items-center gap-1 bg-indigo-100 px-2 py-1 rounded shrink-0"
-                             >
-                               <RefreshCw className={`w-3 h-3 ${isCheckingStatus ? 'animate-spin' : ''}`} />
-                               {isCheckingStatus ? 'Checking...' : 'Refresh'}
-                             </button>
+                             <div className="flex flex-wrap gap-2 shrink-0">
+                               <button
+                                 type="button"
+                                 onClick={() => void handleOpenLandlordSign()}
+                                 disabled={isOpeningLandlordSign}
+                                 className="text-xs text-white font-bold bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded flex items-center gap-1 disabled:opacity-50"
+                               >
+                                 {isOpeningLandlordSign ? <Loader2 className="w-3 h-3 animate-spin" /> : <PenTool className="w-3 h-3" />}
+                                 {isOpeningLandlordSign ? 'Opening…' : 'Sign Lease'}
+                               </button>
+                               <button
+                                 type="button"
+                                 onClick={() => handleCheckStatus()}
+                                 disabled={isCheckingStatus}
+                                 className="text-xs text-indigo-700 font-bold hover:text-indigo-900 flex items-center gap-1 bg-indigo-100 px-2 py-1 rounded"
+                               >
+                                 <RefreshCw className={`w-3 h-3 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                                 {isCheckingStatus ? 'Checking...' : 'Refresh'}
+                               </button>
+                             </div>
                           </div>
                        )}
                        {leaseStatus === 'Signed' && (
@@ -2263,7 +2298,7 @@ Landlord                            Tenant
               className="w-full pl-10 pr-4 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-slate-900 placeholder-slate-500 text-sm sm:text-base"
             />
           </div>
-          {activeTab === 'residents' && (
+          {activeTab === 'residents' && !isManagerMode && (
              <button 
                onClick={openAddResidentModal}
                className="flex items-center justify-center px-3 sm:px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base font-medium"

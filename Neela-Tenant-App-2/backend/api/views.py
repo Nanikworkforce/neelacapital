@@ -50,6 +50,7 @@ from .permissions import (
     filter_maintenance_for_user,
     filter_legal_documents_for_user,
     user_can_access_legal_document,
+    user_can_manage_tenant_lease,
     get_valid_signing_token,
     MANAGER_EXPENSE_CATEGORIES,
     ADMIN_ONLY_EXPENSE_CATEGORIES,
@@ -959,7 +960,9 @@ class OperatingExpenseViewSet(viewsets.ModelViewSet):
             | Q(property__in=filter_properties_for_user(Property.objects.all(), user))
         )
         if not is_admin_user(user):
-            qs = qs.exclude(visibility='admin_only')
+            qs = qs.exclude(visibility='admin_only').exclude(
+                category__in=ADMIN_ONLY_EXPENSE_CATEGORIES
+            )
         year = self.request.query_params.get('year')
         if year:
             try:
@@ -1691,8 +1694,13 @@ class LeaseTemplateViewSet(viewsets.ModelViewSet):
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
+        # PMs may list/retrieve templates to generate leases; only admin writes.
+        if self.action in ('list', 'retrieve'):
+            if not is_staff_portal_user(request.user):
+                raise PermissionDenied('Lease templates require staff access.')
+            return
         if not is_admin_user(request.user):
-            raise PermissionDenied('Lease templates are admin only.')
+            raise PermissionDenied('Only admin can create or edit lease templates.')
 
 
 class LegalDocumentViewSet(viewsets.ModelViewSet):
@@ -1707,9 +1715,9 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         if is_property_manager(self.request.user) and self.action in (
-            'list', 'retrieve', 'create', 'update', 'partial_update', 'destroy',
+            'create', 'update', 'partial_update', 'destroy',
         ):
-            raise PermissionDenied('Legal documents are admin only.')
+            raise PermissionDenied('Only admin can create or delete legal documents directly.')
         queryset = LegalDocument.objects.all()
         queryset = filter_legal_documents_for_user(queryset, self.request.user)
         tenant_id = self.request.query_params.get('tenant')
@@ -1946,9 +1954,7 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def generate_lease(self, request):
-        """Generate lease PDF for a tenant."""
-        if not is_admin_user(request.user):
-            raise PermissionDenied('Only admin can generate leases.')
+        """Generate lease PDF for a tenant (admin or assigned property manager)."""
         tenant_id = request.data.get('tenant_id')
         template_id = request.data.get('template_id')
         custom_content = request.data.get('custom_content')  # Optional custom content
@@ -1966,6 +1972,9 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
                 {'error': 'Tenant not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+        if not user_can_manage_tenant_lease(request.user, tenant):
+            raise PermissionDenied('You do not have access to generate a lease for this tenant.')
         
         template = None
         if template_id:
@@ -2129,13 +2138,15 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         """
         Send a one-time signing link to the tenant via email (in-house flow).
         Creates/reuses a LeaseSigningToken and emails the tenant a link to sign in-app.
+        Admin or assigned property manager.
         """
-        if not is_admin_user(request.user):
-            raise PermissionDenied('Only admin can send lease signing links.')
         try:
             legal_doc = self.get_object()
         except LegalDocument.DoesNotExist:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not user_can_manage_tenant_lease(request.user, legal_doc.tenant):
+            raise PermissionDenied('You do not have access to send this lease.')
 
         if not legal_doc.pdf_file:
             return Response({'error': 'No PDF file available. Generate the lease first.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -2225,6 +2236,49 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
                     'Lease sent to the tenant. After they sign, check your email for the '
                     'landlord signing link. Both signatures are required before move-in.'
                 ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='landlord_signing_link',
+        permission_classes=[IsAuthenticated],
+    )
+    def landlord_signing_link(self, request, pk=None):
+        """
+        Create/refresh a landlord (counter-sign) link for admin or assigned PM.
+        Only available after the tenant has signed (AwaitingLandlord).
+        """
+        try:
+            legal_doc = self.get_object()
+        except LegalDocument.DoesNotExist:
+            return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not user_can_manage_tenant_lease(request.user, legal_doc.tenant):
+            raise PermissionDenied('You do not have access to sign this lease.')
+
+        if legal_doc.status == 'Signed':
+            return Response({'error': 'This lease is already fully signed.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if legal_doc.status != 'AwaitingLandlord':
+            return Response(
+                {'error': 'The tenant must sign first before the landlord/PM can counter-sign.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from .models import LeaseSigningToken
+        from .lease_signing import create_signing_token
+        from .email_service import get_frontend_url
+
+        signing_token = create_signing_token(legal_doc, LeaseSigningToken.ROLE_LANDLORD)
+        signing_url = f"{get_frontend_url()}/sign-lease?token={signing_token.token}"
+        return Response(
+            {
+                'signing_url': signing_url,
+                'signing_token': str(signing_token.token),
+                'status': legal_doc.status,
             },
             status=status.HTTP_200_OK,
         )

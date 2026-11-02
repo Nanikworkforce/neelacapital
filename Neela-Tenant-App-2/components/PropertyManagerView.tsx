@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import NeelaLogo from './NeelaLogo';
 import MaintenanceView from './MaintenanceView';
+import TenantsView from './TenantsView';
 import AddExpenseModal from './AddExpenseModal';
 import ViewportPortal from './ViewportPortal';
 import PropertyMonthIncomeOpexEditor from './PropertyMonthIncomeOpexEditor';
@@ -456,9 +457,15 @@ const PropertyManagerView: React.FC = () => {
 
   const propertyGroups = useMemo(() => groupPropertiesForSelect(properties), [properties]);
 
-  /** Manager-entered costs only — hide Excel P&L import rows from this portal. */
+  /** Manager-entered costs only — hide Excel imports and tax/insurance (admin-only). */
   const managerRecordedExpenses = useMemo(
-    () => expenses.filter((e) => !e.notes?.startsWith('excel-import-')),
+    () =>
+      expenses.filter((e) => {
+        if (e.notes?.startsWith('excel-import-')) return false;
+        const cat = String(e.category || '').toLowerCase();
+        if (cat.includes('tax') || cat.includes('insurance')) return false;
+        return true;
+      }),
     [expenses],
   );
 
@@ -753,146 +760,14 @@ const PropertyManagerView: React.FC = () => {
               subtitle={`${applicants.length} pending application${applicants.length === 1 ? '' : 's'} · ${residents.length} active resident${residents.length === 1 ? '' : 's'}`}
               accent="from-violet-600 via-indigo-600 to-blue-700"
             />
-
-            <div className="grid grid-cols-2 gap-3 sm:gap-4">
-              <ManagerStatCard label="Applications" value={applicants.length} icon={FileText} variant="tickets" onClick={() => {}} />
-              <ManagerStatCard label="Residents" value={residents.length} icon={Users} variant="revenue" onClick={() => {}} />
+            <div className="rounded-2xl sm:rounded-3xl bg-white/90 backdrop-blur-sm border border-slate-200/70 shadow-sm overflow-hidden p-4 sm:p-6">
+              <TenantsView
+                tenants={myTenants}
+                initialTab="applicants"
+                mode="manager"
+                onTenantsChange={refreshTenants}
+              />
             </div>
-
-            <SectionCard
-              title="Tenant Applications"
-              subtitle="Review new applicants for your properties"
-              headerClassName="from-amber-50/80 to-white"
-            >
-              {applicants.length === 0 ? (
-                <EmptyState icon={FileText} message="No pending applications right now." />
-              ) : (
-                <div className="space-y-3 -m-1">
-                  {applicants.map((t) => (
-                    <div
-                      key={t.id}
-                      className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 rounded-2xl border border-slate-100 bg-gradient-to-r from-white to-amber-50/30 p-4 hover:border-amber-200/80 hover:shadow-md hover:shadow-amber-500/5 transition-all duration-200"
-                    >
-                      <TenantAvatar name={t.name} />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-slate-900 truncate">{t.name}</p>
-                        <p className="text-sm text-slate-500 truncate">{t.email}</p>
-                        <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5 truncate">
-                          <MapPin className="w-3 h-3 flex-shrink-0 text-amber-600" />
-                          {t.propertyUnit}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2 shrink-0">
-                        <button
-                          type="button"
-                          disabled={!!actionLoading}
-                          onClick={() => handleTenantStatus(t, TenantStatus.APPROVED)}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                        >
-                          {actionLoading === `status-${t.id}-${TenantStatus.APPROVED}` ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <CheckCircle className="w-3.5 h-3.5" />
-                          )}
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!!actionLoading}
-                          onClick={() => handleTenantStatus(t, TenantStatus.DECLINED)}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-                        >
-                          {actionLoading === `status-${t.id}-${TenantStatus.DECLINED}` ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <XCircle className="w-3.5 h-3.5" />
-                          )}
-                          Deny
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </SectionCard>
-
-            {approvedTenants.length > 0 && (
-              <SectionCard
-                title="Approved — awaiting move-in"
-                subtitle="Mark tenants active when they move in"
-                headerClassName="from-blue-50/80 to-white"
-              >
-                <div className="space-y-3 -m-1">
-                  {approvedTenants.map((t) => (
-                    <div
-                      key={t.id}
-                      className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-2xl border border-blue-100 bg-white p-4"
-                    >
-                      <TenantAvatar name={t.name} />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-slate-900 truncate">{t.name}</p>
-                        <p className="text-xs text-slate-500 truncate">{t.propertyUnit}</p>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={!!actionLoading}
-                        onClick={() => handleTenantStatus(t, TenantStatus.ACTIVE)}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        {actionLoading === `status-${t.id}-${TenantStatus.ACTIVE}` ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <CheckCircle className="w-3.5 h-3.5" />
-                        )}
-                        Move in (Active)
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </SectionCard>
-            )}
-
-            <SectionCard
-              title="Active Residents"
-              subtitle="Current tenants on your assigned properties"
-              headerClassName="from-emerald-50/80 to-white"
-            >
-              {residents.length === 0 ? (
-                <EmptyState icon={Users} message="No active residents on your properties yet." />
-              ) : (
-                <div className="space-y-3 -m-1">
-                  {residents.map((t) => (
-                    <div
-                      key={t.id}
-                      className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 rounded-2xl border border-slate-100 bg-gradient-to-r from-white to-emerald-50/30 p-4 hover:border-emerald-200/80 hover:shadow-md hover:shadow-emerald-500/5 transition-all duration-200"
-                    >
-                      <TenantAvatar name={t.name} />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-slate-900 truncate">{t.name}</p>
-                        <p className="text-sm text-slate-500 truncate">{t.email}</p>
-                        <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5 truncate">
-                          <MapPin className="w-3 h-3 flex-shrink-0 text-emerald-600" />
-                          {t.propertyUnit}
-                        </p>
-                        {(t.balance || 0) > 0 && (
-                          <p className="text-xs font-semibold text-rose-600 mt-1">{formatMoney(t.balance)} due</p>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => { setMessageTenant(t); setMessageText(''); }}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          Message
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </SectionCard>
           </div>
         );
       case 'maintenance':
@@ -1171,6 +1046,8 @@ const PropertyManagerView: React.FC = () => {
                       monthlyMortgagePayment: 3685.79,
                     }}
                     showPerformanceMetrics={false}
+                    showFinancingAndSummary={false}
+                    hideTaxInsurance
                     useSheetDefaults
                     sheetKind="avenueq"
                   />
@@ -1220,6 +1097,8 @@ const PropertyManagerView: React.FC = () => {
                       monthlyMortgagePayment: 0,
                     }}
                     showPerformanceMetrics={false}
+                    showFinancingAndSummary={false}
+                    hideTaxInsurance
                     useSheetDefaults
                     sheetKind="sherman"
                   />
@@ -1269,6 +1148,8 @@ const PropertyManagerView: React.FC = () => {
                       monthlyMortgagePayment: 3192,
                     }}
                     showPerformanceMetrics={false}
+                    showFinancingAndSummary={false}
+                    hideTaxInsurance
                     useSheetDefaults
                     sheetKind="seventieth"
                   />
@@ -1318,6 +1199,8 @@ const PropertyManagerView: React.FC = () => {
                       monthlyMortgagePayment: 2025,
                     }}
                     showPerformanceMetrics={false}
+                    showFinancingAndSummary={false}
+                    hideTaxInsurance
                     useSheetDefaults
                     sheetKind="avenueh"
                   />
@@ -1367,6 +1250,8 @@ const PropertyManagerView: React.FC = () => {
                       monthlyMortgagePayment: 4127,
                     }}
                     showPerformanceMetrics={false}
+                    showFinancingAndSummary={false}
+                    hideTaxInsurance
                     useSheetDefaults
                     sheetKind="wooding"
                   />
@@ -1416,6 +1301,8 @@ const PropertyManagerView: React.FC = () => {
                       monthlyMortgagePayment: 1189,
                     }}
                     showPerformanceMetrics={false}
+                    showFinancingAndSummary={false}
+                    hideTaxInsurance
                     useSheetDefaults
                     sheetKind="avenuef"
                   />

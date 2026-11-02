@@ -191,6 +191,8 @@ type Props = {
   showPerformanceMetrics?: boolean;
   /** When false, hide financing + summary (legacy). Default true. */
   showFinancingAndSummary?: boolean;
+  /** Hide taxes / insurance opex lines from the UI (amounts still preserved on save). */
+  hideTaxInsurance?: boolean;
   /** Use sheet seed amounts (Bella Jess / Tomball / Conroe 2026). */
   useSheetDefaults?: boolean;
   /** Which property sheet seeds to load when useSheetDefaults is true. */
@@ -216,6 +218,7 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
   overview,
   showPerformanceMetrics = false,
   showFinancingAndSummary = true,
+  hideTaxInsurance = false,
   useSheetDefaults = true,
   sheetKind: sheetKindProp = 'bella',
   overviewSlot,
@@ -279,8 +282,23 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
   } | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const opexSections = useMemo(() => groupOpexByUnit(opexLines), [opexLines]);
+  const isTaxOrInsuranceLine = (key: string, label?: string) =>
+    /tax|insurance/i.test(key) || /tax|insurance/i.test(label || '');
+
+  const visibleOpexLines = useMemo(
+    () =>
+      hideTaxInsurance
+        ? opexLines.filter((l) => !isTaxOrInsuranceLine(l.key, l.label))
+        : opexLines,
+    [opexLines, hideTaxInsurance],
+  );
+
+  const opexSections = useMemo(() => groupOpexByUnit(visibleOpexLines), [visibleOpexLines]);
   const opexHasUnitBlocks = opexSections.some((s) => s.kind === 'unit');
+  const visibleOpexTotal = useMemo(
+    () => visibleOpexLines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
+    [visibleOpexLines],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -636,7 +654,7 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
                     </React.Fragment>
                   );
                 })
-              : opexLines.map((l) => (
+              : visibleOpexLines.map((l) => (
                   <tr key={l.key} className="border-t border-slate-100">
                     <td
                       className={`px-2.5 sm:px-3 py-2 pr-2 align-middle break-words leading-snug ${l.accent ? 'italic text-amber-800' : ''}`}
@@ -658,8 +676,8 @@ const PropertyMonthIncomeOpexEditor: React.FC<Props> = ({
                 ))}
             <tr className="border-t bg-emerald-50 font-bold">
               <td className="px-2.5 sm:px-3 py-2.5 break-words leading-snug">Total Operating Expenses</td>
-              <td className={`px-2.5 sm:px-3 py-2.5 text-right tabular-nums whitespace-nowrap ${moneyToneClass(summary.totalOpex)}`}>
-                {formatMoneyPnL(summary.totalOpex)}
+              <td className={`px-2.5 sm:px-3 py-2.5 text-right tabular-nums whitespace-nowrap ${moneyToneClass(hideTaxInsurance ? visibleOpexTotal : summary.totalOpex)}`}>
+                {formatMoneyPnL(hideTaxInsurance ? visibleOpexTotal : summary.totalOpex)}
               </td>
             </tr>
           </tbody>
