@@ -397,6 +397,9 @@ export const useApplication = (): UseApplicationReturn => {
             .filter(o => o.name.trim())
             .map(o => o.age.trim() ? `${o.name.trim()} (age ${o.age.trim()})` : o.name.trim())
             .join(', ') || '',
+          otherOccupantsList: formData.otherOccupantsList
+            .filter(o => o.name.trim())
+            .map(o => ({ name: o.name.trim(), age: (o.age || '').trim() })),
           hasOtherAdults: formData.hasOtherAdults,
           
           // Employment/Income
@@ -419,6 +422,12 @@ export const useApplication = (): UseApplicationReturn => {
           desiredMoveInDate: formData.desiredMoveInDate,
           desiredLeaseMonths: parseInt(formData.desiredLeaseMonths, 10) || 12,
           emergencyContact: `${formData.emergencyContactName}, ${formData.emergencyContactRelationship}, ${formData.emergencyContactPhone}`.trim(),
+          emergencyContactName: formData.emergencyContactName,
+          emergencyContactRelationship: formData.emergencyContactRelationship,
+          emergencyContactPhone: formData.emergencyContactPhone,
+          previousAddress: formData.hasRentedRecently ? formData.previousAddress : '',
+          landlordName: formData.hasRentedRecently ? formData.landlordName : '',
+          landlordContact: formData.hasRentedRecently ? formData.landlordContact : '',
           additionalNotes: formData.additionalNotes,
           certificationAgreed: formData.certificationAgreed,
         },

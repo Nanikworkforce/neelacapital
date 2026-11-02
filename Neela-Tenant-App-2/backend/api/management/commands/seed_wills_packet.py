@@ -2,196 +2,145 @@ from django.core.management.base import BaseCommand
 from api.models import LeaseTemplate
 
 
-WILLS_LEASE_APPLICATION = """LEASE APPLICATION PACKET (BLANK TEMPLATE)
+WILLS_LEASE_APPLICATION = """NEELA CAPITAL INVESTMENTS
+6705 Sherman Street, Houston, Texas 77011 | (832) 621-6126 | neelacapital.com
 
-Please submit the attached completed lease application:
-with a copy of all applicant's photo ID's
-proof of income
-proof of employment
-and current email addresses and phone numbers
-to:
+NEELA REAL ESTATE SUBMISSION INSTRUCTIONS & APPLICATION REQUIREMENTS
 
-{{landlord_name}} via:
+Please submit the completed lease application with:
+• Copy of all applicant's photo IDs
+• Proof of income - Should be 3x the rent
+• Proof of employment - pay stubs or letter from employer
+• Current email addresses and phone numbers
 
-Email: {{landlord_email}}
+Income Documentation Clarification: The stated three-times-rent income criterion must be read together with Landlord's disclosed tenant selection criteria.
 
-Or call @ {{landlord_phone}}
+--------------------------------------------------------------------------------
 
-to arrange dropping all pages to the office.
-For faster processing.
-
-Thank you,
-
-{{landlord_name}}
-{{landlord_phone}}
-
-----------------------------------------------------------------------------------
-Received on __________________ (date) at __________________ (time)
-
-TEXAS ASSOCIATION OF REALTORS®
-RESIDENTIAL LEASE APPLICATION
-
-Each occupant and co-applicant 18 years or older must submit a separate application.
+1. PROPERTY & LEASE REQUEST DETAILS
 
 Property Address: {{property_unit}}
-Anticipated Move-in Date: {{move_in_date}}
-Initial Lease Term Requested: {{lease_term_months}} (months)
-Monthly Rent: {{rent_amount}}
-Security Deposit: {{deposit_amount}}
+Anticipated Move-in Date: {{move_in_date}}    Monthly Rent: {{rent_amount}}    Security Deposit: {{deposit_amount}}
 
-Property Condition: Applicant is strongly encouraged to view the Property prior to submitting any application. Landlord makes no express or implied warranties as to the Property's condition. Applicant requests Landlord consider the following repairs or treatments should Applicant and Landlord enter into a lease:
-__________________________________________________________________________________
-__________________________________________________________________________________
+LEASE TERM NOTE:
+The tenancy established under this agreement is strictly month-to-month. A 12-month fixed-term lease shall not take effect or be enforceable unless and until prior written approval for a 12-month lease is formally executed by the Landlord. Verbal representations or ongoing discussions alone do not establish a 12-month tenancy.
 
-Applicant was referred to Landlord by:
-[ ] Real estate agent __________________ (name) __________________ (phone) __________________ (e-mail)
-[ ] Newspaper  [ ] Sign  [ ] Internet  [ ] Other __________________
+DEFAULT, EVICTION NOTICE & SHORT-TERM STAY PROVISIONS:
 
-Applicant's name (first, middle, last): {{tenant_name}}
-Is there a co-applicant? [ ] yes [ ] no  If yes, co-applicant must submit a separate application.
-Applicant's former last name (maiden or married): __________________
+Notice to Vacate: In the event of default or breach of lease terms, Landlord shall issue a 24-Hour Notice to Vacate, which becomes effective immediately upon delivery/submission of the written notice. Under Texas Property Code § 24.005(a), the statutory 3-day notice requirement is expressly overridden by the agreed terms of this written agreement to a shortened 24-hour notice period.
 
-E-mail: {{tenant_email}}
-Work Phone: __________________
-Home Phone: __________________
-Mobile/Pager: {{tenant_phone}}
-Soc. Sec. No.: __________________
-Driver License No.: {{driver_license}} in {{dl_state}} (state)
-Date of Birth: {{date_of_birth}}
-Height: {{height}} Weight: {{weight}}
-Hair Color: {{hair_color}} Eye Color: {{eye_color}}
-Marital Status: {{marital_status}} Citizenship: {{citizenship}} (country)
+Short-Term Stay & Transient Occupancy Provisions: Pursuant to Texas Property Code Chapter 24 and applicable local ordinances governing short-term, temporary, or transient stays, failure to surrender possession upon the expiration of the 24-hour notice immediately subjects the occupant to expedited eviction procedures, forcible detainer filing, or immediate law enforcement intervention where transient lodging/innkeeper laws apply. The tenant/occupant acknowledges that short-term occupancy rules apply upon default or non-renewal of the month-to-month arrangement.
 
-Emergency Contact: (Do not insert the name of an occupant or co-applicant.)
-Name: {{emergency_contact_name}}
-Address: {{emergency_contact_address}}
-Phone: {{emergency_contact_phone}} E-mail: {{emergency_contact_email}}
+--------------------------------------------------------------------------------
 
-Name all other persons who will occupy the Property:
+2. PROPERTY CONDITION & REQUESTED REPAIRS
+
+Applicant accepts the Property in its present "as is" condition, subject only to any specific written repair requests approved by Landlord prior to move-in. Landlord-provided furniture, appliances, or inventory shall remain property of Landlord and must be maintained in good working order by Tenant.
+
+Requested Repairs (if none, write "NONE"):
+1. _________________________________________________________________________________
+2. _________________________________________________________________________________
+
+--------------------------------------------------------------------------------
+
+3. APPLICANT INFORMATION
+
+Full Legal Name: {{tenant_name}}    Former Name / Maiden Name: ______________________
+Date of Birth: {{date_of_birth}}    SSN/ITIN: ___________________    Driver's License No. & State: ______________________
+Cell/Home Phone: {{tenant_phone}}    Email Address: {{tenant_email}}
+Emergency Contact Name: {{emergency_contact_name}}    Relationship: {{emergency_contact_relationship}}    Phone: {{emergency_contact_phone}}
+
+--------------------------------------------------------------------------------
+
+4. OTHER OCCUPANTS & RESIDENCE HISTORY
+
+Other Occupants (List all persons who will reside in the property):
 {{occupants_detailed}}
 
-Applicant's Current Address:
-{{tenant_current_address}}
-Apt. No. ______
-(city, state, zip)
-Landlord or Property Manager's Name: ___________________________________
-Phone: Day: _______________ Nt: _______________ Mb: _______________ Fax: _______________
-Email: ___________________________________
-Date Moved-In: __________________ Move-Out Date: __________________ Rent $: __________
-Reason for move: ______________________________________________________________________
+Current Address: {{tenant_current_address}}
+City: _______________ State: ____ Zip: _______
+Dates of Occupancy: From: _________ To: _________    Monthly Rent/Mortgage: $________    Reason for Moving: ________________
+Current Landlord/Mortgage Co.: _______________________________________ Phone: ___________________________
 
-Applicant's Previous Address:
-{{previous_address}}
-Apt. No. ______
-(city, state, zip)
-Landlord or Property Manager's Name: {{previous_landlord_name}}
-Phone: Day: _______________ Nt: _______________ Mb: {{previous_landlord_phone}} Fax: _______________
-Email: {{previous_landlord_email}}
-Date Moved-In: {{move_in_date_prev}} Move-Out Date: {{move_out_date_prev}} Rent $: {{previous_rent}}
-Reason for move: {{reason_for_leaving}}
+--------------------------------------------------------------------------------
 
-Applicant's Current Employer: {{employer}}
-Address: ______________________________________________________________________
-Supervisor's Name: {{supervisor_name}} Phone: {{supervisor_phone}} Fax: __________________
-E-mail: __________________
-Start Date: {{employment_start_date}} Gross Monthly Income: {{monthly_income}} Position: {{job_title}}
+5. PREVIOUS RESIDENCE & EMPLOYMENT HISTORY
 
-Note: If Applicant is self-employed, Landlord may require one or more previous year's tax return attested by a CPA, attorney, or other tax professional.
+Previous Address: {{previous_address}}
+City: _______________ State: ____ Zip: _______
+Previous Landlord: {{previous_landlord_name}}    Phone: {{previous_landlord_phone}}
 
-Applicant's Previous Employer:
-Address: ______________________________________________________________________
-Supervisor's Name: __________________ Phone: __________________ Fax: __________________
-E-mail: __________________
-Employed from __________________ to __________________
-Gross Monthly Income: $__________ Position: __________________
+Current Employer: {{employer}}    Position: {{job_title}}    Supervisor: {{supervisor_name}}
+Employer Address: _____________________________________ Phone: __________________ Start Date: {{employment_start_date}}
+Gross Monthly Income: {{monthly_income}}    Other Income (Monthly): $____________    Source: __________________________
 
-Describe other income Applicant wants considered: ___________________________________
+*Self-employed applicants must provide two consecutive years of complete federal tax returns and 3 months of bank statements to substantiate gross income.
 
-List all vehicles to be parked on the Property:
-{{vehicles_list}}
+--------------------------------------------------------------------------------
 
-Will any pets (dogs, cats, birds, reptiles, fish, and other pets) be kept on the Property? {{has_pets_yes}} yes {{has_pets_no}} no
-If yes, list all pets to be kept on the Property:
-{{pets_description}}
+6. VEHICLES & PETS
 
-Will any waterbeds or water-filled furniture be on the Property? [ ] Yes [ ] No
-Does anyone who will occupy the Property smoke? {{smokes_yes}} Yes {{smokes_no}} No
-Will Applicant maintain renter's insurance? [ ] Yes [ ] No
-Is Applicant or Applicant's spouse, even if separated, in military? [ ] Yes [ ] No
-If yes, is the military person serving under orders limiting the military person's stay to one year or less? [ ] Yes [ ] No
+Vehicle 1: Make: ____________ Model: ____________ Year: ______ Color: ________ License Plate: __________ State: ____
+Vehicle 2: Make: ____________ Model: ____________ Year: ______ Color: ________ License Plate: __________ State: ____
 
-Has Applicant ever:
-been evicted? {{eviction_yes}} Yes {{eviction_no}} No
-been asked to move out by a landlord? [ ] Yes [ ] No
-breached a lease or rental agreement? [ ] Yes [ ] No
-filed for bankruptcy? [ ] Yes [ ] No
-lost property in a foreclosure? [ ] Yes [ ] No
-had any credit problems, including any outstanding debt (e.g., student loans or medical bills), slow-pays or delinquencies? [ ] Yes [ ] No
-been convicted of a crime? {{felony_yes}} Yes {{felony_no}} No If yes, provide the location, year, and type of conviction below.
-{{eviction_felony_explanation}}
-Is any occupant a registered sex offender? [ ] Yes [ ] No If yes, provide the location, year, and type of conviction below.
-Is there additional information Applicant wants considered? ___________________________________
+Pets (if any): Type/Breed: {{pets_description}}    Weight: ______ Age: ____    Vaccinations Up to Date? [ ] Yes [ ] No
+Pet Bite/Aggression History: [ ] Yes [ ] No (If yes, provide details: _____________________________________________)
 
-Additional comments: {{additional_notes}}
+--------------------------------------------------------------------------------
 
-Authorization: Applicant authorizes Landlord and Landlord's agent, at any time before, during, or after any tenancy, to:
-(1) obtain a copy of Applicant's credit report;
-(2) obtain a criminal background check related to Applicant and any occupant; and
-(3) verify any rental or employment history or verify any other information related to this application with persons knowledgeable of such information.
+7. GENERAL INFORMATION & BACKGROUND QUESTIONS
 
-Notice of Landlord's Right to Continue to Show the Property: Unless Landlord and Applicant enter into a separate written agreement otherwise, the Property remains on the market until a lease is signed by all parties and Landlord may continue to show the Property to other prospective tenants and accept another offer.
+1. Have you ever been evicted, asked to move out, or broken a rental agreement? {{eviction_yes}} Yes {{eviction_no}} No
+2. Have you ever declared bankruptcy? [ ] Yes [ ] No
+3. Have you ever been convicted of or pled guilty/no contest to a felony or misdemeanor? {{felony_yes}} Yes {{felony_no}} No
+4. Do you smoke or use e-cigarettes/vaping products? {{smokes_yes}} Yes {{smokes_no}} No
+5. Do you agree to maintain renter's insurance during the entire tenancy? [ ] Yes [ ] No
+6. Are you currently serving on active military duty? [ ] Yes [ ] No
 
-Privacy Policy: Landlord's agent or property manager maintains a privacy policy that is available upon request.
+--------------------------------------------------------------------------------
 
-Fees: Applicant submits a non-refundable fee of $__________ to ____________________ (entity or individual) for processing and reviewing this application. Applicant [ ] submits [ ] will not submit an application deposit of $__________ to be applied to the security deposit upon execution of a lease or returned to Applicant if a lease is not executed.
+8. AUTHORIZATION, FEES & ACKNOWLEDGEMENT
 
-Acknowledgement & Representation:
-(1) Signing this application indicates that Applicant has had the opportunity to review Landlord's tenant selection criteria, which is available upon request. The tenant selection criteria may include factors such as criminal history, credit history, current income and rental history.
-(2) Applicant understands that providing inaccurate or incomplete information is grounds for rejection of this application and forfeiture of any application fee and may be grounds to declare Applicant in breach of any lease the Applicant may sign.
-(3) Applicant represents that the statements in this application are true and complete.
+Applicant represents that all information provided in this application is true, complete, and accurate. Applicant understands that any misrepresentation, falsification, or omission of facts is grounds for rejection of this application or immediate termination of tenancy if discovered post-occupancy.
 
-Applicant's Signature: ___________________________________
-Date: {{current_date}}
+Applicant acknowledges payment of a non-refundable application fee. Applicant authorizes Landlord and its representatives to enter and show the property during reasonable notice periods as provided by law. Landlord complies with applicable privacy regulations and protects confidential applicant information.
 
-For Landlord's Use:
-On __________________ (name/initials) notified Applicant by [ ] phone [ ] mail [ ] e-mail [ ] fax [ ] in person that Applicant was [ ] approved [ ] not approved. Reason for disapproval: ___________________________________
+Applicant Signature: _________________________________________________ Date: ______________________
+
+--------------------------------------------------------------------------------
+
+9. AUTHORIZATION TO RELEASE INFORMATION
+
+I hereby authorize my current and former employers, current and previous landlords, mortgage lenders, financial institutions, consumer reporting agencies, and law enforcement agencies to release any and all verification information concerning my employment, rental history, financial accounts, credit history, and criminal background to Neela Capital Investments and its authorized agents.
+
+Applicant Signature: _________________________________________________ Date: ______________________
 """
 
 
-WILLS_AUTHORIZATION_RELEASE = """TEXAS ASSOCIATION OF REALTORS®
-AUTHORIZATION TO RELEASE INFORMATION RELATED TO A RESIDENTIAL LEASE APPLICANT
+WILLS_AUTHORIZATION_RELEASE = """NEELA CAPITAL INVESTMENTS
+AUTHORIZATION TO RELEASE INFORMATION
 
 Residential Lease Application concerning {{property_unit}}
 
-I, {{tenant_name}} (Applicant), have submitted an application to lease a property located at {{property_unit}} (address, city, state, zip).
+I, {{tenant_name}} (Applicant), have submitted an application to lease a property located at {{property_unit}}.
 
 The landlord, broker, or landlord's representative is:
-{{landlord_name}} (name)
-{{landlord_address}} (address)
-{{property_city_state_zip}} (city, state, zip)
-{{landlord_phone}} (phone)
-__________________ (fax)
-{{landlord_email}} (e-mail)
+{{landlord_name}}
+{{landlord_address}}
+{{landlord_phone}}
+{{landlord_email}}
 
-I give my permission:
-(1) to my current and former employers to release any information about my employment history and income history to the above-named person;
-(2) to my current and former landlords to release any information about my rental history to the above-named person;
-(3) to my current and former mortgage lenders on property that I own or have owned to release any information about my mortgage payment history to the above-named person;
-(4) to my bank, savings and loan, or credit union to provide a verification of funds that I have on deposit to the above-named person; and
-(5) to the above-named person to obtain a copy of my consumer report (credit report) from any consumer reporting agency and to obtain background information about me.
+I hereby authorize my current and former employers, current and previous landlords, mortgage lenders, financial institutions, consumer reporting agencies, and law enforcement agencies to release any and all verification information concerning my employment, rental history, financial accounts, credit history, and criminal background to Neela Capital Investments and its authorized agents.
 
 Applicant's Signature: ___________________________________
 Date: {{current_date}}
-
-Note: Brokers acting under specific instructions may verify information and maintain a privacy policy available upon request.
 """
 
 
 class Command(BaseCommand):
-    help = 'Seeds blank residential lease application + authorization templates (no sample tenant data)'
+    help = 'Seeds Neela Real Estate lease application + authorization templates'
 
     def handle(self, *args, **kwargs):
-        # Retire old Wills-named templates (rename content into standard names below)
         LeaseTemplate.objects.filter(
             name__in=[
                 'Wills Lease Packet',
@@ -219,4 +168,4 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(f'Created "{name}"'))
 
         LeaseTemplate.objects.filter(name='Standard Residential Lease').update(is_active=True)
-        self.stdout.write(self.style.SUCCESS('Residential lease templates ready for Legal / lease generation.'))
+        self.stdout.write(self.style.SUCCESS('Neela Real Estate lease templates ready.'))

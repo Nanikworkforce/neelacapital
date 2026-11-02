@@ -94,7 +94,7 @@ def landlord_signing_fields():
         {
             "id": "landlord_signature",
             "type": "signature",
-            "label": "Landlord Signature",
+            "label": "Authorized Signature",
             "page": 1,
             "x": 0.12,
             "y": 0.9,

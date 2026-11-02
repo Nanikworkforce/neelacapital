@@ -600,7 +600,7 @@ const LeaseSigningPage: React.FC = () => {
               Save / Print
             </button>
             <div className={`px-2.5 py-1 rounded-full text-xs font-bold ${isLandlordParty ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
-              {isLandlordParty ? 'Landlord Signature Required' : 'Tenant Signature Required'}
+              {isLandlordParty ? 'Signature Required' : 'Tenant Signature Required'}
             </div>
           </div>
         </div>
@@ -613,7 +613,7 @@ const LeaseSigningPage: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
               <span>
-                <strong>{tenantName}</strong> has already signed. Review the tenant-signed lease below, then add the landlord signature.
+                <strong>{tenantName}</strong> has already signed. Review the tenant-signed lease below, then complete the remaining signature.
               </span>
             </div>
           ) : (
@@ -647,7 +647,7 @@ const LeaseSigningPage: React.FC = () => {
             {/* ── SIGNATURES section ── */}
             <div className={`${isLandlordParty ? '' : 'mt-8 pt-6 border-t-2 border-slate-300'} print:border-black`}>
               <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wide mb-3 print:text-black">
-                {isLandlordParty ? 'Landlord Signature' : 'Signatures'}
+                {isLandlordParty ? 'Complete Signature' : 'Signatures'}
               </h3>
               {!isLandlordParty && sigIntro && (
                 <p className="text-[13px] text-slate-700 mb-5 print:text-black">{sigIntro}</p>
@@ -689,8 +689,8 @@ const LeaseSigningPage: React.FC = () => {
                   <SigBlock
                     sigField={landlordSig}
                     dateFieldId="landlord_signature_date"
-                    signerLabel="Landlord Signature"
-                    signerName="Landlord"
+                    signerLabel="Authorized Signature"
+                    signerName="Neela Capital Investments"
                     values={values}
                     update={update}
                   />
@@ -726,12 +726,12 @@ const LeaseSigningPage: React.FC = () => {
                   {submitting
                     ? 'Submitting…'
                     : isLandlordParty
-                      ? 'Complete Landlord Signature'
+                      ? 'Complete Signature'
                       : 'Complete & Sign Lease'}
                 </button>
                 <p className="text-xs text-slate-400 text-center mt-2">
                   {isLandlordParty
-                    ? 'By signing, you execute this lease as landlord on behalf of Neela Capital.'
+                    ? 'By signing, you confirm this lease for Neela Capital Investments.'
                     : 'By signing, you agree to all terms stated in this lease.'}
                 </p>
               </div>

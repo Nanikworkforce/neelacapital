@@ -182,7 +182,10 @@ def filter_legal_documents_for_user(queryset, user):
     if is_admin_user(user):
         return queryset
     if is_property_manager(user):
-        return queryset.none()
+        from .models import Tenant
+
+        tenant_ids = filter_tenants_for_user(Tenant.objects.all(), user).values_list('id', flat=True)
+        return queryset.filter(tenant_id__in=tenant_ids)
     from .models import Tenant
 
     tenant_ids = filter_tenants_for_user(Tenant.objects.all(), user).values_list('id', flat=True)
@@ -206,7 +209,7 @@ def get_valid_signing_token(raw_token):
 
 def user_can_access_legal_document(user, legal_doc, raw_token=None):
     """
-    Admin, owning tenant (login), or holder of a valid one-time signing link.
+    Admin, assigned property manager, owning tenant (login), or valid signing link.
     """
     if legal_doc is None:
         return False
@@ -218,7 +221,12 @@ def user_can_access_legal_document(user, legal_doc, raw_token=None):
     if not user or not user.is_authenticated:
         return False
     if is_property_manager(user):
-        return False
+        from .models import Tenant
+
+        return filter_tenants_for_user(
+            Tenant.objects.filter(id=legal_doc.tenant_id),
+            user,
+        ).exists()
     email = (getattr(user, 'email', None) or '').strip()
     if not email or not legal_doc.tenant_id:
         return False

@@ -448,6 +448,68 @@ def get_admin_emails():
         return ['admin@example.com']  # Final fallback
 
 
+def get_manager_emails_for_tenant(tenant) -> list:
+    """
+    Approved property managers assigned to properties matching this tenant's unit text.
+    """
+    if tenant is None:
+        return []
+    try:
+        from .models import PropertyManagerProfile
+
+        profiles = (
+            PropertyManagerProfile.objects.filter(status='approved')
+            .select_related('user')
+            .prefetch_related('properties')
+        )
+        unit = (getattr(tenant, 'property_unit', None) or '').strip()
+        emails = []
+        for profile in profiles:
+            props = list(profile.properties.all())
+            if not props:
+                continue
+            # Reuse same text matching used for PM tenant scoping
+            if unit and any(
+                (p.name and p.name.lower() in unit.lower())
+                or (p.address and p.address.lower() in unit.lower())
+                for p in props
+            ):
+                email = (getattr(profile.user, 'email', None) or '').strip()
+                if email:
+                    emails.append(email)
+        # Dedupe while preserving order
+        seen = set()
+        out = []
+        for e in emails:
+            key = e.lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(e)
+        return out
+    except Exception as e:
+        logger.warning(f"Error fetching manager emails for tenant: {e}")
+        return []
+
+
+def merge_email_recipients(*groups) -> list:
+    """Flatten email lists and dedupe (case-insensitive)."""
+    seen = set()
+    out = []
+    for group in groups:
+        for email in group or []:
+            if not email or not isinstance(email, str):
+                continue
+            cleaned = email.strip()
+            if not cleaned:
+                continue
+            key = cleaned.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(cleaned)
+    return out
+
+
 def _send_application_notification_to_admin(tenant_id):
     """
     Internal function to send email notification to admin.
@@ -460,9 +522,12 @@ def _send_application_notification_to_admin(tenant_id):
     except Tenant.DoesNotExist:
         return
     
-    admin_emails = get_admin_emails()
+    recipients = merge_email_recipients(
+        get_admin_emails(),
+        get_manager_emails_for_tenant(tenant),
+    )
     
-    if not admin_emails:
+    if not recipients:
         return
     
     subject = f'New Property Application: {tenant.name}'
@@ -497,7 +562,7 @@ def _send_application_notification_to_admin(tenant_id):
         subject=subject,
         message=plain_message,
         from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=admin_emails,
+        recipient_list=recipients,
         html_message=html_message,
         email_type="application notification email"
     )
@@ -1362,15 +1427,18 @@ def _send_lease_signed_confirmation(legal_document_id):
         logger.error(f"Legal document with ID {legal_document_id} not found for signed confirmation email.")
         return
     
-    # Notify Admin/Manager First (Runs independently of tenant email availability)
-    admin_emails = get_admin_emails()
-    if admin_emails:
+    # Notify admin + assigned property managers (final signed packet)
+    staff_recipients = merge_email_recipients(
+        get_admin_emails(),
+        get_manager_emails_for_tenant(legal_doc.tenant),
+    )
+    if staff_recipients:
         admin_subject = f'Lease Signed by All Parties - {legal_doc.tenant.name} - {legal_doc.tenant.property_unit}'
         
         admin_plain_message = f"""
         Lease Agreement Fully Signed
         
-        The lease agreement has been signed by both the Tenant and the Landlord.
+        The lease agreement has been signed by both parties.
         
         Tenant: {legal_doc.tenant.name}
         Property Unit: {legal_doc.tenant.property_unit}
@@ -1385,7 +1453,7 @@ def _send_lease_signed_confirmation(legal_document_id):
             subject=admin_subject,
             message=admin_plain_message,
             from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=admin_emails,
+            recipient_list=staff_recipients,
             email_type=f"lease signed admin notification (document {legal_doc.id})"
         )
 
@@ -1480,16 +1548,13 @@ def _send_landlord_lease_ready_to_sign(legal_document_id: int, token: str | None
         logger.error(f"Legal document with ID {legal_document_id} not found for landlord signing notification.")
         return
 
-    landlord_name = getattr(settings, 'LANDLORD_NAME', None) or 'Landlord'
-    recipients = []
-    landlord_email = (getattr(settings, 'LANDLORD_EMAIL', None) or '').strip()
-    if landlord_email:
-        recipients.append(landlord_email)
-    else:
-        recipients = get_admin_emails()
+    recipients = merge_email_recipients(
+        [(getattr(settings, 'LANDLORD_EMAIL', None) or '').strip()] if (getattr(settings, 'LANDLORD_EMAIL', None) or '').strip() else get_admin_emails(),
+        get_manager_emails_for_tenant(legal_doc.tenant),
+    )
 
     if not recipients:
-        logger.warning("No landlord/admin emails configured; cannot send landlord signing notification.")
+        logger.warning("No landlord/admin/manager emails configured; cannot send signing notification.")
         return
 
     signing_url = None
@@ -1497,47 +1562,44 @@ def _send_landlord_lease_ready_to_sign(legal_document_id: int, token: str | None
         signing_url = f"{get_frontend_url()}/sign-lease?token={token}"
 
     subject = (
-        f"[Neela Capital] Landlord signature needed — "
+        f"[Neela Capital] Signature needed — "
         f"{legal_doc.tenant.name} · {legal_doc.tenant.property_unit}"
     )
 
     message = f"""
-Tenant Signed — Landlord Signature Required
-
-Hello {landlord_name},
+Tenant Signed — Counter-Signature Required
 
 {legal_doc.tenant.name} has signed the lease for {legal_doc.tenant.property_unit}.
 
-Their signature is already on the document. Open the link below to review the tenant-signed lease and add the landlord signature.
+Their signature is already on the document. Open the link below to review the tenant-signed lease and complete the remaining signature.
 
 """
     if signing_url:
-        message += f"Sign as landlord:\n{signing_url}\n\n"
+        message += f"Review & sign:\n{signing_url}\n\n"
     else:
-        message += "Open the admin portal lease for this applicant to complete the landlord signature.\n\n"
+        message += "Open the portal lease for this applicant to complete the remaining signature.\n\n"
 
-    message += """Only after you sign will both parties be marked complete and the tenant receive their account setup email.
+    message += """Only after this signature is complete will both parties be marked done and the tenant receive their account setup email.
 
 Thanks,
 Neela Property Management Team
 """
 
     html_message = f"""
-    <p>Hello {landlord_name},</p>
     <p><strong>{legal_doc.tenant.name}</strong> has signed the lease for <strong>{legal_doc.tenant.property_unit}</strong>.</p>
-    <p>Their signature is already on the document. Please review it and add the landlord signature.</p>
+    <p>Their signature is already on the document. Please review it and complete the remaining signature.</p>
     """
     if signing_url:
         html_message += f"""
         <p style="margin:24px 0;">
           <a href="{signing_url}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">
-            Review &amp; Sign as Landlord
+            Review &amp; Complete Signature
           </a>
         </p>
         <p style="color:#64748b;font-size:13px;">Or copy this link: {signing_url}</p>
         """
     html_message += """
-    <p>Only after you sign will both parties be marked complete and the tenant receive their account setup email.</p>
+    <p>Only after this signature is complete will both parties be marked done and the tenant receive their account setup email.</p>
     """
 
     send_email_with_logging(
@@ -1559,12 +1621,15 @@ def _send_admin_lease_sent_counter_sign_notice(legal_document_id: int):
     except LegalDocument.DoesNotExist:
         return
 
-    recipients = get_admin_emails()
+    recipients = merge_email_recipients(
+        get_admin_emails(),
+        get_manager_emails_for_tenant(legal_doc.tenant),
+    )
     if not recipients:
         return
 
     subject = (
-        f"[Neela Capital] Lease sent to tenant — you will counter-sign next "
+        f"[Neela Capital] Lease sent to tenant — counter-sign next "
         f"({legal_doc.tenant.name} · {legal_doc.tenant.property_unit})"
     )
     message = f"""
@@ -1574,11 +1639,11 @@ The lease for {legal_doc.tenant.name} ({legal_doc.tenant.property_unit}) was ema
 
 What happens next:
 1. Tenant signs via their email link.
-2. You will receive a separate email with a landlord signing link.
-3. After you sign, both parties are complete, the application is approved in the system, and the tenant gets their account setup email.
-4. Then use Finalize Move-In in the admin portal when they are ready to move in.
+2. You will receive a separate email with a signing link to complete the remaining signature.
+3. After that signature, both parties are complete, the application is approved in the system, and the tenant gets their account setup email.
+4. Then use Finalize Move-In when they are ready to move in.
 
-Please watch your inbox for the landlord signature request after the tenant signs.
+Please watch your inbox for the signature request after the tenant signs.
 """
     send_email_with_logging(
         subject=subject,

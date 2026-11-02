@@ -119,9 +119,18 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
         application_data.get('emergencyContactName')
         or (ec_parts[0] if len(ec_parts) >= 1 else '')
     )
+    ec_relationship = (
+        application_data.get('emergencyContactRelationship')
+        or (ec_parts[1] if len(ec_parts) >= 2 else '')
+    )
     ec_phone = (
         application_data.get('emergencyContactPhone')
         or (ec_parts[2] if len(ec_parts) >= 3 else '')
+    )
+
+    blank_occupant_lines = (
+        'Name: __________________________________ Relationship: _______________ Age: _____ DOB: _____________\n'
+        'Name: __________________________________ Relationship: _______________ Age: _____ DOB: _____________'
     )
 
     # Get other occupants (prefer structured list from application form)
@@ -135,8 +144,11 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
             if not oname:
                 continue
             oage = str(o.get('age') or '').strip()
+            orel = str(o.get('relationship') or '').strip()
+            odob = str(o.get('dob') or o.get('dateOfBirth') or '').strip()
             occupant_lines.append(
-                f"Name: {oname}  Relationship: __________  Age: {oage or '______'}"
+                f"Name: {oname}  Relationship: {orel or '_______________'}  "
+                f"Age: {oage or '_____'}  DOB: {odob or '_____________'}"
             )
         other_occupants = ', '.join(
             f"{str(o.get('name') or '').strip()}"
@@ -144,20 +156,22 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
             for o in occupants_list
             if isinstance(o, dict) and str(o.get('name') or '').strip()
         ) or 'None'
-        occupants_detailed = '\n'.join(occupant_lines) if occupant_lines else (
-            'Name: ______________________ Relationship: _______________ Age: ______\n'
-            'Name: ______________________ Relationship: _______________ Age: ______'
-        )
+        occupants_detailed = '\n'.join(occupant_lines) if occupant_lines else blank_occupant_lines
+        # Keep a second blank row available for extra occupants at signing time
+        if occupant_lines and len(occupant_lines) < 2:
+            occupants_detailed += (
+                '\nName: __________________________________ Relationship: _______________ '
+                'Age: _____ DOB: _____________'
+            )
     else:
         other_occupants = application_data.get('otherOccupants') or 'None'
-        occupants_detailed = (
-            f"Name: {other_occupants}  Relationship: _______________ Age: ______"
-            if other_occupants and other_occupants != 'None'
-            else (
-                'Name: ______________________ Relationship: _______________ Age: ______\n'
-                'Name: ______________________ Relationship: _______________ Age: ______'
+        if other_occupants and other_occupants != 'None':
+            occupants_detailed = (
+                f"Name: {other_occupants}  Relationship: _______________ Age: _____ DOB: _____________\n"
+                'Name: __________________________________ Relationship: _______________ Age: _____ DOB: _____________'
             )
-        )
+        else:
+            occupants_detailed = blank_occupant_lines
 
     # Previous landlord may be combined "address, name, contact" or separate fields
     prev_combined = application_data.get('previousLandlordInfo') or ''
@@ -296,13 +310,21 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
 
         # Emergency Contact (parsed from combined "Name, Relationship, Phone" string)
         '{{emergency_contact_name}}': ec_name or '__________',
+        '{{emergency_contact_relationship}}': ec_relationship or '__________',
         '{{emergency_contact_phone}}': ec_phone or '__________',
         '{{emergency_contact_address}}': application_data.get('emergencyContactAddress') or '__________',
         '{{emergency_contact_email}}': application_data.get('emergencyContactEmail') or '__________',
         
         # Vehicles
-        # If we have a list, we might need to join it or just take the first few
-        '{{vehicles_list}}': ', '.join([f"{v.get('year')} {v.get('make')} {v.get('model')}" for v in application_data.get('vehicles', [])]) if application_data.get('vehicles') else 'None',
+        '{{vehicles_list}}': (
+            ', '.join(
+                f"{v.get('year', '')} {v.get('make', '')} {v.get('model', '')}".strip()
+                for v in application_data.get('vehicles', [])
+                if isinstance(v, dict)
+            )
+            if application_data.get('vehicles')
+            else '__________'
+        ),
         
         # Pets
         '{{pets_description}}': (
@@ -310,14 +332,15 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
             or (
                 ', '.join([f"{p.get('type')} ({p.get('name')})" for p in application_data.get('pets', [])])
                 if application_data.get('pets')
-                else ('No Pets' if has_pets is False else '__________')
+                else ('NONE' if has_pets is False else '__________________')
             )
         ),
         '{{has_pets_check}}': '[x]' if has_pets else '[ ]',
         '{{no_pets_check}}': '[x]' if has_pets is False else '[ ]',
         '{{has_pets_yes}}': '[x]' if has_pets else '[ ]',
         '{{has_pets_no}}': '[x]' if has_pets is False else '[ ]',
-        '{{smokes_yes}}': '[ ]',
+        # Portal asks "agrees no smoking" — map to smoke yes/no on the packet
+        '{{smokes_yes}}': '[ ]' if agrees_no_smoking else ('[x]' if agrees_no_smoking is False else '[ ]'),
         '{{smokes_no}}': '[x]' if agrees_no_smoking else '[ ]',
         '{{eviction_yes}}': '[x]' if eviction_or_felony else '[ ]',
         '{{eviction_no}}': '[x]' if eviction_or_felony is False else '[ ]',
