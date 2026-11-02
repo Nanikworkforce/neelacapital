@@ -331,3 +331,69 @@ def sync_all_property_units():
             sync_units_for_property(prop, all_props)
             synced += 1
     return synced
+
+
+def street_from_address(address=None):
+    """First line of an address, with trailing unit token stripped."""
+    raw = (address or '').strip()
+    if not raw:
+        return ''
+    street = raw.split(',')[0].strip()
+    street = re.sub(r'\s*[-–,]?\s*unit\s*[-–]?\s*[A-Za-z0-9]+.*$', '', street, flags=re.I)
+    street = re.sub(r'[.,\s]+$', '', street).strip()
+    return street
+
+
+def format_property_unit_label(name_or_unit=None, address=None):
+    """
+    Clear staff-facing label so bare "Unit 1" becomes e.g. "6707 Sherman St — Unit 1".
+    """
+    name = (name_or_unit or '').strip()
+    addr = (address or '').strip()
+    street = street_from_address(addr)
+
+    if name and re.search(r'\d{3,}', name) and re.search(r'unit\s+', name, re.I):
+        return name
+
+    unit_or_name = extract_unit_label(name, addr)
+    # Prefer descriptive titles like "Unit 2 (Urban Nesting)" over bare Unit 2
+    if name and re.match(r'^\s*unit\s+', name, re.I) and '(' in name:
+        unit_or_name = name
+
+    if street and unit_or_name:
+        if unit_or_name.lower() in street.lower():
+            return unit_or_name
+        if street.lower() in unit_or_name.lower():
+            return unit_or_name
+        return f'{street} — {unit_or_name}'
+    return name or street or unit_or_name or 'Property'
+
+
+def tenant_property_display_label(tenant) -> str:
+    """Resolve a clear property label for a Tenant (dashboards + emails)."""
+    app = getattr(tenant, 'application_data', None) or {}
+    if not isinstance(app, dict):
+        app = {}
+    address = (
+        app.get('propertyAddress')
+        or app.get('property_address')
+        or ''
+    )
+    return format_property_unit_label(getattr(tenant, 'property_unit', None), address)
+
+
+def normalize_tenant_property_unit(tenant) -> bool:
+    """
+    Rewrite tenant.property_unit to the clear display label when possible.
+    Returns True if the value changed.
+    """
+    label = tenant_property_display_label(tenant)
+    current = (getattr(tenant, 'property_unit', None) or '').strip()
+    if not label or label == current:
+        return False
+    # Only upgrade vague / incomplete labels (avoid clobbering good custom text)
+    vague = bool(re.match(r'^\s*unit\s+[A-Za-z0-9]+\s*$', current, re.I)) or not re.search(r'\d{3,}', current)
+    if vague or current != label:
+        tenant.property_unit = label
+        return True
+    return False

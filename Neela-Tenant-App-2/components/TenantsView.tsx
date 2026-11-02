@@ -12,6 +12,7 @@ import Modal from './Modal';
 import ViewportPortal from './ViewportPortal';
 import { formatDateMMDDYYYY, formatDateTimeUTC } from '../utils/date';
 import { getApiOrigin } from '../utils/apiOrigin';
+import { formatTenantPropertyLabel } from '../utils/propertyLabel';
 
 interface TenantsProps {
   tenants: Tenant[];
@@ -1017,7 +1018,7 @@ Landlord                            Tenant
                     {(selectedApplicant.name || '').trim().split(/\s+/)[0] || selectedApplicant.name}
                   </h3>
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1 sm:gap-2 text-xs sm:text-sm text-slate-500">
-                     <span className="truncate">Applying for: {selectedApplicant.propertyUnit}</span>
+                     <span className="truncate">Applying for: {formatTenantPropertyLabel(selectedApplicant)}</span>
                   </div>
                 </div>
               </div>
@@ -1146,7 +1147,7 @@ Landlord                            Tenant
                                 </div>
                                 <div>
                                    <p className="text-xs text-slate-500 font-medium mb-1">Property Unit</p>
-                                   <p className="text-slate-800">{selectedApplicant.propertyUnit}</p>
+                                   <p className="text-slate-800">{formatTenantPropertyLabel(selectedApplicant)}</p>
                                 </div>
                                 <div>
                                    <p className="text-xs text-slate-500 font-medium mb-1">Status</p>
@@ -2372,7 +2373,7 @@ Landlord                            Tenant
                       <div className="flex flex-col min-w-0">
                         <span className="font-medium text-slate-800 truncate">{t.name}</span>
                         <span className="text-xs text-slate-500 truncate">{t.email}</span>
-                        <span className="text-xs text-slate-500 sm:hidden mt-0.5">{t.propertyUnit}</span>
+                        <span className="text-xs text-slate-500 sm:hidden mt-0.5">{formatTenantPropertyLabel(t)}</span>
                         {activeTab === 'residents' && (
                           <>
                             <span className="text-xs text-slate-500 md:hidden mt-0.5">Balance: ${t.balance.toLocaleString()}</span>
@@ -2398,7 +2399,7 @@ Landlord                            Tenant
                         {t.status}
                       </span>
                     </td>
-                    <td className="px-3 sm:px-4 lg:px-6 py-3 sm:py-4 text-slate-600 hidden sm:table-cell">{t.propertyUnit}</td>
+                    <td className="px-3 sm:px-4 lg:px-6 py-3 sm:py-4 text-slate-600 hidden sm:table-cell">{formatTenantPropertyLabel(t)}</td>
                     
                     {activeTab === 'residents' ? (
                       <>

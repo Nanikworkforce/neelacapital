@@ -24,6 +24,7 @@ import {
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
 import { formatDateMMDDYYYY } from '../utils/date';
+import { formatTenantPropertyLabel } from '../utils/propertyLabel';
 
 const formatMoney = (v: number) =>
   `$${(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -845,7 +846,7 @@ const PropertyManagerView: React.FC = () => {
                             <p className="font-semibold text-slate-900 truncate">{tenant.name}</p>
                             <p className="text-xs text-slate-500 truncate flex items-center gap-1">
                               <MapPin className="w-3 h-3 flex-shrink-0" />
-                              {tenant.propertyUnit}
+                              {formatTenantPropertyLabel(tenant)}
                             </p>
                             <p className="text-sm font-bold text-rose-700 mt-1">
                               {formatMoney(tenant.balance || 0)} due
@@ -1534,7 +1535,7 @@ const PropertyManagerView: React.FC = () => {
                       <div key={t.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white p-3.5 hover:border-amber-200/80 transition-colors">
                         <div className="min-w-0">
                           <p className="font-semibold text-sm text-slate-800 truncate">{t.name}</p>
-                          <p className="text-xs text-slate-500 truncate">{t.propertyUnit}</p>
+                          <p className="text-xs text-slate-500 truncate">{formatTenantPropertyLabel(t)}</p>
                         </div>
                         <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 flex-shrink-0">
                           Applicant

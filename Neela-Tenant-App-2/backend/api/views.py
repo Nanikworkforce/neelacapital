@@ -342,7 +342,14 @@ class TenantViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         tenant = serializer.save()
-        
+        # Persist a clear label (e.g. "6707 Sherman St — Unit 1") before emails fire
+        try:
+            from .property_units_service import normalize_tenant_property_unit
+            if normalize_tenant_property_unit(tenant):
+                tenant.save(update_fields=['property_unit'])
+        except Exception as e:
+            logger.warning(f"Could not normalize property_unit for tenant {tenant.id}: {e}")
+
         if tenant.status == 'Applicant':
             try:
                 # Try async with Celery

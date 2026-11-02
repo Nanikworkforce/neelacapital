@@ -6,6 +6,7 @@ import Modal from './Modal';
 import { folderImageForProperty } from '../utils/listingImages';
 import { assetUrl } from '../utils/basePath';
 import { getApiOrigin } from '../utils/apiOrigin';
+import { formatPropertyUnitLabel } from '../utils/propertyLabel';
 
 export interface UseApplicationReturn {
   // Application state
@@ -367,7 +368,11 @@ export const useApplication = (): UseApplicationReturn => {
         ? selectedListing.price 
         : 1000;
       
-      const propertyUnit = selectedListing?.title || selectedListing?.address || 'Property Application';
+      // Clear label for staff: "6707 Sherman St — Unit 1" (not bare "Unit 1")
+      const propertyUnit = formatPropertyUnitLabel(
+        selectedListing?.title,
+        selectedListing?.address || formData.propertyAddress,
+      ) || selectedListing?.title || selectedListing?.address || 'Property Application';
       
       const tenantData = {
         name: `${formData.firstName} ${formData.lastName}`.trim(),
@@ -661,7 +666,7 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
           />
           <div className="p-4 sm:p-6 border-b-2 border-slate-100 bg-gradient-to-r from-slate-50/95 via-white/95 to-slate-50/95 relative">
              <div>
-               <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Application for {selectedListing?.title}</h2>
+               <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Application for {formatPropertyUnitLabel(selectedListing?.title, selectedListing?.address) || selectedListing?.title}</h2>
                <p className="text-sm text-slate-500 mt-1 font-medium">Complete all sections to submit your application</p>
                <p className="text-xs font-semibold text-indigo-600 mt-1.5">Step {currentStep} of {APPLICATION_STEPS}</p>
              </div>

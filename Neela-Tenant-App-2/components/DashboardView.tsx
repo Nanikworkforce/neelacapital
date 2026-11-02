@@ -272,6 +272,7 @@ import ViewportPortal from './ViewportPortal';
 import { api } from '../services/api';
 import { formatDateMMDDYYYY, formatRelativeTimeAgo } from '../utils/date';
 import { CATEGORY_LABELS, PORTFOLIO_DISPLAY_ORDER, getPropertyGroupKeyFromProperty, propertiesForPortfolioDisplay, sortPropertiesForPortfolioDisplay } from '../utils/propertyGrouping';
+import { formatTenantPropertyLabel } from '../utils/propertyLabel';
 
 interface DashboardProps {
   tenants: Tenant[];
@@ -502,7 +503,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
           iconColor: 'text-blue-600',
           iconBg: 'bg-blue-100',
           title: 'New application submitted',
-          subtitle: `${t.propertyUnit} • ${t.name}`,
+          subtitle: `${formatTenantPropertyLabel(t)} • ${t.name}`,
           time: formatRelativeTimeAgo(appDate),
           date: appDate,
         });
@@ -523,7 +524,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
             iconColor: 'text-amber-600',
             iconBg: 'bg-amber-100',
             title: `Maintenance ticket ${m.status.toLowerCase()}`,
-            subtitle: `${tenant.propertyUnit} • ${m.category}`,
+            subtitle: `${formatTenantPropertyLabel(tenant)} • ${m.category}`,
             time: formatRelativeTimeAgo(maintDate),
             date: maintDate,
           });
@@ -551,7 +552,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
           iconColor: 'text-indigo-600',
           iconBg: 'bg-indigo-100',
           title: 'New tenant moved in',
-          subtitle: `${item.tenant.propertyUnit} • ${item.tenant.name}`,
+          subtitle: `${formatTenantPropertyLabel(item.tenant)} • ${item.tenant.name}`,
           time: formatRelativeTimeAgo(item.date),
           date: item.date,
         });
@@ -1379,7 +1380,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-slate-800 text-sm sm:text-base truncate">{t.name}</p>
-                      <p className="text-xs sm:text-sm text-slate-600 truncate">{t.propertyUnit} • Due: ${t.balance}</p>
+                      <p className="text-xs sm:text-sm text-slate-600 truncate">{formatTenantPropertyLabel(t)} • Due: ${t.balance}</p>
                     </div>
                   </div>
                   <button 
@@ -1674,7 +1675,7 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
                     <option value="">-- Select a tenant --</option>
                     {overdueTenants.map(tenant => (
                       <option key={tenant.id} value={tenant.id}>
-                        {tenant.name} - ${tenant.balance} ({tenant.propertyUnit})
+                        {tenant.name} - ${tenant.balance} ({formatTenantPropertyLabel(tenant)})
                       </option>
                     ))}
                   </select>

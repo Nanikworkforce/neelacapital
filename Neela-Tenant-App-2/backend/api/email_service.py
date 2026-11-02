@@ -508,8 +508,11 @@ def _send_application_notification_to_admin(tenant_id):
     
     if not recipients:
         return
+
+    from .property_units_service import tenant_property_display_label
+    property_label = tenant_property_display_label(tenant)
     
-    subject = f'New Property Application: {tenant.name}'
+    subject = f'New Property Application: {tenant.name} — {property_label}'
     
     # Get admin login URL (base frontend URL - admin can click Admin Login button)
     admin_login_url = get_admin_login_url()
@@ -517,7 +520,7 @@ def _send_application_notification_to_admin(tenant_id):
     # Render email template
     context = {
         'tenant': tenant,
-        'property_unit': tenant.property_unit,
+        'property_unit': property_label,
         'email': tenant.email,
         'phone': tenant.phone,
         'admin_login_url': admin_login_url,
@@ -530,7 +533,7 @@ def _send_application_notification_to_admin(tenant_id):
     Applicant: {tenant.name}
     Email: {tenant.email}
     Phone: {tenant.phone}
-    Property Unit: {tenant.property_unit}
+    Property: {property_label}
     Status: {tenant.status}
     
     Please log in to review the application:
@@ -2020,11 +2023,14 @@ def _send_application_received_email_to_tenant(tenant_id):
         logger.warning(f"Tenant {tenant.id} has no email address for application received email.")
         return
     
-    subject = f'Application Received - {tenant.property_unit}'
+    from .property_units_service import tenant_property_display_label
+    property_label = tenant_property_display_label(tenant)
+
+    subject = f'Application Received - {property_label}'
     
     context = {
         'tenant': tenant,
-        'property_unit': tenant.property_unit,
+        'property_unit': property_label,
     }
     
     html_message = render_to_string('emails/application_received.html', context)
@@ -2035,7 +2041,7 @@ def _send_application_received_email_to_tenant(tenant_id):
     
     Thank you for submitting your application. We have successfully received your details and our team will review them shortly.
     
-    Property Unit: {tenant.property_unit}
+    Property: {property_label}
     Date Submitted: {tenant.created_at if hasattr(tenant, 'created_at') else 'Today'}
     Status: Under Review
     
