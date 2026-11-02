@@ -44,6 +44,43 @@ def _add_months(start, months: int):
     return start.replace(year=year, month=month, day=day)
 
 
+# Fixed blank lengths — long underscore runs wrap mid-line in PDF and look crossed.
+_BLANK_SM = '__________'          # ~10
+_BLANK_MD = '____________________'  # ~20
+_BLANK_LG = '________________________________'  # ~32
+
+
+def _val_or_blank(value, blank: str = _BLANK_MD) -> str:
+    """Return cleaned value, or a short blank line if missing."""
+    if value is None:
+        return blank
+    text = str(value).strip()
+    return text if text else blank
+
+
+def _cap_underscore_runs(text: str, max_len: int = 32) -> str:
+    """Prevent oversized ____ runs that collide when ReportLab wraps lines."""
+    if not text:
+        return text or ''
+    return re.sub(
+        r'_{4,}',
+        lambda m: '_' * min(len(m.group(0)), max_len),
+        text,
+    )
+
+
+def _format_occupant_block(name='', relationship='', age='', dob='', index=None) -> str:
+    """One occupant as stacked fields — never pack multiple blanks on one line."""
+    header = f'Occupant {index}\n' if index is not None else ''
+    return (
+        f'{header}'
+        f'Name: {_val_or_blank(name, _BLANK_LG)}\n'
+        f'Relationship: {_val_or_blank(relationship, _BLANK_MD)}\n'
+        f'Age: {_val_or_blank(age, _BLANK_SM)}\n'
+        f'Date of Birth: {_val_or_blank(dob, _BLANK_MD)}'
+    )
+
+
 def apply_lease_dates_from_application(tenant: Tenant) -> None:
     """Persist lease_start/lease_end from application when missing (monthly rent unchanged)."""
     app = tenant.application_data or {}
@@ -129,15 +166,16 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
     )
 
     blank_occupant_lines = (
-        'Name: __________________________________ Relationship: _______________ Age: _____ DOB: _____________\n'
-        'Name: __________________________________ Relationship: _______________ Age: _____ DOB: _____________'
+        _format_occupant_block(index=1)
+        + '\n\n'
+        + _format_occupant_block(index=2)
     )
 
     # Get other occupants (prefer structured list from application form)
     occupants_list = application_data.get('otherOccupantsList')
     if isinstance(occupants_list, list) and occupants_list:
-        occupant_lines = []
-        for o in occupants_list:
+        occupant_blocks = []
+        for i, o in enumerate(occupants_list, start=1):
             if not isinstance(o, dict):
                 continue
             oname = str(o.get('name') or '').strip()
@@ -146,9 +184,8 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
             oage = str(o.get('age') or '').strip()
             orel = str(o.get('relationship') or '').strip()
             odob = str(o.get('dob') or o.get('dateOfBirth') or '').strip()
-            occupant_lines.append(
-                f"Name: {oname}  Relationship: {orel or '_______________'}  "
-                f"Age: {oage or '_____'}  DOB: {odob or '_____________'}"
+            occupant_blocks.append(
+                _format_occupant_block(oname, orel, oage, odob, index=i)
             )
         other_occupants = ', '.join(
             f"{str(o.get('name') or '').strip()}"
@@ -156,19 +193,20 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
             for o in occupants_list
             if isinstance(o, dict) and str(o.get('name') or '').strip()
         ) or 'None'
-        occupants_detailed = '\n'.join(occupant_lines) if occupant_lines else blank_occupant_lines
-        # Keep a second blank row available for extra occupants at signing time
-        if occupant_lines and len(occupant_lines) < 2:
-            occupants_detailed += (
-                '\nName: __________________________________ Relationship: _______________ '
-                'Age: _____ DOB: _____________'
-            )
+        if occupant_blocks:
+            occupants_detailed = '\n\n'.join(occupant_blocks)
+            # Keep one extra blank block for signing-time additions
+            if len(occupant_blocks) < 2:
+                occupants_detailed += '\n\n' + _format_occupant_block(index=len(occupant_blocks) + 1)
+        else:
+            occupants_detailed = blank_occupant_lines
     else:
         other_occupants = application_data.get('otherOccupants') or 'None'
         if other_occupants and other_occupants != 'None':
             occupants_detailed = (
-                f"Name: {other_occupants}  Relationship: _______________ Age: _____ DOB: _____________\n"
-                'Name: __________________________________ Relationship: _______________ Age: _____ DOB: _____________'
+                _format_occupant_block(other_occupants, index=1)
+                + '\n\n'
+                + _format_occupant_block(index=2)
             )
         else:
             occupants_detailed = blank_occupant_lines
@@ -232,19 +270,19 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
         '{{lease_end_date}}': lease_end.strftime('%m/%d/%Y'),
         '{{lease_start}}': lease_start.strftime('%m/%d/%Y'),
         '{{lease_end}}': lease_end.strftime('%m/%d/%Y'),
-        '{{employer}}': (
-            application_data.get('currentEmployer') or
-            employment.get('employer') or
-            '__________'
+        '{{employer}}': _val_or_blank(
+            application_data.get('currentEmployer') or employment.get('employer')
         ),
-        '{{job_title}}': employment.get('jobTitle') or application_data.get('jobTitle') or '__________',
+        '{{job_title}}': _val_or_blank(
+            employment.get('jobTitle') or application_data.get('jobTitle')
+        ),
         '{{monthly_income}}': (
             f"${float(employment.get('monthlyIncome')):,.2f}"
             if employment.get('monthlyIncome') not in (None, '')
             else (
                 f"${float(application_data.get('monthlyIncome')):,.2f}"
                 if application_data.get('monthlyIncome') not in (None, '')
-                else '__________'
+                else _BLANK_MD
             )
         ),
         '{{current_date}}': datetime.now().strftime('%m/%d/%Y'),
@@ -284,38 +322,40 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
         ),
         '{{move_in_date}}': move_in_display,
         '{{lease_term_months}}': lease_term_months,
-        '{{additional_notes}}': application_data.get('additionalNotes') or '__________',
-        
+        '{{additional_notes}}': _val_or_blank(application_data.get('additionalNotes')),
+
         '{{occupants}}': other_occupants,
         '{{occupants_detailed}}': occupants_detailed,
-        
+
         # --- APPLICATION DATA MAPPING ---
-        # This maps fields from the frontend Application Form directly to the Lease/Notice
-        
-        # Property Preferences
         '{{bedrooms_desired}}': bedrooms_val,
         '{{bathrooms_desired}}': bathrooms_val,
-        
-        # Personal Info (Extended)
-        '{{date_of_birth}}': application_data.get('dateOfBirth') or application_data.get('dob') or '__________',
-        '{{driver_license}}': application_data.get('driverLicense') or '__________',
-        '{{dl_state}}': application_data.get('driverLicenseState') or '__________',
-        '{{ssn}}': application_data.get('ssn') or application_data.get('ssnLast4') or '__________',
-        '{{marital_status}}': application_data.get('maritalStatus') or '__________',
-        '{{citizenship}}': application_data.get('citizenship') or '__________',
-        '{{height}}': application_data.get('height') or '__________',
-        '{{weight}}': application_data.get('weight') or '__________',
-        '{{hair_color}}': application_data.get('hairColor') or '__________',
-        '{{eye_color}}': application_data.get('eyeColor') or '__________',
 
-        # Emergency Contact (parsed from combined "Name, Relationship, Phone" string)
-        '{{emergency_contact_name}}': ec_name or '__________',
-        '{{emergency_contact_relationship}}': ec_relationship or '__________',
-        '{{emergency_contact_phone}}': ec_phone or '__________',
-        '{{emergency_contact_address}}': application_data.get('emergencyContactAddress') or '__________',
-        '{{emergency_contact_email}}': application_data.get('emergencyContactEmail') or '__________',
-        
-        # Vehicles
+        '{{date_of_birth}}': _val_or_blank(
+            application_data.get('dateOfBirth') or application_data.get('dob')
+        ),
+        '{{driver_license}}': _val_or_blank(application_data.get('driverLicense')),
+        '{{dl_state}}': _val_or_blank(application_data.get('driverLicenseState')),
+        '{{ssn}}': _val_or_blank(
+            application_data.get('ssn') or application_data.get('ssnLast4')
+        ),
+        '{{marital_status}}': _val_or_blank(application_data.get('maritalStatus')),
+        '{{citizenship}}': _val_or_blank(application_data.get('citizenship')),
+        '{{height}}': _val_or_blank(application_data.get('height')),
+        '{{weight}}': _val_or_blank(application_data.get('weight')),
+        '{{hair_color}}': _val_or_blank(application_data.get('hairColor')),
+        '{{eye_color}}': _val_or_blank(application_data.get('eyeColor')),
+
+        '{{emergency_contact_name}}': _val_or_blank(ec_name),
+        '{{emergency_contact_relationship}}': _val_or_blank(ec_relationship),
+        '{{emergency_contact_phone}}': _val_or_blank(ec_phone),
+        '{{emergency_contact_address}}': _val_or_blank(
+            application_data.get('emergencyContactAddress')
+        ),
+        '{{emergency_contact_email}}': _val_or_blank(
+            application_data.get('emergencyContactEmail')
+        ),
+
         '{{vehicles_list}}': (
             ', '.join(
                 f"{v.get('year', '')} {v.get('make', '')} {v.get('model', '')}".strip()
@@ -323,23 +363,23 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
                 if isinstance(v, dict)
             )
             if application_data.get('vehicles')
-            else '__________'
+            else _BLANK_MD
         ),
-        
-        # Pets
+
         '{{pets_description}}': (
             pets_desc
             or (
-                ', '.join([f"{p.get('type')} ({p.get('name')})" for p in application_data.get('pets', [])])
+                ', '.join(
+                    [f"{p.get('type')} ({p.get('name')})" for p in application_data.get('pets', [])]
+                )
                 if application_data.get('pets')
-                else ('NONE' if has_pets is False else '__________________')
+                else ('NONE' if has_pets is False else _BLANK_MD)
             )
         ),
         '{{has_pets_check}}': '[x]' if has_pets else '[ ]',
         '{{no_pets_check}}': '[x]' if has_pets is False else '[ ]',
         '{{has_pets_yes}}': '[x]' if has_pets else '[ ]',
         '{{has_pets_no}}': '[x]' if has_pets is False else '[ ]',
-        # Portal asks "agrees no smoking" — map to smoke yes/no on the packet
         '{{smokes_yes}}': '[ ]' if agrees_no_smoking else ('[x]' if agrees_no_smoking is False else '[ ]'),
         '{{smokes_no}}': '[x]' if agrees_no_smoking else '[ ]',
         '{{eviction_yes}}': '[x]' if eviction_or_felony else '[ ]',
@@ -347,38 +387,35 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
         '{{felony_yes}}': '[x]' if eviction_or_felony else '[ ]',
         '{{felony_no}}': '[x]' if eviction_or_felony is False else '[ ]',
         '{{eviction_felony_explanation}}': application_data.get('evictionFelonyExplanation') or '',
-        
-        # Employment (Extended)
-        '{{supervisor_name}}': employment.get('supervisorName') or '__________',
-        '{{supervisor_phone}}': employment.get('supervisorPhone') or '__________',
-        '{{employment_start_date}}': employment.get('startDate') or '__________',
-        '{{employment_duration}}': employment.get('duration') or '__________',
-        
-        # Rental History
-        '{{previous_address}}': previous_address or '__________',
-        '{{previous_landlord}}': prev_combined or previous_landlord_name or '__________',
-        '{{previous_landlord_name}}': previous_landlord_name or '__________',
-        '{{previous_landlord_phone}}': previous_landlord_phone or '__________',
-        '{{previous_landlord_email}}': application_data.get('previousLandlordEmail') or '__________',
-        '{{previous_rent}}': application_data.get('previousRent') or '__________',
-        '{{reason_for_leaving}}': application_data.get('reasonForLeaving') or '__________',
-        '{{move_in_date_prev}}': application_data.get('prevMoveInDate') or '__________',
-        '{{move_out_date_prev}}': application_data.get('prevMoveOutDate') or '__________',
-        
-        # Standard Placeholders (if not mapped above)
+
+        '{{supervisor_name}}': _val_or_blank(employment.get('supervisorName')),
+        '{{supervisor_phone}}': _val_or_blank(employment.get('supervisorPhone')),
+        '{{employment_start_date}}': _val_or_blank(employment.get('startDate')),
+        '{{employment_duration}}': _val_or_blank(employment.get('duration')),
+
+        '{{previous_address}}': _val_or_blank(previous_address),
+        '{{previous_landlord}}': _val_or_blank(prev_combined or previous_landlord_name),
+        '{{previous_landlord_name}}': _val_or_blank(previous_landlord_name),
+        '{{previous_landlord_phone}}': _val_or_blank(previous_landlord_phone),
+        '{{previous_landlord_email}}': _val_or_blank(application_data.get('previousLandlordEmail')),
+        '{{previous_rent}}': _val_or_blank(application_data.get('previousRent')),
+        '{{reason_for_leaving}}': _val_or_blank(application_data.get('reasonForLeaving')),
+        '{{move_in_date_prev}}': _val_or_blank(application_data.get('prevMoveInDate')),
+        '{{move_out_date_prev}}': _val_or_blank(application_data.get('prevMoveOutDate')),
+
         '{{bedrooms}}': bedrooms_val,
         '{{bathrooms}}': bathrooms_val,
         '{{late_fee_amount}}': '$50.00',
         '{{late_fee_day}}': '3rd',
         '{{returned_check_fee}}': '$55.00',
     }
-    
-    # Replace all placeholders
+
     filled_content = template_content
     for placeholder, value in replacements.items():
         filled_content = filled_content.replace(placeholder, str(value))
-    
-    return filled_content
+
+    # Cap any leftover long blank runs from the template itself
+    return _cap_underscore_runs(filled_content)
 
 
 def bake_inline_fills(content: str, values: dict) -> str:
@@ -405,7 +442,8 @@ def bake_inline_fills(content: str, values: dict) -> str:
                 if re.fullmatch(r'_{4,}', token or ''):
                     raw = values.get(fid, '')
                     text = str(raw).strip() if raw not in (None, False) else ''
-                    rebuilt.append(text if text else token)
+                    # Keep a capped blank if still empty so PDF wrap stays clean
+                    rebuilt.append(text if text else ('_' * min(len(token), 32)))
                 elif re.fullmatch(r'\[\s*\]', token or ''):
                     checked = values.get(fid) is True or str(values.get(fid, '')).lower() in (
                         'true', '1', 'yes', 'x', 'on',
@@ -415,7 +453,28 @@ def bake_inline_fills(content: str, values: dict) -> str:
                     rebuilt.append(token)
             out_lines.append(''.join(rebuilt))
         out_paras.append('\n'.join(out_lines))
-    return '\n\n'.join(out_paras)
+    return _cap_underscore_runs('\n\n'.join(out_paras))
+
+
+def _pdf_markup_line(text: str) -> str:
+    """
+    Escape text for ReportLab Paragraph and convert underscore blanks to
+    underlined non-breaking spaces so wrap never splits a ____ run mid-glyph.
+    """
+    escaped = (
+        (text or '')
+        .replace('&', '&amp;')
+        .replace('<', '&lt;')
+        .replace('>', '&gt;')
+    )
+
+    def blank_to_underline(match: re.Match) -> str:
+        # Cap visual width (~0.4–1.6"); &nbsp; underline stays one visual blank
+        n = max(8, min(len(match.group(0)), 28))
+        return f'<u>{"&nbsp;" * n}</u>'
+
+    escaped = re.sub(r'_{4,}', blank_to_underline, escaped)
+    return escaped.replace('\n', '<br/>')
 
 
 def render_lease_pdf_bytes(filled_content: str, title: str = 'RESIDENTIAL LEASE APPLICATION') -> bytes:
@@ -427,39 +486,59 @@ def render_lease_pdf_bytes(filled_content: str, title: str = 'RESIDENTIAL LEASE 
         rightMargin=54,
         leftMargin=54,
         topMargin=54,
-        bottomMargin=36,
+        bottomMargin=40,
     )
     elements = []
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=14,
+        fontSize=13,
         textColor=colors.HexColor('#1e293b'),
-        spaceAfter=18,
+        spaceAfter=14,
         alignment=1,
+        leading=16,
     )
     body_style = ParagraphStyle(
         'LeaseBody',
         parent=styles['Normal'],
         fontSize=9,
-        leading=12,
+        leading=14,  # Extra leading so underline blanks never collide across wraps
         textColor=colors.HexColor('#0f172a'),
+        spaceBefore=0,
+        spaceAfter=0,
+    )
+    header_style = ParagraphStyle(
+        'LeaseSectionHeader',
+        parent=body_style,
+        fontSize=10,
+        leading=14,
+        textColor=colors.HexColor('#0f172a'),
+        spaceBefore=6,
+        spaceAfter=2,
     )
     doc_title = (title or 'RESIDENTIAL LEASE APPLICATION').upper()
     elements.append(Paragraph(doc_title.replace('&', '&amp;'), title_style))
-    elements.append(Spacer(1, 0.15 * inch))
-    for para in (filled_content or '').split('\n\n'):
-        if para.strip():
-            cleaned = (
-                para.strip()
-                .replace('&', '&amp;')
-                .replace('<', '&lt;')
-                .replace('>', '&gt;')
-                .replace('\n', '<br/>')
+    elements.append(Spacer(1, 0.1 * inch))
+
+    content = _cap_underscore_runs(filled_content or '')
+    for para in content.split('\n\n'):
+        raw = para.strip()
+        if not raw:
+            continue
+        first_line = raw.split('\n', 1)[0].strip()
+        is_header = (
+            bool(re.match(r'^\d+\.\s+[A-Z]', first_line))
+            or (
+                len(first_line) < 80
+                and first_line.isupper()
+                and any(c.isalpha() for c in first_line)
             )
-            elements.append(Paragraph(cleaned, body_style))
-            elements.append(Spacer(1, 0.08 * inch))
+        )
+        style = header_style if is_header and '\n' not in raw else body_style
+        elements.append(Paragraph(_pdf_markup_line(raw), style))
+        elements.append(Spacer(1, 0.1 * inch))
+
     doc.build(elements)
     buffer.seek(0)
     return buffer.read()

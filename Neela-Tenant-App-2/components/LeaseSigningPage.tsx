@@ -263,23 +263,24 @@ const renderLineInteractive = (
 
         if (/^_{4,}$/.test(token)) {
           const v = (vals[fid] as string) ?? '';
-          const w = Math.max(80, token.length * 7);
+          // Cap width so blanks don't force wrap collisions with neighboring text
+          const w = Math.min(280, Math.max(96, Math.min(token.length, 32) * 7));
           return (
             <React.Fragment key={ti}>
               <input
                 type="text"
                 value={v}
                 onChange={(e) => updateFn(fid, e.target.value)}
-                className="no-print border-b-2 border-indigo-500 bg-indigo-50/40 focus:outline-none focus:border-indigo-700 text-[13px] text-slate-900 inline-block align-baseline leading-none px-0.5 rounded-sm"
-                style={{ width: w }}
+                className="no-print border-b border-indigo-500 bg-indigo-50/30 focus:outline-none focus:border-indigo-700 text-[13px] text-slate-900 inline-block align-baseline leading-normal px-1 mx-0.5 rounded-none max-w-full"
+                style={{ width: w, minHeight: '1.35em' }}
                 aria-label="fill in field"
                 placeholder="…"
               />
               <span
-                className="print-only border-b border-black inline-block"
-                style={{ minWidth: w }}
+                className="print-only border-b border-black inline-block align-baseline mx-0.5"
+                style={{ minWidth: Math.min(w, 200) }}
               >
-                {v}
+                {v || '\u00a0'}
               </span>
             </React.Fragment>
           );
@@ -329,14 +330,13 @@ const renderInteractiveBody = (
       );
     }
     return (
-      <p key={pi} className="text-[13px] text-slate-800 leading-relaxed mb-3 print:text-black">
+      <div key={pi} className="text-[13px] text-slate-800 leading-[1.55] mb-3 print:text-black space-y-1">
         {lines.map((line, li) => (
-          <React.Fragment key={li}>
-            {li > 0 && <br />}
+          <div key={li} className="break-words">
             {renderLineInteractive(line, `p${pi}l${li}`, vals, updateFn)}
-          </React.Fragment>
+          </div>
         ))}
-      </p>
+      </div>
     );
   }).filter(Boolean) as React.ReactNode[];
 };
