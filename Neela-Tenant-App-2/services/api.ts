@@ -740,6 +740,21 @@ export const api = {
     return await response.json();
   },
 
+  /** After lease is fully signed: email payment details to tenant + remind landlord/PM. */
+  sharePaymentDetails: async (
+    tenantId: string,
+  ): Promise<{ status: string; message: string; sent_to?: string }> => {
+    const response = await fetchWithAuth(`${API_URL}/tenants/${tenantId}/share-payment-details/`, {
+      method: 'POST',
+      headers: getHeaders(true, true),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to share payment details' }));
+      throw new Error(error.error || error.detail || error.message || 'Failed to share payment details');
+    }
+    return await response.json();
+  },
+
   markPaymentReceived: async (
     paymentId: string,
     method: 'Cash' | 'Zelle' | 'Check' | 'Money Order',

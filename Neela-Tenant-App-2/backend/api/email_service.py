@@ -1691,6 +1691,145 @@ def send_lease_signed_confirmation(legal_document_id):
     _send_lease_signed_confirmation(legal_document_id)
 
 
+def _payment_pay_to_email() -> str:
+    return (
+        (getattr(settings, 'RENT_PAYMENT_EMAIL', None) or '').strip()
+        or (getattr(settings, 'LANDLORD_EMAIL', None) or '').strip()
+        or (getattr(settings, 'DEFAULT_FROM_EMAIL', None) or '').strip()
+        or 'payments@neelacapital.com'
+    )
+
+
+def _send_lease_payment_details_to_tenant(tenant_id):
+    """Email tenant rent/deposit/payment instructions after lease is fully signed."""
+    from .models import Tenant
+
+    try:
+        tenant = Tenant.objects.get(id=tenant_id)
+    except Tenant.DoesNotExist:
+        logger.error(f"Tenant {tenant_id} not found for payment-details email.")
+        return
+
+    if not tenant.email:
+        raise RuntimeError('Tenant has no email on file.')
+
+    rent = float(tenant.rent_amount or 0)
+    deposit = float(tenant.deposit or 0)
+    pay_to = _payment_pay_to_email()
+    company = getattr(settings, 'PROPERTY_MANAGER_NAME', None) or 'Neela Capital'
+    portal_url = f"{get_frontend_url()}/tenant"
+    lease_start = tenant.lease_start.strftime('%m/%d/%Y') if tenant.lease_start else 'TBD'
+
+    subject = f'Payment Details — {tenant.property_unit}'
+    plain = f"""Hello {tenant.name},
+
+Your lease for {tenant.property_unit} is fully signed. Here are your payment details:
+
+Property: {tenant.property_unit}
+Monthly rent: ${rent:,.2f}
+Security deposit: ${deposit:,.2f}
+Lease start: {lease_start}
+Rent due: 1st of each month
+
+How to pay:
+• Tenant portal: {portal_url}
+• Zelle / electronic transfer to: {pay_to}
+  (memo: Rent - {tenant.property_unit})
+• Cash, check, or money order arranged with your property manager
+
+After you pay, upload proof of payment in the tenant portal so we can confirm receipt.
+
+Questions? Reply to this email or contact {company}.
+
+Thank you,
+{company}
+"""
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#0f172a;">
+      <h2 style="margin:0 0 12px;">Payment details for your lease</h2>
+      <p>Hello {tenant.name},</p>
+      <p>Your lease for <strong>{tenant.property_unit}</strong> is fully signed. Please use the details below for rent payments.</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <tr><td style="padding:8px;border:1px solid #e2e8f0;">Property</td><td style="padding:8px;border:1px solid #e2e8f0;"><strong>{tenant.property_unit}</strong></td></tr>
+        <tr><td style="padding:8px;border:1px solid #e2e8f0;">Monthly rent</td><td style="padding:8px;border:1px solid #e2e8f0;"><strong>${rent:,.2f}</strong></td></tr>
+        <tr><td style="padding:8px;border:1px solid #e2e8f0;">Security deposit</td><td style="padding:8px;border:1px solid #e2e8f0;"><strong>${deposit:,.2f}</strong></td></tr>
+        <tr><td style="padding:8px;border:1px solid #e2e8f0;">Lease start</td><td style="padding:8px;border:1px solid #e2e8f0;">{lease_start}</td></tr>
+        <tr><td style="padding:8px;border:1px solid #e2e8f0;">Rent due</td><td style="padding:8px;border:1px solid #e2e8f0;">1st of each month</td></tr>
+      </table>
+      <h3 style="margin:20px 0 8px;">How to pay</h3>
+      <ul>
+        <li>Tenant portal: <a href="{portal_url}">{portal_url}</a></li>
+        <li>Zelle / electronic transfer to: <strong>{pay_to}</strong> (memo: Rent - {tenant.property_unit})</li>
+        <li>Cash, check, or money order arranged with your property manager</li>
+      </ul>
+      <p>After you pay, upload proof of payment in the tenant portal so we can confirm receipt.</p>
+      <p style="color:#64748b;font-size:13px;">— {company}</p>
+    </div>
+    """
+    send_email_with_logging(
+        subject=subject,
+        message=plain,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[tenant.email],
+        html_message=html,
+        email_type=f"lease payment details to tenant {tenant.id}",
+        raise_on_failure=True,
+    )
+
+
+def _send_payment_details_shared_staff_notice(tenant_id, shared_by: str = ''):
+    """Remind landlord + property manager that payment details were shared with the tenant."""
+    from .models import Tenant
+
+    try:
+        tenant = Tenant.objects.get(id=tenant_id)
+    except Tenant.DoesNotExist:
+        logger.error(f"Tenant {tenant_id} not found for payment-details staff notice.")
+        return
+
+    recipients = merge_email_recipients(
+        get_admin_emails(),
+        get_manager_emails_for_tenant(tenant),
+        [(getattr(settings, 'LANDLORD_EMAIL', None) or '').strip()] if (getattr(settings, 'LANDLORD_EMAIL', None) or '').strip() else [],
+    )
+    if not recipients:
+        logger.warning('No landlord/PM recipients for payment-details staff notice.')
+        return
+
+    rent = float(tenant.rent_amount or 0)
+    deposit = float(tenant.deposit or 0)
+    who = (shared_by or 'Property manager').strip()
+    subject = f'Reminder: Payment details shared — {tenant.name} — {tenant.property_unit}'
+    plain = f"""Payment details were shared with the tenant.
+
+Shared by: {who}
+Tenant: {tenant.name} ({tenant.email or 'no email'})
+Property: {tenant.property_unit}
+Monthly rent: ${rent:,.2f}
+Security deposit: ${deposit:,.2f}
+
+The tenant received an email with rent amount, deposit, due date, and how to pay.
+Please follow up if first payment or deposit is still outstanding.
+
+Portal: {get_frontend_url()}
+"""
+    send_email_with_logging(
+        subject=subject,
+        message=plain,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
+        email_type=f"payment details shared staff notice tenant {tenant.id}",
+    )
+
+
+def send_lease_payment_details_to_tenant(tenant_id):
+    _send_lease_payment_details_to_tenant(tenant_id)
+
+
+def send_payment_details_shared_staff_notice(tenant_id, shared_by: str = ''):
+    _send_payment_details_shared_staff_notice(tenant_id, shared_by=shared_by)
+
+
 # ==================== Application Decline Email Function ====================
 
 def _send_application_declined_email_to_user(tenant_id):

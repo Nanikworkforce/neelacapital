@@ -473,6 +473,47 @@ class TenantViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f'Error sending tenant message: {e}')
             return Response({'error': 'Failed to send message'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='share-payment-details')
+    def share_payment_details(self, request, pk=None):
+        """
+        After both parties signed: email payment details to the tenant and
+        remind landlord + property manager that details were shared.
+        """
+        tenant = self.get_object()
+        if not user_can_manage_tenant_lease(request.user, tenant):
+            raise PermissionDenied('Admin or assigned property manager access required.')
+        if not tenant.email:
+            return Response({'error': 'Tenant has no email on file.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        lease_signed = (
+            (getattr(tenant, 'lease_status', None) or '') == 'Signed'
+            or LegalDocument.objects.filter(tenant=tenant, type='Lease Agreement', status='Signed').exists()
+        )
+        if not lease_signed:
+            return Response(
+                {'error': 'Share payment details only after both parties have signed the lease.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        shared_by = request.user.get_full_name() or request.user.email or 'Property manager'
+        try:
+            send_lease_payment_details_to_tenant(tenant.id)
+            try:
+                run_async(send_payment_details_shared_staff_notice, tenant.id, shared_by)
+            except Exception:
+                send_payment_details_shared_staff_notice(tenant.id, shared_by)
+            return Response(
+                {
+                    'status': 'success',
+                    'message': f'Payment details emailed to {tenant.email}. Landlord and property manager were reminded.',
+                    'sent_to': tenant.email,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            logger.error(f'Error sharing payment details for tenant {tenant.id}: {e}', exc_info=True)
+            return Response({'error': str(e) or 'Failed to share payment details'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def check_status(self, request):

@@ -52,6 +52,7 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
   const [editedLeaseContent, setEditedLeaseContent] = useState('');
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [isOpeningLandlordSign, setIsOpeningLandlordSign] = useState(false);
+  const [isSharingPaymentDetails, setIsSharingPaymentDetails] = useState(false);
   const [leasePdfBlobUrl, setLeasePdfBlobUrl] = useState<string | null>(null);
   const [leasePdfBlobLoading, setLeasePdfBlobLoading] = useState(false);
   const leasePdfBlobUrlRef = useRef<string | null>(null);
@@ -755,6 +756,28 @@ Landlord                            Tenant
       setErrorMessage(error instanceof Error ? error.message : 'Failed to open landlord signing link');
     } finally {
       setIsOpeningLandlordSign(false);
+    }
+  };
+
+  const handleSharePaymentDetails = async () => {
+    if (!selectedApplicant?.id) {
+      setErrorMessage('No tenant selected.');
+      return;
+    }
+    if (leaseStatus !== 'Signed') {
+      setErrorMessage('Share payment details only after both parties have signed.');
+      return;
+    }
+    setIsSharingPaymentDetails(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      const res = await api.sharePaymentDetails(String(selectedApplicant.id));
+      setSuccessMessage(res.message || 'Payment details shared with the tenant. Landlord and property manager were reminded.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to share payment details');
+    } finally {
+      setIsSharingPaymentDetails(false);
     }
   };
 
@@ -1915,14 +1938,25 @@ Landlord                            Tenant
                           </div>
                        )}
                        {leaseStatus === 'Signed' && (
-                          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-3">
-                             <CheckCircle className="w-5 h-5 text-emerald-600" />
-                             <div>
-                                <p className="text-sm font-bold text-emerald-800">Lease signed by both parties</p>
-                                <p className="text-xs text-emerald-600">
-                                  Account setup email sent to the tenant. Use Finalize Move-In when they are ready to move in.
-                                </p>
+                          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                             <div className="flex items-center gap-3">
+                                <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+                                <div>
+                                   <p className="text-sm font-bold text-emerald-800">Lease signed by both parties</p>
+                                   <p className="text-xs text-emerald-600">
+                                     Share payment details with the tenant, then Finalize Move-In when ready.
+                                   </p>
+                                </div>
                              </div>
+                             <button
+                               type="button"
+                               onClick={() => void handleSharePaymentDetails()}
+                               disabled={isSharingPaymentDetails}
+                               className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded disabled:opacity-50 shrink-0"
+                             >
+                               {isSharingPaymentDetails ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                               {isSharingPaymentDetails ? 'Sending…' : 'Share Payment Details'}
+                             </button>
                           </div>
                        )}
 
