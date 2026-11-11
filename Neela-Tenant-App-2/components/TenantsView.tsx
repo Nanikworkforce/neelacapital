@@ -13,6 +13,7 @@ import ViewportPortal from './ViewportPortal';
 import { formatDateMMDDYYYY, formatDateTimeUTC } from '../utils/date';
 import { getApiOrigin } from '../utils/apiOrigin';
 import { formatTenantPropertyLabel } from '../utils/propertyLabel';
+import { LeaseOptions, mergeLeaseOptions } from '../utils/leaseOptions';
 
 interface TenantsProps {
   tenants: Tenant[];
@@ -57,6 +58,8 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
   const [leasePdfBlobUrl, setLeasePdfBlobUrl] = useState<string | null>(null);
   const [leasePdfBlobLoading, setLeasePdfBlobLoading] = useState(false);
   const leasePdfBlobUrlRef = useRef<string | null>(null);
+  const [leaseOptions, setLeaseOptions] = useState<LeaseOptions>(mergeLeaseOptions());
+  const [isSavingLeaseOptions, setIsSavingLeaseOptions] = useState(false);
 
   // Add/Edit Resident Modal State
   const [isResidentModalOpen, setIsResidentModalOpen] = useState(false);
@@ -422,13 +425,15 @@ const TenantsView: React.FC<TenantsProps> = ({ tenants, initialTab = 'residents'
             !t.name.includes('Notice') && 
             !t.name.includes('Termination')
         );
-        // Prefer residential lease application packet first in the dropdown
+        // Prefer Neela Texas Residential Lease first in the dropdown
         const sorted = [...leaseOnlyTemplates].sort((a, b) => {
           const score = (name: string) => {
-            if (name === 'Residential Lease Application') return 0;
-            if (name === 'Authorization to Release Information') return 1;
-            if (name.includes('Residential Lease')) return 2;
-            return 3;
+            if (name === 'Neela Texas Residential Lease') return 0;
+            if (name.includes('Neela Texas')) return 1;
+            if (name === 'Residential Lease Application') return 2;
+            if (name === 'Authorization to Release Information') return 3;
+            if (name.includes('Residential Lease')) return 4;
+            return 5;
           };
           return score(a.name || '') - score(b.name || '');
         });
@@ -681,6 +686,21 @@ Landlord                            Tenant
     setSelectedApplicant(applicant);
     setInternalNotes(applicant.applicationData?.internalNotes || '');
     setApplicantModalTab('overview');
+
+    const app = (applicant.applicationData || {}) as Record<string, unknown>;
+    const merged = mergeLeaseOptions(app.leaseOptions as Record<string, unknown> | undefined);
+    if (merged.earlyMoveInAllowed === null && typeof app.earlyMoveInRequested === 'boolean') {
+      merged.earlyMoveInAllowed = app.earlyMoveInRequested;
+      merged.earlyMoveInDate = String(app.earlyMoveInDate || '');
+    }
+    if (merged.petsAllowed === null && typeof app.hasPets === 'boolean') {
+      merged.petsAllowed = app.hasPets;
+      merged.petTerms = String(app.petsWhich || '');
+    }
+    if (typeof app.agreesNoSmoking === 'boolean') {
+      merged.smokingAllowed = !app.agreesNoSmoking;
+    }
+    setLeaseOptions(merged);
     
     // Reset local state — status comes from the lease document, not tenant.leaseStatus
     setGeneratedLease('');
@@ -689,6 +709,25 @@ Landlord                            Tenant
     
     // Fetch latest lease document info
     fetchLeaseDocument(applicant.id);
+  };
+
+  const saveLeaseOptions = async () => {
+    if (!selectedApplicant) return;
+    setIsSavingLeaseOptions(true);
+    try {
+      const nextApp = {
+        ...(selectedApplicant.applicationData || {}),
+        leaseOptions,
+      };
+      const updated = await api.updateTenant(selectedApplicant.id, { applicationData: nextApp } as any);
+      setSelectedApplicant({
+        ...selectedApplicant,
+        ...updated,
+        applicationData: nextApp,
+      });
+    } finally {
+      setIsSavingLeaseOptions(false);
+    }
   };
 
   const runBackgroundCheck = () => {
@@ -708,6 +747,10 @@ Landlord                            Tenant
     setErrorMessage(null);
     setSuccessMessage(null);
     try {
+      // Persist admin/PM ticks before fill so PDF stays in sync
+      if (!isEditingLease) {
+        await saveLeaseOptions();
+      }
       // Generate lease via API - include custom content if editing
       const customContent = isEditingLease && editedLeaseContent ? editedLeaseContent : undefined;
       const leaseDoc = await api.generateLease(selectedApplicant.id, selectedTemplateId || undefined, customContent);
@@ -1747,8 +1790,8 @@ Landlord                            Tenant
 
                        {/* Control Bar */}
                        {!generatedLease ? (
-                          <div className="bg-white border border-slate-200 rounded-xl p-6 mb-6 shadow-sm">
-                             <div className="grid grid-cols-2 gap-4 mb-4">
+                          <div className="bg-white border border-slate-200 rounded-xl p-6 mb-6 shadow-sm space-y-5">
+                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                    <label className="block text-sm font-medium text-slate-700 mb-1">Lease Template</label>
                                    <select 
@@ -1783,12 +1826,184 @@ Landlord                            Tenant
                                    )}
                                 </div>
                                 <div>
-                                   <label className="block text-sm font-medium text-slate-700 mb-1">Lease Term</label>
+                                   <label className="block text-sm font-medium text-slate-700 mb-1">Lease Term (from applicant)</label>
                                    <div className="flex items-center text-sm text-slate-600 p-2 bg-slate-50 rounded-lg border border-slate-200">
                                       {selectedApplicant.leaseStart} to {selectedApplicant.leaseEnd}
                                    </div>
                                 </div>
                              </div>
+
+                             <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/60 space-y-4">
+                               <div>
+                                 <h4 className="font-bold text-slate-800 text-sm">Lease details (property / policy ticks)</h4>
+                                 <p className="text-xs text-slate-500 mt-0.5">
+                                   Set these before generating. Application fields (name, phone, pets, move-in) fill automatically.
+                                 </p>
+                               </div>
+                               <div className="grid sm:grid-cols-2 gap-3">
+                                 <div>
+                                   <label className="block text-xs font-medium text-slate-600 mb-1">Residence type</label>
+                                   <input className="w-full p-2 border border-slate-300 rounded-lg text-sm" value={leaseOptions.residenceType}
+                                     onChange={(e) => setLeaseOptions({ ...leaseOptions, residenceType: e.target.value })} />
+                                 </div>
+                                 <div>
+                                   <label className="block text-xs font-medium text-slate-600 mb-1">Term type</label>
+                                   <select className="w-full p-2 border border-slate-300 rounded-lg text-sm" value={leaseOptions.termType}
+                                     onChange={(e) => setLeaseOptions({ ...leaseOptions, termType: e.target.value as LeaseOptions['termType'] })}>
+                                     <option value="month_to_month">Month-to-month</option>
+                                     <option value="standard">Standard (fixed end date)</option>
+                                   </select>
+                                 </div>
+                                 <div>
+                                   <label className="block text-xs font-medium text-slate-600 mb-1">Furnished?</label>
+                                   <select className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                                     value={leaseOptions.furnished === null ? '' : leaseOptions.furnished ? 'yes' : 'no'}
+                                     onChange={(e) => setLeaseOptions({
+                                       ...leaseOptions,
+                                       furnished: e.target.value === '' ? null : e.target.value === 'yes',
+                                     })}>
+                                     <option value="">Use property default</option>
+                                     <option value="yes">Furnished</option>
+                                     <option value="no">Not furnished</option>
+                                   </select>
+                                 </div>
+                                 <div>
+                                   <label className="block text-xs font-medium text-slate-600 mb-1">Appliances included</label>
+                                   <input className="w-full p-2 border border-slate-300 rounded-lg text-sm" value={leaseOptions.appliances}
+                                     onChange={(e) => setLeaseOptions({ ...leaseOptions, appliances: e.target.value })} />
+                                 </div>
+                                 {leaseOptions.furnished && (
+                                   <div className="sm:col-span-2">
+                                     <label className="block text-xs font-medium text-slate-600 mb-1">Furnishings list</label>
+                                     <input className="w-full p-2 border border-slate-300 rounded-lg text-sm" value={leaseOptions.furnishingsList}
+                                       onChange={(e) => setLeaseOptions({ ...leaseOptions, furnishingsList: e.target.value })} />
+                                   </div>
+                                 )}
+                                 <div className="sm:col-span-2">
+                                   <label className="block text-xs font-medium text-slate-600 mb-1">Electricity in tenant&apos;s name</label>
+                                   <div className="flex gap-4 text-sm">
+                                     <label className="flex items-center gap-2 cursor-pointer">
+                                       <input type="radio" checked={leaseOptions.electricityInTenantName === true}
+                                         onChange={() => setLeaseOptions({ ...leaseOptions, electricityInTenantName: true })} />
+                                       Must
+                                     </label>
+                                     <label className="flex items-center gap-2 cursor-pointer">
+                                       <input type="radio" checked={leaseOptions.electricityInTenantName === false}
+                                         onChange={() => setLeaseOptions({ ...leaseOptions, electricityInTenantName: false })} />
+                                       Must Not
+                                     </label>
+                                   </div>
+                                 </div>
+                                 <div>
+                                   <label className="block text-xs font-medium text-slate-600 mb-1">Landlord pays utilities?</label>
+                                   <select className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                                     value={leaseOptions.landlordPaysUtilities ? 'yes' : 'no'}
+                                     onChange={(e) => setLeaseOptions({ ...leaseOptions, landlordPaysUtilities: e.target.value === 'yes' })}>
+                                     <option value="no">No — tenant responsible</option>
+                                     <option value="yes">Yes — landlord pays some</option>
+                                   </select>
+                                 </div>
+                                 {leaseOptions.landlordPaysUtilities && (
+                                   <div>
+                                     <label className="block text-xs font-medium text-slate-600 mb-1">Utilities landlord pays</label>
+                                     <input className="w-full p-2 border border-slate-300 rounded-lg text-sm" value={leaseOptions.utilitiesList}
+                                       onChange={(e) => setLeaseOptions({ ...leaseOptions, utilitiesList: e.target.value })}
+                                       placeholder="e.g. Water, trash" />
+                                   </div>
+                                 )}
+                                 <div>
+                                   <label className="block text-xs font-medium text-slate-600 mb-1">Security deposit required?</label>
+                                   <select className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                                     value={leaseOptions.securityDepositRequired ? 'yes' : 'no'}
+                                     onChange={(e) => setLeaseOptions({ ...leaseOptions, securityDepositRequired: e.target.value === 'yes' })}>
+                                     <option value="yes">Yes</option>
+                                     <option value="no">No</option>
+                                   </select>
+                                 </div>
+                                 <div>
+                                   <label className="block text-xs font-medium text-slate-600 mb-1">Early move-in allowed?</label>
+                                   <select className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                                     value={leaseOptions.earlyMoveInAllowed === null ? '' : leaseOptions.earlyMoveInAllowed ? 'yes' : 'no'}
+                                     onChange={(e) => setLeaseOptions({
+                                       ...leaseOptions,
+                                       earlyMoveInAllowed: e.target.value === '' ? null : e.target.value === 'yes',
+                                     })}>
+                                     <option value="">From application</option>
+                                     <option value="yes">Yes</option>
+                                     <option value="no">No</option>
+                                   </select>
+                                 </div>
+                                 {leaseOptions.earlyMoveInAllowed && (
+                                   <>
+                                     <div>
+                                       <label className="block text-xs font-medium text-slate-600 mb-1">Early move-in date</label>
+                                       <input type="date" className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                                         value={leaseOptions.earlyMoveInDate}
+                                         onChange={(e) => setLeaseOptions({ ...leaseOptions, earlyMoveInDate: e.target.value })} />
+                                     </div>
+                                     <div>
+                                       <label className="block text-xs font-medium text-slate-600 mb-1">Pro-rated rent</label>
+                                       <input className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                                         value={leaseOptions.earlyMoveInProrated}
+                                         onChange={(e) => setLeaseOptions({ ...leaseOptions, earlyMoveInProrated: e.target.value })}
+                                         placeholder="e.g. 250.00" />
+                                     </div>
+                                   </>
+                                 )}
+                                 <div>
+                                   <label className="block text-xs font-medium text-slate-600 mb-1">Renters insurance required?</label>
+                                   <select className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                                     value={leaseOptions.rentersInsuranceRequired ? 'yes' : 'no'}
+                                     onChange={(e) => setLeaseOptions({ ...leaseOptions, rentersInsuranceRequired: e.target.value === 'yes' })}>
+                                     <option value="no">Optional</option>
+                                     <option value="yes">Required</option>
+                                   </select>
+                                 </div>
+                                 {leaseOptions.rentersInsuranceRequired && (
+                                   <div>
+                                     <label className="block text-xs font-medium text-slate-600 mb-1">Min liability coverage</label>
+                                     <input className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                                       value={leaseOptions.rentersInsuranceMin}
+                                       onChange={(e) => setLeaseOptions({ ...leaseOptions, rentersInsuranceMin: e.target.value })}
+                                       placeholder="e.g. 100000" />
+                                   </div>
+                                 )}
+                                 <div>
+                                   <label className="block text-xs font-medium text-slate-600 mb-1">Built before 1978 (lead paint)?</label>
+                                   <select className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                                     value={leaseOptions.leadPaintPre1978 ? 'yes' : 'no'}
+                                     onChange={(e) => setLeaseOptions({ ...leaseOptions, leadPaintPre1978: e.target.value === 'yes' })}>
+                                     <option value="no">No / after 1978</option>
+                                     <option value="yes">Yes / pre-1978</option>
+                                   </select>
+                                 </div>
+                                 <div>
+                                   <label className="block text-xs font-medium text-slate-600 mb-1">In 100-year floodplain?</label>
+                                   <select className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                                     value={leaseOptions.floodplainAware ? 'yes' : 'no'}
+                                     onChange={(e) => setLeaseOptions({ ...leaseOptions, floodplainAware: e.target.value === 'yes' })}>
+                                     <option value="no">Not aware / no</option>
+                                     <option value="yes">Yes, aware</option>
+                                   </select>
+                                 </div>
+                               </div>
+                               <button
+                                 type="button"
+                                 onClick={async () => {
+                                   try {
+                                     await saveLeaseOptions();
+                                     setSuccessMessage('Lease details saved.');
+                                   } catch (e) {
+                                     setErrorMessage(e instanceof Error ? e.message : 'Failed to save lease details');
+                                   }
+                                 }}
+                                 disabled={isSavingLeaseOptions}
+                                 className="text-xs font-medium text-indigo-700 hover:underline disabled:opacity-50"
+                               >
+                                 {isSavingLeaseOptions ? 'Saving…' : 'Save lease details'}
+                               </button>
+                             </div>
+
                              <button 
                                 onClick={handleGenerateLease}
                                 disabled={isGeneratingLease || !selectedTemplateId}

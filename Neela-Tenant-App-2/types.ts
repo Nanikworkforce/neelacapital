@@ -25,6 +25,10 @@ export interface ApplicationData {
   // Occupants
   otherOccupants?: string;
   hasOtherAdults?: boolean;
+  occupantPhone?: string;
+  earlyMoveInRequested?: boolean;
+  earlyMoveInDate?: string;
+  leaseOptions?: Record<string, unknown>;
   
   // Employment/Income
   currentEmployer?: string;
@@ -517,7 +521,10 @@ export interface ApplicationForm {
   // Occupants
   otherOccupantsList: { name: string; age: string }[];
   hasOtherAdults: boolean | null;
+  occupantPhone: string;
   photoIdFiles: File[];
+  earlyMoveInRequested: boolean | null;
+  earlyMoveInDate: string;
   
   // Employment/Income
   currentEmployer: string;

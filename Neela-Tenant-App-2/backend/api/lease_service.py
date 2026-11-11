@@ -420,10 +420,214 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
 
         '{{bedrooms}}': bedrooms_val,
         '{{bathrooms}}': bathrooms_val,
-        '{{late_fee_amount}}': '$50.00',
         '{{late_fee_day}}': '3rd',
         '{{returned_check_fee}}': '$55.00',
     }
+
+    # --- Neela Texas lease options (admin/PM ticks + application extras) ---
+    opts = application_data.get('leaseOptions') if isinstance(application_data.get('leaseOptions'), dict) else {}
+
+    def _chk( Cond):
+        return '[x]' if cond else '[ ]'
+
+    def _money(val, fallback=''):
+        if val in (None, ''):
+            return fallback if fallback != '' else _BLANK_MD
+        s = str(val).strip()
+        if not s:
+            return fallback if fallback != '' else _BLANK_MD
+        if s.startswith('$'):
+            return s
+        try:
+            return f"${float(str(s).replace(',', '')):,.2f}"
+        except (TypeError, ValueError):
+            return s
+
+    def _opt_date(val):
+        raw = str(val or '').strip()
+        if not raw:
+            return _BLANK_MD
+        try:
+            return datetime.strptime(raw[:10], '%Y-%m-%d').strftime('%m/%d/%Y')
+        except ValueError:
+            return raw
+
+    # Property / furnishing defaults from matched Property when present
+    prop_furnishing = ''
+    prop_beds = bedrooms_val
+    prop_baths = bathrooms_val
+    try:
+        from .models import Property
+        unit_text = (tenant.property_unit or '').lower()
+        for p in Property.objects.all()[:200]:
+            name = (p.name or '').lower()
+            addr = (p.address or '').lower()
+            if name and name in unit_text:
+                prop_furnishing = (getattr(p, 'furnishing_type', None) or '') or ''
+                if getattr(p, 'bedrooms', None):
+                    prop_beds = str(p.bedrooms)
+                if getattr(p, 'bathrooms', None):
+                    prop_baths = str(p.bathrooms)
+                break
+            if addr and addr.split(',')[0] in unit_text:
+                prop_furnishing = (getattr(p, 'furnishing_type', None) or '') or ''
+                if getattr(p, 'bedrooms', None):
+                    prop_beds = str(p.bedrooms)
+                if getattr(p, 'bathrooms', None):
+                    prop_baths = str(p.bathrooms)
+                break
+    except Exception:
+        pass
+
+    furnished_opt = opts.get('furnished')
+    if furnished_opt is None:
+        furnished = bool(prop_furnishing and 'unfurnished' not in str(prop_furnishing).lower() and str(prop_furnishing).strip())
+        if prop_furnishing and 'semi' in str(prop_furnishing).lower():
+            furnished = True
+        if prop_furnishing and ('not furnished' in str(prop_furnishing).lower() or str(prop_furnishing).lower() == 'unfurnished'):
+            furnished = False
+    else:
+        furnished = bool(furnished_opt)
+
+    term_type = (opts.get('termType') or 'month_to_month').strip().lower()
+    is_mtm = term_type in ('month_to_month', 'month-to-month', 'mtm')
+    early_allowed = opts.get('earlyMoveInAllowed')
+    if early_allowed is None:
+        early_allowed = bool(application_data.get('earlyMoveInRequested'))
+    deposit_required = opts.get('securityDepositRequired')
+    if deposit_required is None:
+        deposit_required = float(tenant.deposit or 0) > 0
+    prepaid_required = bool(opts.get('prepaidRentRequired'))
+    pets_allowed = opts.get('petsAllowed')
+    if pets_allowed is None:
+        pets_allowed = bool(has_pets)
+    smoking_allowed = opts.get('smokingAllowed')
+    if smoking_allowed is None:
+        smoking_allowed = False if agrees_no_smoking else (True if agrees_no_smoking is False else False)
+    insurance_required = bool(opts.get('rentersInsuranceRequired'))
+    has_cosigner = bool(opts.get('hasCosigner'))
+    electricity_must = opts.get('electricityInTenantName')
+    if electricity_must is None:
+        electricity_must = True
+    lead_pre = bool(opts.get('leadPaintPre1978'))
+    flood_yes = bool(opts.get('floodplainAware'))
+    late_daily = opts.get('lateFeeDaily')
+    if late_daily is None:
+        late_daily = True
+    nsf_max = bool(opts.get('nsfUseMaxStatutory'))
+    landlord_utils = bool(opts.get('landlordPaysUtilities'))
+    inspection_req = bool(opts.get('moveInInspectionRequired'))
+
+    util_inc = opts.get('utilitiesIncluded') if isinstance(opts.get('utilitiesIncluded'), dict) else {}
+    amounts = opts.get('amountsDue') if isinstance(opts.get('amountsDue'), dict) else {}
+
+    early_date = _opt_date(opts.get('earlyMoveInDate') or application_data.get('earlyMoveInDate'))
+    pet_terms = opts.get('petTerms') or pets_desc or _BLANK_MD
+    furnishings_list = opts.get('furnishingsList') or (str(prop_furnishing) if furnished and prop_furnishing else _BLANK_MD)
+    appliances_list = opts.get('appliances') or 'Mini-split AC, Refrigerator, Stove/Oven, Smoke Detector(s)'
+
+    due_first = _money(amounts.get('firstMonth'), f"${tenant.rent_amount:,.2f}")
+    due_dep = _money(amounts.get('deposit'), f"${tenant.deposit:,.2f}")
+    due_prepaid = _money(amounts.get('prepaid'), '$0.00')
+    due_pet = _money(amounts.get('petFee') or opts.get('petFee'), '$0.00')
+    due_other_amt = _money(amounts.get('otherAmount'), '$0.00')
+    due_total = amounts.get('total')
+    if due_total in (None, ''):
+        try:
+            total_n = float(tenant.rent_amount or 0) + float(tenant.deposit or 0)
+            due_total = f"${total_n:,.2f}"
+        except (TypeError, ValueError):
+            due_total = _BLANK_MD
+    else:
+        due_total = _money(due_total)
+
+    replacements.update({
+        '{{occupant_phone}}': _val_or_blank(application_data.get('occupantPhone') or opts.get('occupantPhone')),
+        '{{residence_type}}': _val_or_blank(opts.get('residenceType') or 'Residential Unit'),
+        '{{bedrooms}}': str(opts.get('bedrooms') or prop_beds),
+        '{{bathrooms}}': str(opts.get('bathrooms') or prop_baths),
+        '{{furnished_yes}}': _chk(furnished),
+        '{{furnished_no}}': _chk(not furnished),
+        '{{furnishings_list}}': furnishings_list if furnished else _BLANK_MD,
+        '{{appliances_list}}': appliances_list,
+        '{{rent_due_day}}': str(opts.get('rentDueDay') or '3rd'),
+        '{{pay_ach}}': _chk(bool(opts.get('payAch'))),
+        '{{pay_cash}}': _chk(bool(opts.get('payCash'))),
+        '{{pay_check}}': _chk(bool(opts.get('payCheck'))),
+        '{{pay_zelle}}': _chk(opts.get('payZelle') if opts.get('payZelle') is not None else True),
+        '{{pay_other}}': _chk(bool(opts.get('payOther'))),
+        '{{payment_other}}': _val_or_blank(opts.get('paymentOther')),
+        '{{term_month_to_month}}': _chk(is_mtm),
+        '{{term_standard}}': _chk(not is_mtm),
+        '{{notice_days}}': str(opts.get('noticeDays') or '30'),
+        '{{early_move_in_yes}}': _chk(bool(early_allowed)),
+        '{{early_move_in_no}}': _chk(not early_allowed),
+        '{{early_move_in_date}}': early_date if early_allowed else _BLANK_MD,
+        '{{early_move_in_prorated}}': _money(opts.get('earlyMoveInProrated')) if early_allowed else _BLANK_MD,
+        '{{deposit_required}}': _chk(bool(deposit_required)),
+        '{{deposit_none}}': _chk(not deposit_required),
+        '{{prepaid_required}}': _chk(prepaid_required),
+        '{{prepaid_none}}': _chk(not prepaid_required),
+        '{{prepaid_rent_amount}}': _money(opts.get('prepaidRentAmount')) if prepaid_required else _BLANK_MD,
+        '{{prepaid_rent_period}}': _val_or_blank(opts.get('prepaidRentPeriod')) if prepaid_required else _BLANK_MD,
+        '{{late_fee_amount}}': _money(opts.get('lateFeeAmount'), '$55.00'),
+        '{{late_fee_one_time}}': _chk(not late_daily),
+        '{{late_fee_daily}}': _chk(late_daily),
+        '{{nsf_fixed}}': _chk(not nsf_max),
+        '{{nsf_amount}}': _money(opts.get('nsfAmount'), '$55.00'),
+        '{{nsf_max_statutory}}': _chk(nsf_max),
+        '{{utilities_tenant}}': _chk(not landlord_utils),
+        '{{utilities_landlord}}': _chk(landlord_utils),
+        '{{utilities_list}}': _val_or_blank(opts.get('utilitiesList')) if landlord_utils else _BLANK_MD,
+        '{{util_water}}': _chk(bool(util_inc.get('water'))),
+        '{{util_electricity}}': _chk(bool(util_inc.get('electricity'))),
+        '{{util_gas}}': _chk(bool(util_inc.get('gas'))),
+        '{{util_internet}}': _chk(bool(util_inc.get('internet'))),
+        '{{util_other}}': _chk(bool(util_inc.get('other') or opts.get('utilitiesOther'))),
+        '{{utilities_other}}': _val_or_blank(util_inc.get('other') or opts.get('utilitiesOther')),
+        '{{pets_none}}': _chk(not pets_allowed),
+        '{{pets_allowed}}': _chk(pets_allowed),
+        '{{pet_terms}}': pet_terms if pets_allowed else _BLANK_MD,
+        '{{pet_fee}}': _money(opts.get('petFee')) if pets_allowed else _BLANK_MD,
+        '{{inspection_none}}': _chk(not inspection_req),
+        '{{inspection_required}}': _chk(inspection_req),
+        '{{inspection_by}}': _opt_date(opts.get('moveInInspectionBy')) if inspection_req else _BLANK_MD,
+        '{{smoking_no}}': _chk(not smoking_allowed),
+        '{{smoking_yes}}': _chk(smoking_allowed),
+        '{{smoking_areas}}': _val_or_blank(opts.get('smokingAreas')) if smoking_allowed else _BLANK_MD,
+        '{{insurance_optional}}': _chk(not insurance_required),
+        '{{insurance_required}}': _chk(insurance_required),
+        '{{insurance_min}}': _money(opts.get('rentersInsuranceMin')) if insurance_required else _BLANK_MD,
+        '{{guest_hours}}': str(opts.get('guestHours') or '48'),
+        '{{occupancy_accept_hours}}': str(opts.get('occupancyAcceptHours') or '24'),
+        '{{entry_notice_hours}}': str(opts.get('entryNoticeHours') or '24'),
+        '{{default_cure_days}}': str(opts.get('defaultCureDays') or '3'),
+        '{{landlord_default_days}}': str(opts.get('landlordDefaultDays') or '7'),
+        '{{cosigner_none}}': _chk(not has_cosigner),
+        '{{cosigner_yes}}': _chk(has_cosigner),
+        '{{cosigner_name}}': _val_or_blank(opts.get('cosignerName')) if has_cosigner else _BLANK_MD,
+        '{{cosigner_address}}': _val_or_blank(opts.get('cosignerAddress')) if has_cosigner else _BLANK_MD,
+        '{{cosigner_phone}}': _val_or_blank(opts.get('cosignerPhone')) if has_cosigner else _BLANK_MD,
+        '{{electricity_must}}': _chk(bool(electricity_must)),
+        '{{electricity_must_not}}': _chk(not electricity_must),
+        '{{lead_pre_1978}}': _chk(lead_pre),
+        '{{lead_post_1978}}': _chk(not lead_pre),
+        '{{lead_no_knowledge}}': _chk(not bool(opts.get('leadKnownHazards'))),
+        '{{lead_known}}': _chk(bool(opts.get('leadKnownHazards'))),
+        '{{lead_explain}}': _val_or_blank(opts.get('leadExplain')),
+        '{{lead_no_reports}}': _chk(not bool(opts.get('leadHasReports'))),
+        '{{lead_has_reports}}': _chk(bool(opts.get('leadHasReports'))),
+        '{{lead_reports_list}}': _val_or_blank(opts.get('leadReportsList')),
+        '{{flood_yes}}': _chk(flood_yes),
+        '{{flood_no}}': _chk(not flood_yes),
+        '{{due_first_month}}': due_first,
+        '{{due_deposit}}': due_dep if deposit_required else '$0.00',
+        '{{due_prepaid}}': due_prepaid,
+        '{{due_pet_fee}}': due_pet,
+        '{{due_other_label}}': _val_or_blank(amounts.get('otherLabel')),
+        '{{due_other_amount}}': due_other_amt,
+        '{{due_total}}': due_total,
+    })
 
     filled_content = template_content
     for placeholder, value in replacements.items():
@@ -572,10 +776,16 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
     """
     apply_lease_dates_from_application(tenant)
 
-    # Get template — prefer Residential Lease Application (blank packet)
+    # Prefer Neela Texas Residential Lease (current packet)
     if not template:
         template = (
             LeaseTemplate.objects.filter(
+                is_active=True, name__iexact='Neela Texas Residential Lease'
+            ).first()
+            or LeaseTemplate.objects.filter(
+                is_active=True, name__icontains='Neela Texas Residential'
+            ).first()
+            or LeaseTemplate.objects.filter(
                 is_active=True, name__iexact='Residential Lease Application'
             ).first()
             or LeaseTemplate.objects.filter(
