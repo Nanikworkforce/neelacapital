@@ -402,7 +402,7 @@ class TenantViewSet(viewsets.ModelViewSet):
                     # Check if lease already exists to prevent duplicates
                     if not LegalDocument.objects.filter(tenant=tenant, type='Lease Agreement').exists():
                         pdf_buffer, filled_content = generate_lease_pdf(tenant)
-                        save_lease_document(tenant, pdf_buffer, filled_content)
+                        save_lease_document(tenant, pdf_buffer, filled_content, template=None)
                         logger.info(f"Lease automatically generated for tenant {tenant.id}")
                 except Exception as e:
                     logger.error(f"Failed to auto-generate lease for tenant {tenant.id}: {e}")
@@ -1739,16 +1739,266 @@ class LeaseTemplateViewSet(viewsets.ModelViewSet):
     queryset = LeaseTemplate.objects.all()
     serializer_class = LeaseTemplateSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser]
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
-        # PMs may list/retrieve templates to generate leases; only admin writes.
-        if self.action in ('list', 'retrieve'):
+        # PMs may list/retrieve templates (and version PDF preview) to generate leases;
+        # only admin creates/edits templates and configures signing fields.
+        read_actions = (
+            'list', 'retrieve', 'versions', 'version_pdf',
+        )
+        if self.action in read_actions:
             if not is_staff_portal_user(request.user):
                 raise PermissionDenied('Lease templates require staff access.')
             return
         if not is_admin_user(request.user):
             raise PermissionDenied('Only admin can create or edit lease templates.')
+
+    @action(detail=True, methods=['get', 'post'], url_path='versions')
+    def versions(self, request, pk=None):
+        """
+        GET  — list template versions
+        POST — upload a PDF to create a new draft version (optional copy_fields_from)
+        """
+        from .models import DocumentField, DocumentTemplateVersion
+        from .serializers import DocumentTemplateVersionSerializer
+        import hashlib
+        import fitz
+
+        template = self.get_object()
+
+        if request.method == 'GET':
+            qs = template.versions.prefetch_related('fields').all()
+            ser = DocumentTemplateVersionSerializer(
+                qs, many=True, context={'request': request}
+            )
+            return Response(ser.data)
+
+        upload = request.FILES.get('pdf') or request.FILES.get('file')
+        if not upload:
+            return Response(
+                {'error': 'PDF file required (field name: pdf)'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        pdf_bytes = upload.read()
+        if not pdf_bytes:
+            return Response({'error': 'Empty PDF'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+            page_count = doc.page_count
+            doc.close()
+        except Exception as e:
+            return Response(
+                {'error': f'Invalid PDF: {e}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        file_hash = hashlib.sha256(pdf_bytes).hexdigest()
+        last = template.versions.order_by('-version_number').first()
+        next_num = (last.version_number + 1) if last else 1
+
+        version = DocumentTemplateVersion(
+            lease_template=template,
+            version_number=next_num,
+            status=DocumentTemplateVersion.STATUS_DRAFT,
+            file_hash=file_hash,
+            page_count=page_count,
+        )
+        safe_name = re.sub(r'[^\w.\-]+', '_', upload.name or f'template_v{next_num}.pdf')
+        if not safe_name.lower().endswith('.pdf'):
+            safe_name += '.pdf'
+        version.pdf_file.save(safe_name, ContentFile(pdf_bytes), save=False)
+        version.save()
+
+        # Optionally copy fields from a prior version
+        copy_from = request.data.get('copy_fields_from') or request.query_params.get('copy_fields_from')
+        source = None
+        if copy_from:
+            source = template.versions.filter(id=copy_from).first()
+        if source is None:
+            source = template.versions.filter(
+                status=DocumentTemplateVersion.STATUS_PUBLISHED
+            ).order_by('-version_number').first()
+        if source and source.id != version.id:
+            for f in source.fields.all():
+                DocumentField.objects.create(
+                    template_version=version,
+                    field_key=f.field_key,
+                    field_type=f.field_type,
+                    label=f.label,
+                    page_number=f.page_number,
+                    x=f.x,
+                    y=f.y,
+                    width=f.width,
+                    height=f.height,
+                    required=f.required,
+                    signer_role=f.signer_role,
+                    stamp=f.stamp,
+                )
+
+        ser = DocumentTemplateVersionSerializer(version, context={'request': request})
+        return Response(ser.data, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=True,
+        methods=['get'],
+        url_path=r'versions/(?P<vid>[^/.]+)/pdf',
+    )
+    def version_pdf(self, request, pk=None, vid=None):
+        """Auth'd inline PDF preview for a template version (blob-friendly)."""
+        from .models import DocumentTemplateVersion
+
+        template = self.get_object()
+        try:
+            version = template.versions.get(pk=vid)
+        except DocumentTemplateVersion.DoesNotExist:
+            return Response({'error': 'Version not found'}, status=status.HTTP_404_NOT_FOUND)
+        if not version.pdf_file:
+            return Response({'error': 'No PDF on this version'}, status=status.HTTP_404_NOT_FOUND)
+
+        pdf_bytes = None
+        try:
+            version.pdf_file.open('rb')
+            pdf_bytes = version.pdf_file.read()
+            version.pdf_file.close()
+        except Exception as e:
+            logger.warning('Could not read template version PDF %s: %s', vid, e)
+
+        if not pdf_bytes and hasattr(settings, 'CLOUDINARY_STORAGE') and settings.CLOUDINARY_STORAGE.get('CLOUD_NAME'):
+            public_id = (version.pdf_file.name or '').lstrip('/')
+            pdf_bytes = download_cloudinary_file(public_id)
+
+        if not pdf_bytes:
+            return Response({'error': 'Could not retrieve PDF'}, status=status.HTTP_404_NOT_FOUND)
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = (
+            f'inline; filename="template_{template.id}_v{version.version_number}.pdf"'
+        )
+        response['X-Content-Type-Options'] = 'nosniff'
+        return response
+
+    @action(
+        detail=True,
+        methods=['get', 'put'],
+        url_path=r'versions/(?P<vid>[^/.]+)/fields',
+    )
+    def version_fields(self, request, pk=None, vid=None):
+        """GET fields / PUT replace field set (draft versions only for PUT)."""
+        from .models import DocumentField, DocumentTemplateVersion
+        from .serializers import DocumentFieldSerializer, DocumentTemplateVersionSerializer
+
+        template = self.get_object()
+        try:
+            version = template.versions.get(pk=vid)
+        except DocumentTemplateVersion.DoesNotExist:
+            return Response({'error': 'Version not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.method == 'GET':
+            ser = DocumentFieldSerializer(version.fields.all(), many=True)
+            return Response(ser.data)
+
+        if version.status != DocumentTemplateVersion.STATUS_DRAFT:
+            return Response(
+                {'error': 'Only draft versions can be edited. Publish creates an immutable snapshot; upload a new version to change fields.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payload = request.data
+        if isinstance(payload, dict) and 'fields' in payload:
+            payload = payload['fields']
+        if not isinstance(payload, list):
+            return Response(
+                {'error': 'Body must be a JSON array of fields (or {fields: [...]})'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        version.fields.all().delete()
+        created = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            key = (item.get('field_key') or item.get('id') or '').strip()
+            if not key:
+                continue
+            ftype = item.get('field_type') or item.get('type') or DocumentField.TYPE_SIGNATURE
+            # Map signing UI types → DocumentField types
+            if ftype == 'signature':
+                ftype = DocumentField.TYPE_SIGNATURE
+            elif ftype in ('date',):
+                ftype = DocumentField.TYPE_DATE
+            elif ftype in ('initials',):
+                ftype = DocumentField.TYPE_INITIALS
+            elif ftype in ('checkbox',):
+                ftype = DocumentField.TYPE_CHECKBOX
+            elif ftype in ('text',):
+                ftype = DocumentField.TYPE_TEXT
+            role = item.get('signer_role') or DocumentField.ROLE_TENANT
+            created.append(
+                DocumentField(
+                    template_version=version,
+                    field_key=key,
+                    field_type=ftype,
+                    label=(item.get('label') or key.replace('_', ' ').title())[:255],
+                    page_number=max(1, int(item.get('page_number') or item.get('page') or 1)),
+                    x=float(item.get('x', 0)),
+                    y=float(item.get('y', 0)),
+                    width=float(item.get('width', 0.2)),
+                    height=float(item.get('height', 0.04)),
+                    required=bool(item.get('required', True)),
+                    signer_role=role,
+                    stamp=bool(item['stamp']) if 'stamp' in item else True,
+                )
+            )
+        DocumentField.objects.bulk_create(created)
+        ser = DocumentTemplateVersionSerializer(
+            version, context={'request': request}
+        )
+        return Response(ser.data)
+
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path=r'versions/(?P<vid>[^/.]+)/publish',
+    )
+    def publish_version(self, request, pk=None, vid=None):
+        """Publish a draft version (archives prior published versions of this template)."""
+        from .models import DocumentTemplateVersion
+        from .serializers import DocumentTemplateVersionSerializer
+
+        template = self.get_object()
+        try:
+            version = template.versions.get(pk=vid)
+        except DocumentTemplateVersion.DoesNotExist:
+            return Response({'error': 'Version not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if version.status == DocumentTemplateVersion.STATUS_PUBLISHED:
+            return Response(
+                DocumentTemplateVersionSerializer(version, context={'request': request}).data
+            )
+        if version.status != DocumentTemplateVersion.STATUS_DRAFT:
+            return Response(
+                {'error': 'Only draft versions can be published'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not version.pdf_file:
+            return Response(
+                {'error': 'Version has no PDF'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        template.versions.filter(status=DocumentTemplateVersion.STATUS_PUBLISHED).update(
+            status=DocumentTemplateVersion.STATUS_ARCHIVED
+        )
+        version.status = DocumentTemplateVersion.STATUS_PUBLISHED
+        version.published_at = timezone.now()
+        version.save(update_fields=['status', 'published_at'])
+
+        return Response(
+            DocumentTemplateVersionSerializer(version, context={'request': request}).data
+        )
 
 
 class LegalDocumentViewSet(viewsets.ModelViewSet):
@@ -1797,94 +2047,16 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
             sep = '&' if '?' in pdf_proxy_url else '?'
             pdf_proxy_url = f"{pdf_proxy_url}{sep}token={raw_token}"
 
-        # For now we expose a conservative, static field map for Lease Agreement.
-        # These normalized coordinates are easy for the frontend to adapt and we can
-        # evolve them later (e.g. store per-template configuration in DB).
         fields = []
         if (legal_doc.type or '').lower() == 'lease agreement':
-            fields = [
-                # Agreement checkboxes (tenant ticks to confirm)
-                {
-                    "id": "agree_terms",
-                    "type": "checkbox",
-                    "label": "I agree to the terms",
-                    "page": 1,
-                    "x": 0.12,
-                    "y": 0.72,
-                    "width": 0.04,
-                    "height": 0.04,
-                    "required": True,
-                },
-                {
-                    "id": "agree_rules",
-                    "type": "checkbox",
-                    "label": "I agree to community rules",
-                    "page": 1,
-                    "x": 0.12,
-                    "y": 0.76,
-                    "width": 0.04,
-                    "height": 0.04,
-                    "required": True,
-                },
-                # Tenant initials (short text)
-                {
-                    "id": "tenant_initials",
-                    "type": "text",
-                    "label": "Initials",
-                    "page": 1,
-                    "x": 0.55,
-                    "y": 0.72,
-                    "width": 0.12,
-                    "height": 0.04,
-                    "required": True,
-                },
-                # Tenant signature block
-                {
-                    "id": "tenant_signature",
-                    "type": "signature",
-                    "label": "Tenant Signature",
-                    "page": 1,
-                    "x": 0.12,
-                    "y": 0.82,
-                    "width": 0.35,
-                    "height": 0.07,
-                    "required": True,
-                },
-                {
-                    "id": "tenant_signature_date",
-                    "type": "text",
-                    "label": "Date",
-                    "page": 1,
-                    "x": 0.52,
-                    "y": 0.82,
-                    "width": 0.15,
-                    "height": 0.05,
-                    "required": True,
-                },
-                # Landlord signature block
-                {
-                    "id": "landlord_signature",
-                    "type": "signature",
-                    "label": "Landlord Signature",
-                    "page": 1,
-                    "x": 0.12,
-                    "y": 0.9,
-                    "width": 0.35,
-                    "height": 0.07,
-                    "required": False,
-                },
-                {
-                    "id": "landlord_signature_date",
-                    "type": "text",
-                    "label": "Date",
-                    "page": 1,
-                    "x": 0.52,
-                    "y": 0.9,
-                    "width": 0.15,
-                    "height": 0.05,
-                    "required": False,
-                },
-            ]
+            from .lease_signing import fields_for_role, landlord_signing_fields, tenant_signing_fields
+            # Prefer frozen template version fields; else full tenant+landlord fallback map
+            if getattr(legal_doc, 'template_version_id', None):
+                fields = fields_for_role('tenant', legal_doc=legal_doc) + fields_for_role(
+                    'landlord', legal_doc=legal_doc
+                )
+            else:
+                fields = tenant_signing_fields() + landlord_signing_fields()
 
         return Response(
             {
@@ -2067,8 +2239,10 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
                 # Generate PDF from template
                 pdf_buffer, filled_content = generate_lease_pdf(tenant, template)
             
-            # Save document
-            legal_doc = save_lease_document(tenant, pdf_buffer, filled_content)
+            # Save document (freeze published template version for signing fields)
+            legal_doc = save_lease_document(
+                tenant, pdf_buffer, filled_content, template=template
+            )
             
             # Serialize and return
             serializer = self.get_serializer(legal_doc)
@@ -2422,7 +2596,13 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         if not pdf_bytes:
             return Response({'error': 'Could not retrieve PDF'}, status=status.HTTP_404_NOT_FOUND)
 
-        return HttpResponse(pdf_bytes, content_type="application/pdf")
+        from .lease_service import build_lease_pdf_filename
+        filename = build_lease_pdf_filename(legal_doc.tenant, prefix='Lease')
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        # inline so blob/iframe preview works; download still works via Save As
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        response['X-Content-Type-Options'] = 'nosniff'
+        return response
 
     def perform_update(self, serializer):
         old_instance = self.get_object()
@@ -3019,7 +3199,11 @@ def sign_lease_by_token(request):
         pdf_proxy_url = request_obj.build_absolute_uri(
             f"/api/legal-documents/{legal_doc.id}/pdf/?token={raw_token}"
         )
-        fields = fields_for_role(role) if (legal_doc.type or '').lower() == 'lease agreement' else []
+        fields = (
+            fields_for_role(role, legal_doc=legal_doc)
+            if (legal_doc.type or '').lower() == 'lease agreement'
+            else []
+        )
 
         return Response({
             'id': legal_doc.id,
@@ -3054,7 +3238,7 @@ def sign_lease_by_token(request):
     # Bake interactive blank fills into text and rebuild PDF so ticks/inputs
     # land on the document (not only the HTML signing view).
     try:
-        from .lease_service import bake_inline_fills, render_lease_pdf_bytes
+        from .lease_service import bake_inline_fills
 
         base_content = (
             filled_content
@@ -3065,15 +3249,11 @@ def sign_lease_by_token(request):
         if baked and baked != (legal_doc.generated_content or ''):
             legal_doc.generated_content = baked
             legal_doc.save(update_fields=['generated_content'])
-        if role == LST.ROLE_TENANT and baked:
-            pdf_bytes = render_lease_pdf_bytes(
-                baked,
-                title=(legal_doc.type or 'RESIDENTIAL LEASE APPLICATION'),
-            )
-        else:
-            pdf_bytes = None
+        # Keep the branded template PDF when available — do not rebuild a
+        # plain text PDF that drops the logo/layout. Stamp onto existing PDF.
+        pdf_bytes = None
     except Exception as e:
-        logger.warning(f"Could not bake/rebuild lease content before stamp: {e}")
+        logger.warning(f"Could not bake lease content before stamp: {e}")
         pdf_bytes = None
 
     if not pdf_bytes:

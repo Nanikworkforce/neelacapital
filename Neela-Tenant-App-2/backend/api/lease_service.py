@@ -126,16 +126,9 @@ def build_lease_pdf_filename(tenant: Tenant, prefix: str = 'Lease') -> str:
     return f"{prefix}_{part(tenant.name)}_{part(tenant.property_unit)}_{date}.pdf"
 
 
-def fill_lease_template(template_content: str, tenant: Tenant) -> str:
+def build_lease_replacements(tenant: Tenant) -> dict:
     """
-    Fill lease template with tenant data.
-    
-    Args:
-        template_content: Template string with placeholders
-        tenant: Tenant instance
-        
-    Returns:
-        Filled template string
+    Build {{placeholder}} → value map for a tenant (text template + PDF overlay).
     """
     # Extract name parts
     name_parts = tenant.name.split(' ', 1)
@@ -629,6 +622,21 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
         '{{due_total}}': due_total,
     })
 
+    return replacements
+
+
+def fill_lease_template(template_content: str, tenant: Tenant) -> str:
+    """
+    Fill lease template with tenant data.
+
+    Args:
+        template_content: Template string with placeholders
+        tenant: Tenant instance
+
+    Returns:
+        Filled template string
+    """
+    replacements = build_lease_replacements(tenant)
     filled_content = template_content
     for placeholder, value in replacements.items():
         filled_content = filled_content.replace(placeholder, str(value))
@@ -696,15 +704,28 @@ def _pdf_markup_line(text: str) -> str:
     return escaped.replace('\n', '<br/>')
 
 
+def _lease_logo_path():
+    """Prefer PNG logo extracted from the branded lease PDF."""
+    from pathlib import Path
+    assets = Path(__file__).resolve().parent / 'lease_assets'
+    for name in ('neela_logo_from_pdf.png', 'neela-logo.png', 'neela-logo.webp'):
+        p = assets / name
+        if p.is_file():
+            return str(p)
+    return None
+
+
 def render_lease_pdf_bytes(filled_content: str, title: str = 'RESIDENTIAL LEASE APPLICATION') -> bytes:
-    """Render lease/application text content to a PDF byte string."""
+    """Render lease/application text content to a PDF byte string (fallback path)."""
+    from reportlab.platypus import Image as RLImage
+
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
         rightMargin=54,
         leftMargin=54,
-        topMargin=54,
+        topMargin=48,
         bottomMargin=40,
     )
     elements = []
@@ -714,7 +735,7 @@ def render_lease_pdf_bytes(filled_content: str, title: str = 'RESIDENTIAL LEASE 
         parent=styles['Heading1'],
         fontSize=13,
         textColor=colors.HexColor('#1e293b'),
-        spaceAfter=14,
+        spaceAfter=10,
         alignment=1,
         leading=16,
     )
@@ -736,6 +757,15 @@ def render_lease_pdf_bytes(filled_content: str, title: str = 'RESIDENTIAL LEASE 
         spaceBefore=6,
         spaceAfter=2,
     )
+
+    logo_path = _lease_logo_path()
+    if logo_path:
+        try:
+            elements.append(RLImage(logo_path, width=2.6 * inch, height=0.76 * inch))
+            elements.append(Spacer(1, 0.12 * inch))
+        except Exception as e:
+            logger.warning('Could not embed lease logo: %s', e)
+
     doc_title = (title or 'RESIDENTIAL LEASE APPLICATION').upper()
     elements.append(Paragraph(doc_title.replace('&', '&amp;'), title_style))
     elements.append(Spacer(1, 0.1 * inch))
@@ -802,9 +832,26 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
                 is_active=True
             )
     
-    # Fill template with tenant data
+    # Fill text template (signing UI / audit) and prefer branded PDF overlay
     filled_content = fill_lease_template(template.content, tenant)
-    pdf_bytes = render_lease_pdf_bytes(filled_content, template.name or 'RESIDENTIAL LEASE APPLICATION')
+    replacements = build_lease_replacements(tenant)
+    pdf_bytes = None
+    try:
+        from .lease_pdf_template import render_filled_template_pdf, template_pdf_available
+        use_branded = template_pdf_available() and (
+            'neela' in (template.name or '').lower()
+            or 'texas residential' in (template.name or '').lower()
+        )
+        if use_branded:
+            pdf_bytes = render_filled_template_pdf(replacements)
+    except Exception as e:
+        logger.warning('Branded lease PDF fill failed; falling back to text render: %s', e)
+        pdf_bytes = None
+
+    if not pdf_bytes:
+        pdf_bytes = render_lease_pdf_bytes(
+            filled_content, template.name or 'RESIDENTIAL LEASE APPLICATION'
+        )
     buffer = BytesIO(pdf_bytes)
     buffer.seek(0)
     return buffer, filled_content
@@ -857,7 +904,23 @@ Tenant's Signature: _________________________  Date: {{current_date}}
 {{tenant_name}}"""
 
 
-def save_lease_document(tenant: Tenant, pdf_buffer: BytesIO, filled_content: str) -> LegalDocument:
+def resolve_template_version_for_lease(template: LeaseTemplate | None = None):
+    """Latest published DocumentTemplateVersion for a LeaseTemplate, if any."""
+    if template is None:
+        return None
+    try:
+        return template.latest_published_version()
+    except Exception:
+        return None
+
+
+def save_lease_document(
+    tenant: Tenant,
+    pdf_buffer: BytesIO,
+    filled_content: str,
+    template: LeaseTemplate = None,
+    template_version=None,
+) -> LegalDocument:
     """
     Save lease document to database and storage.
     
@@ -865,10 +928,24 @@ def save_lease_document(tenant: Tenant, pdf_buffer: BytesIO, filled_content: str
         tenant: Tenant instance
         pdf_buffer: PDF file buffer
         filled_content: Filled template content
+        template: LeaseTemplate used for generation (optional)
+        template_version: Frozen DocumentTemplateVersion (optional)
         
     Returns:
         LegalDocument instance
     """
+    if template_version is None:
+        if template is None:
+            template = (
+                LeaseTemplate.objects.filter(
+                    is_active=True, name__iexact='Neela Texas Residential Lease'
+                ).first()
+                or LeaseTemplate.objects.filter(
+                    is_active=True, name__icontains='Neela Texas Residential'
+                ).first()
+            )
+        template_version = resolve_template_version_for_lease(template)
+
     # Always create a NEW legal document (each generation is a new version)
     # Don't reuse old leases - they serve as history
     legal_doc = LegalDocument.objects.create(
@@ -876,6 +953,7 @@ def save_lease_document(tenant: Tenant, pdf_buffer: BytesIO, filled_content: str
         type='Lease Agreement',
         generated_content=filled_content,
         status='Draft',
+        template_version=template_version,
     )
     
     # Save PDF file — human-readable: Lease_Name_Unit_YYYY-MM-DD.pdf
@@ -975,60 +1053,9 @@ _PDF_PAGE_HEIGHT = 792
 
 
 def stamp_signed_pdf(pdf_bytes: bytes, fields: list[dict], values: dict[str, Any]) -> bytes:
+    """Stamp signatures/dates/initials via label search on the branded lease PDF."""
+    from .lease_stamp import stamp_signed_pdf as _label_stamp
 
-    if not pdf_bytes or not isinstance(fields, list):
-        raise ValueError("pdf_bytes and fields required")
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    if len(doc) == 0:
-        doc.close()
-        raise ValueError("PDF has no pages")
-    out = BytesIO()
-    try:
-        for field in fields:
-            field_id = field.get("id")
-            field_type = field.get("type")
-            if not field_id or field_type not in ("checkbox", "text", "signature"):
-                continue
-            raw = values.get(field_id)
-            if raw is None:
-                continue
-            page_index = max(0, int(field.get("page", 1)) - 1)
-            if page_index >= len(doc):
-                continue
-            page = doc[page_index]
-            x = float(field.get("x", 0))
-            y = float(field.get("y", 0))
-            w = float(field.get("width", 0.1))
-            h = float(field.get("height", 0.05))
-            left = x * _PDF_PAGE_WIDTH
-            top = y * _PDF_PAGE_HEIGHT
-            right = (x + w) * _PDF_PAGE_WIDTH
-            bottom = (y + h) * _PDF_PAGE_HEIGHT
-            rect = fitz.Rect(left, top, right, bottom)
-
-            if field_type == "checkbox":
-                checked = raw is True or (isinstance(raw, str) and str(raw).lower() in ("true", "1", "yes", "x"))
-                if checked:
-                    cx = (left + right) / 2
-                    fontsize = min(14, rect.height * 0.8)
-                    pt = fitz.Point(cx - fontsize * 0.3, rect.y1 - 2)
-                    page.insert_text(pt, "✓", fontsize=fontsize, color=(0, 0, 0))
-            elif field_type == "text":
-                text = str(raw).strip() if raw else ""
-                if text:
-                    page.insert_textbox(rect, text, fontsize=10, fontname="helv", align=0)
-            elif field_type == "signature":
-                if isinstance(raw, str) and raw.startswith("data:image"):
-                    try:
-                        payload = raw.split(",", 1)[1]
-                        image_bytes = base64.b64decode(payload)
-                        if image_bytes:
-                            page.insert_image(rect, stream=image_bytes)
-                    except Exception as e:
-                        logger.warning("Failed to stamp signature image for %s: %s", field_id, e)
-    finally:
-        doc.save(out, deflate=True, garbage=4)
-        doc.close()
-    return out.getvalue()
+    return _label_stamp(pdf_bytes, fields, values)
 
 

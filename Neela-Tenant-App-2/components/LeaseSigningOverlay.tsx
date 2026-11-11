@@ -313,6 +313,7 @@ const LeaseSigningOverlay: React.FC<LeaseSigningOverlayProps> = ({
         y: f.y,
         width: f.width,
         height: f.height,
+        stamp: (f as { stamp?: boolean }).stamp,
       }));
       const result = await api.submitSignedLease(documentId, { values, fields: fieldsPayload });
       setSubmitMessage({ type: 'success', text: 'Lease signed successfully! You will receive a confirmation email shortly.' });

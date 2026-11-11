@@ -9,6 +9,7 @@ services:
     startCommand: |
       python manage.py migrate &&
       python manage.py seed_neela_texas_lease &&
+      python manage.py seed_texas_template_version &&
       python manage.py collectstatic --noinput &&
       gunicorn neela_backend.wsgi:application
     envVars:

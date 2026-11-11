@@ -1420,6 +1420,81 @@ export const api = {
     return await response.json();
   },
 
+  getLeaseTemplateVersions: async (templateId: string | number): Promise<any[]> => {
+    const response = await fetchWithAuth(`${API_URL}/lease-templates/${templateId}/versions/`, {
+      headers: getHeaders(false),
+    });
+    if (!response.ok) throw new Error('Failed to fetch template versions');
+    return await response.json();
+  },
+
+  uploadLeaseTemplateVersion: async (
+    templateId: string | number,
+    file: File,
+    copyFieldsFrom?: string | number,
+  ): Promise<any> => {
+    const form = new FormData();
+    form.append('pdf', file);
+    if (copyFieldsFrom != null) form.append('copy_fields_from', String(copyFieldsFrom));
+    const response = await fetchWithAuth(`${API_URL}/lease-templates/${templateId}/versions/`, {
+      method: 'POST',
+      headers: getHeaders(false), // multipart — let browser set boundary
+      body: form,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to upload PDF version' }));
+      throw new Error(error.detail || error.error || error.message || 'Failed to upload PDF version');
+    }
+    return await response.json();
+  },
+
+  getLeaseTemplateVersionPdfBlob: async (
+    templateId: string | number,
+    versionId: string | number,
+  ): Promise<Blob> => {
+    const response = await fetchWithAuth(
+      `${API_URL}/lease-templates/${templateId}/versions/${versionId}/pdf/`,
+      { headers: getHeaders(false) },
+    );
+    if (!response.ok) throw new Error('Failed to load template PDF');
+    return await response.blob();
+  },
+
+  saveLeaseTemplateVersionFields: async (
+    templateId: string | number,
+    versionId: string | number,
+    fields: any[],
+  ): Promise<any> => {
+    const response = await fetchWithAuth(
+      `${API_URL}/lease-templates/${templateId}/versions/${versionId}/fields/`,
+      {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify({ fields }),
+      },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to save fields' }));
+      throw new Error(error.detail || error.error || error.message || 'Failed to save fields');
+    }
+    return await response.json();
+  },
+
+  publishLeaseTemplateVersion: async (
+    templateId: string | number,
+    versionId: string | number,
+  ): Promise<any> => {
+    const response = await fetchWithAuth(
+      `${API_URL}/lease-templates/${templateId}/versions/${versionId}/publish/`,
+      { method: 'POST', headers: getHeaders() },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to publish version' }));
+      throw new Error(error.detail || error.error || error.message || 'Failed to publish version');
+    }
+    return await response.json();
+  },
+
   // Lease Generation API
   generateLease: async (tenantId: string, templateId?: string, customContent?: string): Promise<any> => {
     const body: any = {

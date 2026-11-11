@@ -206,6 +206,134 @@ class LeaseTemplate(models.Model):
     def __str__(self):
         return self.name
 
+    def latest_published_version(self):
+        return (
+            self.versions.filter(status=DocumentTemplateVersion.STATUS_PUBLISHED)
+            .order_by('-version_number')
+            .first()
+        )
+
+
+class DocumentTemplateVersion(models.Model):
+    """Immutable published PDF snapshot of a LeaseTemplate (draft until published)."""
+
+    STATUS_DRAFT = 'draft'
+    STATUS_PUBLISHED = 'published'
+    STATUS_ARCHIVED = 'archived'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_PUBLISHED, 'Published'),
+        (STATUS_ARCHIVED, 'Archived'),
+    ]
+
+    lease_template = models.ForeignKey(
+        LeaseTemplate,
+        on_delete=models.CASCADE,
+        related_name='versions',
+    )
+    version_number = models.PositiveIntegerField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    pdf_file = models.FileField(upload_to='lease_template_versions/', null=True, blank=True)
+    file_hash = models.CharField(max_length=64, blank=True, default='')
+    page_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['lease_template', 'version_number'],
+                name='uniq_lease_template_version_number',
+            ),
+        ]
+        ordering = ['-version_number']
+
+    def __str__(self):
+        return f"{self.lease_template.name} v{self.version_number} ({self.status})"
+
+
+class DocumentField(models.Model):
+    """Signing field positions on a DocumentTemplateVersion (normalized 0–1 coords)."""
+
+    TYPE_SIGNATURE = 'signature'
+    TYPE_DATE = 'date'
+    TYPE_TEXT = 'text'
+    TYPE_INITIALS = 'initials'
+    TYPE_CHECKBOX = 'checkbox'
+    TYPE_CHOICES = [
+        (TYPE_SIGNATURE, 'Signature'),
+        (TYPE_DATE, 'Date'),
+        (TYPE_TEXT, 'Text'),
+        (TYPE_INITIALS, 'Initials'),
+        (TYPE_CHECKBOX, 'Checkbox'),
+    ]
+
+    ROLE_TENANT = 'tenant'
+    ROLE_LANDLORD = 'landlord'
+    ROLE_EITHER = 'either'
+    ROLE_CHOICES = [
+        (ROLE_TENANT, 'Tenant'),
+        (ROLE_LANDLORD, 'Landlord'),
+        (ROLE_EITHER, 'Either'),
+    ]
+
+    template_version = models.ForeignKey(
+        DocumentTemplateVersion,
+        on_delete=models.CASCADE,
+        related_name='fields',
+    )
+    field_key = models.CharField(max_length=100)
+    field_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    label = models.CharField(max_length=255, blank=True, default='')
+    page_number = models.PositiveIntegerField(default=1)
+    x = models.FloatField(help_text='Normalized 0–1 from left of page CropBox')
+    y = models.FloatField(help_text='Normalized 0–1 from top of page CropBox')
+    width = models.FloatField()
+    height = models.FloatField()
+    required = models.BooleanField(default=True)
+    signer_role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_TENANT)
+    stamp = models.BooleanField(
+        default=True,
+        help_text='If false, UI-only (e.g. agree checkboxes) — not painted onto PDF',
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['template_version', 'field_key'],
+                name='uniq_document_field_key_per_version',
+            ),
+        ]
+        ordering = ['page_number', 'y', 'x']
+
+    def __str__(self):
+        return f"{self.field_key} @ p{self.page_number} ({self.template_version_id})"
+
+    def as_signing_field(self) -> dict:
+        """Shape expected by frontend signing UI + stamp_signed_pdf."""
+        stamp_type = self.field_type
+        if stamp_type in (self.TYPE_DATE, self.TYPE_INITIALS, self.TYPE_TEXT):
+            stamp_type = 'text'
+        elif stamp_type == self.TYPE_CHECKBOX:
+            stamp_type = 'checkbox'
+        elif stamp_type == self.TYPE_SIGNATURE:
+            stamp_type = 'signature'
+        return {
+            'id': self.field_key,
+            'type': stamp_type,
+            'label': self.label or self.field_key.replace('_', ' ').title(),
+            'page': self.page_number,
+            'x': self.x,
+            'y': self.y,
+            'width': self.width,
+            'height': self.height,
+            'required': self.required,
+            'stamp': self.stamp,
+            'signer_role': self.signer_role,
+            'field_type': self.field_type,
+        }
+
+
 class LegalDocument(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='legal_documents')
     type = models.CharField(max_length=100)
@@ -219,6 +347,14 @@ class LegalDocument(models.Model):
     signed_pdf_url = models.URLField(null=True, blank=True)
     signed_at = models.DateTimeField(null=True, blank=True)
     signing_audit = models.JSONField(null=True, blank=True, help_text="Who signed, when, IP, etc.")
+    template_version = models.ForeignKey(
+        'DocumentTemplateVersion',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='legal_documents',
+        help_text='Frozen PDF template version used when this lease was generated',
+    )
 
     def __str__(self):
         return f"{self.type} - {self.tenant.name}"

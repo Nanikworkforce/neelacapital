@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Tenant, Payment, MaintenanceRequest, LegalDocument, Listing, Property, LeaseTemplate, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, PropertyUnit, PropertyFinancials, PropertyManagerProfile, PropertyMonthInput, Inquiry
+from .models import Tenant, Payment, MaintenanceRequest, LegalDocument, Listing, Property, LeaseTemplate, DocumentTemplateVersion, DocumentField, ShortStayBooking, ShortStayBlockedDate, OperatingExpense, PropertyUnit, PropertyFinancials, PropertyManagerProfile, PropertyMonthInput, Inquiry
 from .permissions import (
     is_admin_user,
     is_property_manager,
@@ -513,10 +513,58 @@ class PropertyManagerSignupSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, min_length=8)
     phone = serializers.CharField(max_length=50)
 
+class DocumentFieldSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DocumentField
+        fields = (
+            'id', 'field_key', 'field_type', 'label', 'page_number',
+            'x', 'y', 'width', 'height', 'required', 'signer_role', 'stamp',
+        )
+
+
+class DocumentTemplateVersionSerializer(serializers.ModelSerializer):
+    fields = DocumentFieldSerializer(many=True, read_only=True)
+    pdf_url = serializers.SerializerMethodField()
+    lease_template_name = serializers.CharField(source='lease_template.name', read_only=True)
+
+    class Meta:
+        model = DocumentTemplateVersion
+        fields = (
+            'id', 'lease_template', 'lease_template_name', 'version_number', 'status',
+            'file_hash', 'page_count', 'created_at', 'published_at', 'fields', 'pdf_url',
+        )
+        read_only_fields = (
+            'id', 'version_number', 'status', 'file_hash', 'page_count',
+            'created_at', 'published_at', 'fields', 'pdf_url', 'lease_template_name',
+        )
+
+    def get_pdf_url(self, obj):
+        request = self.context.get('request')
+        if not request or not obj.pdf_file:
+            return None
+        return request.build_absolute_uri(
+            f"/api/lease-templates/{obj.lease_template_id}/versions/{obj.id}/pdf/"
+        )
+
+
 class LeaseTemplateSerializer(serializers.ModelSerializer):
+    latest_published_version_id = serializers.SerializerMethodField()
+    version_count = serializers.SerializerMethodField()
+
     class Meta:
         model = LeaseTemplate
-        fields = '__all__'
+        fields = (
+            'id', 'name', 'content', 'is_active', 'created_at', 'updated_at',
+            'latest_published_version_id', 'version_count',
+        )
+
+    def get_latest_published_version_id(self, obj):
+        v = obj.latest_published_version()
+        return v.id if v else None
+
+    def get_version_count(self, obj):
+        return obj.versions.count()
+
 
 class LegalDocumentSerializer(serializers.ModelSerializer):
     pdf_url = serializers.SerializerMethodField()

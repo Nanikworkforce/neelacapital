@@ -14,6 +14,7 @@ interface Field {
   required: boolean;
   page?: number;
   x?: number; y?: number; width?: number; height?: number;
+  stamp?: boolean;
 }
 
 interface TokenData {
@@ -444,6 +445,10 @@ const LeaseSigningPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfBlobLoading, setPdfBlobLoading] = useState(false);
+  const [pdfBlobError, setPdfBlobError] = useState<string | null>(null);
+  const pdfBlobUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!token) { setError('No signing token found. Please use the link from your email.'); setLoading(false); return; }
@@ -461,6 +466,58 @@ const LeaseSigningPage: React.FC = () => {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [token]);
+
+  // Fetch PDF as same-origin blob so iframe never hits Render X-Frame / connect errors.
+  useEffect(() => {
+    const pdfUrl = data?.pdf_url;
+    const isLandlord = data?.party === 'landlord';
+    if (!isLandlord || !pdfUrl) {
+      if (pdfBlobUrlRef.current) {
+        URL.revokeObjectURL(pdfBlobUrlRef.current);
+        pdfBlobUrlRef.current = null;
+      }
+      setPdfBlobUrl(null);
+      setPdfBlobError(null);
+      setPdfBlobLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPdfBlobLoading(true);
+    setPdfBlobError(null);
+
+    fetch(pdfUrl, { method: 'GET', credentials: 'omit' })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Could not load lease PDF (${response.status})`);
+        }
+        return response.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        if (pdfBlobUrlRef.current) URL.revokeObjectURL(pdfBlobUrlRef.current);
+        const url = URL.createObjectURL(blob);
+        pdfBlobUrlRef.current = url;
+        setPdfBlobUrl(url);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) {
+          setPdfBlobUrl(null);
+          setPdfBlobError(e.message || 'Could not load lease PDF. Try Open in new tab.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPdfBlobLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      if (pdfBlobUrlRef.current) {
+        URL.revokeObjectURL(pdfBlobUrlRef.current);
+        pdfBlobUrlRef.current = null;
+      }
+    };
+  }, [data?.pdf_url, data?.party, data?.status]);
 
   const update = useCallback((id: string, val: string | boolean) => {
     setValues((prev) => ({ ...prev, [id]: val }));
@@ -484,6 +541,7 @@ const LeaseSigningPage: React.FC = () => {
       const fieldsPayload = (data.fields || []).map((f) => ({
         id: f.id, type: f.type, page: f.page ?? 1,
         x: f.x ?? 0, y: f.y ?? 0, width: f.width ?? 0.1, height: f.height ?? 0.05,
+        stamp: f.stamp,
       }));
       const filled_content = bakeInlineFills(data.generated_content || '', values);
       const res = await fetch(`${BASE_URL}/api/sign-lease/?token=${encodeURIComponent(token)}`, {
@@ -630,13 +688,40 @@ const LeaseSigningPage: React.FC = () => {
 
           {isLandlordParty && data?.pdf_url && (
             <div className="mb-6 bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-slate-800">Tenant-signed lease PDF</p>
-                <a href={data.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+                <a
+                  href={pdfBlobUrl || data.pdf_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 shrink-0"
+                >
                   Open in new tab
                 </a>
               </div>
-              <iframe src={data.pdf_url} title="Tenant-signed lease" className="w-full min-h-[70vh] bg-slate-100" />
+              {pdfBlobLoading && (
+                <div className="w-full min-h-[40vh] flex items-center justify-center bg-slate-100 text-sm text-slate-600">
+                  Loading lease PDF…
+                </div>
+              )}
+              {!pdfBlobLoading && pdfBlobUrl && (
+                <iframe src={pdfBlobUrl} title="Tenant-signed lease" className="w-full min-h-[70vh] bg-slate-100" />
+              )}
+              {!pdfBlobLoading && !pdfBlobUrl && (
+                <div className="w-full min-h-[30vh] flex flex-col items-center justify-center gap-3 bg-slate-100 px-6 py-10 text-center">
+                  <p className="text-sm text-slate-700">
+                    {pdfBlobError || 'Could not embed the lease PDF in this page.'}
+                  </p>
+                  <a
+                    href={data.pdf_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                  >
+                    Open PDF in new tab
+                  </a>
+                </div>
+              )}
             </div>
           )}
 

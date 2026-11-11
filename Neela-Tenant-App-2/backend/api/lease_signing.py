@@ -18,7 +18,7 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from .lease_service import stamp_signed_pdf
-from .models import LeaseSigningToken
+from .models import DocumentField, LeaseSigningToken
 
 logger = logging.getLogger(__name__)
 
@@ -28,61 +28,69 @@ STATUS_SIGNED = 'Signed'
 
 
 def tenant_signing_fields():
-    """Fields the tenant must complete. Landlord block is not shown on tenant link."""
+    """
+    Fields the tenant must complete (HTML signing UI).
+
+    Coordinates mirror the branded Texas lease execution block (page 12).
+    Actual PDF stamping resolves blanks by label search (see lease_stamp.py);
+    agree_* checkboxes are UI-only and are not painted onto the PDF.
+    """
     return [
         {
             "id": "agree_terms",
             "type": "checkbox",
             "label": "I agree to the terms",
-            "page": 1,
+            "page": 12,
             "x": 0.12,
-            "y": 0.72,
+            "y": 0.50,
             "width": 0.04,
-            "height": 0.04,
+            "height": 0.02,
             "required": True,
+            "stamp": False,
         },
         {
             "id": "agree_rules",
             "type": "checkbox",
             "label": "I agree to community rules",
-            "page": 1,
+            "page": 12,
             "x": 0.12,
-            "y": 0.76,
+            "y": 0.53,
             "width": 0.04,
-            "height": 0.04,
+            "height": 0.02,
             "required": True,
+            "stamp": False,
         },
         {
             "id": "tenant_initials",
             "type": "text",
             "label": "Initials",
-            "page": 1,
-            "x": 0.55,
-            "y": 0.72,
-            "width": 0.12,
-            "height": 0.04,
+            "page": 12,
+            "x": 0.364,
+            "y": 0.885,
+            "width": 0.054,
+            "height": 0.02,
             "required": True,
         },
         {
             "id": "tenant_signature",
             "type": "signature",
             "label": "Tenant Signature",
-            "page": 1,
-            "x": 0.12,
-            "y": 0.82,
-            "width": 0.35,
-            "height": 0.07,
+            "page": 12,
+            "x": 0.266,
+            "y": 0.566,
+            "width": 0.268,
+            "height": 0.045,
             "required": True,
         },
         {
             "id": "tenant_signature_date",
             "type": "text",
             "label": "Date",
-            "page": 1,
-            "x": 0.52,
-            "y": 0.82,
-            "width": 0.15,
-            "height": 0.05,
+            "page": 12,
+            "x": 0.587,
+            "y": 0.566,
+            "width": 0.125,
+            "height": 0.02,
             "required": True,
         },
     ]
@@ -95,28 +103,60 @@ def landlord_signing_fields():
             "id": "landlord_signature",
             "type": "signature",
             "label": "Authorized Signature",
-            "page": 1,
-            "x": 0.12,
-            "y": 0.9,
-            "width": 0.35,
-            "height": 0.07,
+            "page": 12,
+            "x": 0.279,
+            "y": 0.509,
+            "width": 0.268,
+            "height": 0.045,
             "required": True,
         },
         {
             "id": "landlord_signature_date",
             "type": "text",
             "label": "Date",
-            "page": 1,
-            "x": 0.52,
-            "y": 0.9,
-            "width": 0.15,
-            "height": 0.05,
+            "page": 12,
+            "x": 0.601,
+            "y": 0.509,
+            "width": 0.125,
+            "height": 0.02,
             "required": True,
         },
     ]
 
 
-def fields_for_role(role: str):
+def fields_from_template_version(template_version, role: str | None = None) -> list[dict]:
+    """Load DocumentField rows for a frozen template version, optionally filtered by role."""
+    if not template_version:
+        return []
+    qs = template_version.fields.all()
+    if role == LeaseSigningToken.ROLE_LANDLORD:
+        qs = qs.filter(
+            signer_role__in=(
+                DocumentField.ROLE_LANDLORD,
+                DocumentField.ROLE_EITHER,
+            )
+        )
+    elif role == LeaseSigningToken.ROLE_TENANT:
+        qs = qs.filter(
+            signer_role__in=(
+                DocumentField.ROLE_TENANT,
+                DocumentField.ROLE_EITHER,
+            )
+        )
+    return [f.as_signing_field() for f in qs]
+
+
+def fields_for_role(role: str, legal_doc=None):
+    """
+    Signing fields for a party. Prefer DocumentField on legal_doc.template_version;
+    fall back to hardcoded Texas map for older documents.
+    """
+    if legal_doc is not None:
+        version = getattr(legal_doc, 'template_version', None)
+        if version is not None:
+            db_fields = fields_from_template_version(version, role=role)
+            if db_fields:
+                return db_fields
     if role == LeaseSigningToken.ROLE_LANDLORD:
         return landlord_signing_fields()
     return tenant_signing_fields()
@@ -166,7 +206,18 @@ def save_stamped_pdf(legal_doc, signed_pdf_bytes: bytes, filename: str) -> None:
 
 
 def stamp_and_save(legal_doc, pdf_bytes: bytes, fields, values, filename: str) -> bytes:
-    signed_pdf_bytes = stamp_signed_pdf(pdf_bytes, fields, values)
+    # Inject print names so label-based stamping can fill "Print Name:" lines
+    merged = dict(values or {})
+    tenant = getattr(legal_doc, 'tenant', None)
+    if tenant and not merged.get('tenant_print_name'):
+        merged['tenant_print_name'] = getattr(tenant, 'name', '') or ''
+    if not merged.get('landlord_print_name'):
+        merged['landlord_print_name'] = (
+            getattr(settings, 'LANDLORD_NAME', None)
+            or getattr(settings, 'PROPERTY_MANAGER_NAME', None)
+            or 'NEELA CAPITAL INVESTMENTS'
+        )
+    signed_pdf_bytes = stamp_signed_pdf(pdf_bytes, fields, merged)
     save_stamped_pdf(legal_doc, signed_pdf_bytes, filename)
     return signed_pdf_bytes
 

@@ -17,6 +17,7 @@ const TenantsView = lazy(() => import('./components/TenantsView'));
 const MaintenanceView = lazy(() => import('./components/MaintenanceView'));
 const LegalComplianceView = lazy(() => import('./components/LegalComplianceView'));
 const SettingsView = lazy(() => import('./components/SettingsView'));
+const LeaseTemplateDesigner = lazy(() => import('./components/LeaseTemplateDesigner'));
 const PaymentsView = lazy(() => import('./components/PaymentsView'));
 const ShortStaysView = lazy(() => import('./components/ShortStaysView'));
 const IncomeStatementView = lazy(() => import('./components/IncomeStatementView'));
@@ -413,21 +414,7 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
           />
         );
       case 'documents':
-        return (
-          <div className="flex items-center justify-center h-96 text-slate-500 px-4">
-            <div className="text-center bg-white/90 backdrop-blur-md rounded-3xl p-12 max-w-lg w-full shadow-2xl shadow-slate-500/10 border border-slate-200/60">
-              <div className="w-20 h-20 mx-auto mb-8 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center shadow-lg shadow-slate-500/10">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-400 to-slate-500 shadow-md"></div>
-              </div>
-              <h3 className="text-3xl font-bold mb-4 text-slate-900 tracking-tight">Document Center</h3>
-              <p className="text-slate-600 text-lg mb-6 leading-relaxed">Lease Templates & In-House Signing</p>
-              <div className="mt-8 inline-flex items-center gap-2 px-6 py-3 bg-slate-100 rounded-xl text-slate-600 font-semibold text-sm">
-                <span className="w-2 h-2 bg-slate-400 rounded-full animate-pulse"></span>
-                Coming Soon
-              </div>
-            </div>
-          </div>
-        );
+        return <LeaseTemplateDesigner />;
       default:
         return (
           <DashboardView
