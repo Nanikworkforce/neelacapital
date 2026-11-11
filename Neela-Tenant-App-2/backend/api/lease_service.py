@@ -427,7 +427,7 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
     # --- Neela Texas lease options (admin/PM ticks + application extras) ---
     opts = application_data.get('leaseOptions') if isinstance(application_data.get('leaseOptions'), dict) else {}
 
-    def _chk( Cond):
+    def _chk(cond):
         return '[x]' if cond else '[ ]'
 
     def _money(val, fallback=''):
