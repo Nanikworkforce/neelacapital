@@ -41,7 +41,7 @@ interface SigPadProps {
 const SigPad: React.FC<SigPadProps> = ({ label, required, value, onChange }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
-  const [mode, setMode] = useState<'draw' | 'upload'>('draw');
+  const [mode, setMode] = useState<'draw' | 'upload'>('upload');
   const [isOpen, setIsOpen] = useState(false);
 
   const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
@@ -93,14 +93,15 @@ const SigPad: React.FC<SigPadProps> = ({ label, required, value, onChange }) => 
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const c = canvasRef.current; if (!c) return;
-        const r = c.getBoundingClientRect();
+        // Keep a high-res PNG for clean PDF stamping (not tiny UI box size)
+        const maxW = 900; const maxH = 280;
+        const scale = Math.min(maxW / img.width, maxH / img.height, 1);
         const off = document.createElement('canvas');
-        off.width = Math.round(r.width); off.height = Math.round(r.height);
+        off.width = Math.max(1, Math.round(img.width * scale));
+        off.height = Math.max(1, Math.round(img.height * scale));
         const ctx = off.getContext('2d')!;
-        const scale = Math.min(off.width / img.width, off.height / img.height);
-        const w = img.width * scale; const h = img.height * scale;
-        ctx.drawImage(img, (off.width - w) / 2, (off.height - h) / 2, w, h);
+        ctx.clearRect(0, 0, off.width, off.height);
+        ctx.drawImage(img, 0, 0, off.width, off.height);
         try { onChange(off.toDataURL('image/png')); setIsOpen(false); } catch { /**/ }
       };
       img.src = reader.result as string;
@@ -158,16 +159,24 @@ const SigPad: React.FC<SigPadProps> = ({ label, required, value, onChange }) => 
             <div className="flex items-center justify-between mb-4">
               <h4 className="font-bold text-slate-900">{label}</h4>
               <div className="flex gap-1">
+                <button type="button" onClick={() => setMode('upload')}
+                  className={`text-xs px-3 py-1 rounded-lg ${mode === 'upload' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                  Upload
+                </button>
                 <button type="button" onClick={() => setMode('draw')}
                   className={`text-xs px-3 py-1 rounded-lg ${mode === 'draw' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
                   Draw
                 </button>
-                <label className="text-xs px-3 py-1 rounded-lg bg-slate-100 text-slate-600 cursor-pointer hover:bg-slate-200">
-                  Upload<input type="file" accept="image/png,image/jpeg" onChange={handleFile} className="sr-only" />
-                </label>
               </div>
             </div>
 
+            {mode === 'upload' && (
+              <label className="block border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 flex items-center justify-center text-slate-500 text-sm cursor-pointer hover:bg-slate-100"
+                style={{ height: 140 }}>
+                Upload signature image (PNG or JPG)
+                <input type="file" accept="image/png,image/jpeg" onChange={handleFile} className="sr-only" />
+              </label>
+            )}
             {mode === 'draw' && (
               <div className="border-2 border-slate-300 rounded-xl bg-slate-50 overflow-hidden" style={{ height: 140 }}>
                 <canvas ref={canvasRef}
@@ -177,13 +186,6 @@ const SigPad: React.FC<SigPadProps> = ({ label, required, value, onChange }) => 
                   style={{ width: '100%', height: '100%' }}
                 />
               </div>
-            )}
-            {mode === 'upload' && (
-              <label className="block border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 text-sm cursor-pointer hover:bg-slate-100"
-                style={{ height: 140 }}>
-                Click or drag an image here
-                <input type="file" accept="image/png,image/jpeg" onChange={handleFile} className="sr-only" />
-              </label>
             )}
 
             <div className="flex gap-2 mt-4">

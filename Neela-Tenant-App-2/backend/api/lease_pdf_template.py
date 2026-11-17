@@ -102,28 +102,36 @@ def _bbox_for_range(chars: list[dict], start: int, end: int) -> fitz.Rect:
 
 
 def _fill_blank(page: fitz.Page, rect: fitz.Rect, text: str, fontsize: float = 10.0) -> None:
-    """White out underscore run and write value on the glyph baseline.
+    """White out only enough of the blank for the value, then write it.
 
-    ``insert_textbox`` fails on these tight blank rows (negative overflow), so we
-    use ``insert_text`` at the baseline instead.
+    Full-run whiteout made short values look empty (huge blank white gaps).
+    Cover text-width only so leftover underscores remain and the fill reads clearly.
     """
     if rect.is_empty or not text:
         return
-    pad = fitz.Rect(rect.x0 - 0.6, rect.y0 - 1.0, rect.x1 + 0.6, rect.y1 + 1.0)
-    page.draw_rect(pad, color=(1, 1, 1), fill=(1, 1, 1), width=0)
 
-    size = max(7.0, min(fontsize, rect.height * 0.95))
+    size = max(8.0, min(fontsize, max(8.0, rect.height * 1.05)))
     max_w = max(8.0, rect.width - 1.0)
     # Approx Helvetica width ~0.5em; shrink / truncate to fit the blank
-    while size >= 7.0 and (len(text) * size * 0.52) > max_w:
-        size -= 0.4
+    while size >= 7.5 and (len(text) * size * 0.50) > max_w:
+        size -= 0.35
     fitted = text
-    while fitted and (len(fitted) * size * 0.52) > max_w:
+    while fitted and (len(fitted) * size * 0.50) > max_w:
         fitted = fitted[:-1]
     if not fitted:
         fitted = text[:1]
 
-    baseline = fitz.Point(rect.x0 + 0.5, rect.y1 - 1.2)
+    text_w = max(size * 1.2, len(fitted) * size * 0.50)
+    cover_w = min(rect.width + 0.5, text_w + 3.0)
+    cover = fitz.Rect(
+        rect.x0 - 0.4,
+        rect.y0 - 0.6,
+        rect.x0 + cover_w,
+        rect.y1 + 0.6,
+    )
+    page.draw_rect(cover, color=(1, 1, 1), fill=(1, 1, 1), width=0)
+
+    baseline = fitz.Point(rect.x0 + 0.4, rect.y1 - 0.6)
     page.insert_text(
         baseline,
         fitted,
@@ -270,12 +278,13 @@ def _resolve_blank_line(text: str, counters: dict[str, int]) -> list[str] | None
         if "_" in text:
             return ["{{landlord_name}}"]
     if t.startswith("Mailing Address:"):
+        # p1 landlord, p4 landlord (blank if needed), p5 tenant mailing
         n = take("mailing")
         if n == 0:
             return ["{{landlord_address}}"]
         if n == 1:
             return ["{{landlord_address}}"]
-        return ["{{property_address}}"]
+        return ["{{tenant_mailing_address}}"]
     if "no more than" in t and "hours" in t:
         return ["{{guest_hours}}"]
     if t.startswith("Within") and "hours of the Tenant's occupancy" in t:
@@ -381,7 +390,8 @@ def _resolve_checkbox_line(text: str, counters: dict[str, int]) -> str | None:
         ("Lessor has no reports or records pertaining to lead-based paint", "{{lead_no_reports}}"),
         ("Lessor has provided the lessee with all available records", "{{lead_has_reports}}"),
         ("The Landlord is aware that the dwelling you are renting is in a 100-year floodplain.", "{{flood_yes}}"),
-        ("The Landlord is not aware that the dwelling you are renting is in a 100-year floodplain.", "{{flood_no}}"),
+        # Final PDF may glue the next sentence onto this line (no space after period)
+        ("The Landlord is not aware that the dwelling you are renting is in a 100-year floodplain", "{{flood_no}}"),
     ]
     if t.startswith("Other:"):
         n = take("other_check")

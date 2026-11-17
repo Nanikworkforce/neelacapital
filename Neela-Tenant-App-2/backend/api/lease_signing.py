@@ -205,6 +205,83 @@ def save_stamped_pdf(legal_doc, signed_pdf_bytes: bytes, filename: str) -> None:
     legal_doc.signed_pdf_url = f"/api/legal-documents/{legal_doc.id}/pdf/"
 
 
+def _persist_signature_images(legal_doc, values: dict) -> dict:
+    """
+    Store signature/initials data-URLs as files (Cloudinary preferred) and
+    keep stable URLs in signing_audit so stamps are not only in-memory scribbles.
+    Returns values unchanged for stamping (still uses data URLs / bytes).
+    """
+    import base64
+    import re
+    from django.core.files.base import ContentFile
+
+    stored = {}
+    for key, raw in (values or {}).items():
+        if not isinstance(raw, str) or not raw.startswith('data:image'):
+            continue
+        try:
+            header, payload = raw.split(',', 1)
+            ext = 'png'
+            m = re.search(r'data:image/(\w+)', header)
+            if m:
+                ext = m.group(1).lower().replace('jpeg', 'jpg')
+            image_bytes = base64.b64decode(payload)
+        except Exception as e:
+            logger.warning('Could not decode signature image %s: %s', key, e)
+            continue
+        if not image_bytes:
+            continue
+
+        public_name = f"sig_{legal_doc.id}_{key}.{ext}"
+        url = None
+        if hasattr(settings, 'CLOUDINARY_STORAGE') and settings.CLOUDINARY_STORAGE.get('CLOUD_NAME'):
+            try:
+                import cloudinary.uploader
+
+                if not cloudinary.config().api_secret:
+                    cloudinary.config(
+                        cloud_name=settings.CLOUDINARY_STORAGE['CLOUD_NAME'],
+                        api_key=settings.CLOUDINARY_STORAGE['API_KEY'],
+                        api_secret=settings.CLOUDINARY_STORAGE['API_SECRET'],
+                    )
+                public_id = f"media/lease_signatures/{legal_doc.id}/{key}"
+                result = cloudinary.uploader.upload(
+                    image_bytes,
+                    resource_type='image',
+                    public_id=public_id,
+                    overwrite=True,
+                    format=ext if ext != 'jpg' else 'jpg',
+                )
+                url = result.get('secure_url') or result.get('url')
+            except Exception as e:
+                logger.warning('Cloudinary signature upload failed for %s: %s', key, e)
+
+        if not url:
+            # Local fallback under MEDIA
+            try:
+                from django.core.files.storage import default_storage
+
+                path = default_storage.save(
+                    f'lease_signatures/{legal_doc.id}/{public_name}',
+                    ContentFile(image_bytes),
+                )
+                url = default_storage.url(path)
+            except Exception as e:
+                logger.warning('Local signature save failed for %s: %s', key, e)
+                continue
+
+        stored[key] = {'url': url, 'bytes': len(image_bytes), 'ext': ext}
+
+    if stored:
+        audit = dict(legal_doc.signing_audit or {})
+        files = dict(audit.get('signature_files') or {})
+        files.update({k: {'url': v['url'], 'ext': v['ext']} for k, v in stored.items()})
+        audit['signature_files'] = files
+        legal_doc.signing_audit = audit
+        # Caller saves legal_doc after stamp
+    return values
+
+
 def stamp_and_save(legal_doc, pdf_bytes: bytes, fields, values, filename: str) -> bytes:
     # Inject print names so label-based stamping can fill "Print Name:" lines
     merged = dict(values or {})
@@ -217,6 +294,7 @@ def stamp_and_save(legal_doc, pdf_bytes: bytes, fields, values, filename: str) -
             or getattr(settings, 'PROPERTY_MANAGER_NAME', None)
             or 'NEELA CAPITAL INVESTMENTS'
         )
+    _persist_signature_images(legal_doc, merged)
     signed_pdf_bytes = stamp_signed_pdf(pdf_bytes, fields, merged)
     save_stamped_pdf(legal_doc, signed_pdf_bytes, filename)
     return signed_pdf_bytes

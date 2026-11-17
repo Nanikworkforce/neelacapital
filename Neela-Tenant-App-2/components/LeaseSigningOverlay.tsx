@@ -26,7 +26,7 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
-  const [mode, setMode] = useState<SignatureMode>(DRAW);
+  const [mode, setMode] = useState<SignatureMode>(UPLOAD);
   const isDrawing = useRef(false);
 
   const getCtx = useCallback(() => {
@@ -134,22 +134,20 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
         const dataUrl = reader.result as string;
         const img = new Image();
         img.onload = () => {
-          const box = boxRef.current?.getBoundingClientRect();
-          const width = box?.width ?? 300;
-          const height = box?.height ?? 120;
+          // High-res PNG for PDF stamp quality
+          const maxW = 900;
+          const maxH = 280;
+          const scale = Math.min(maxW / img.width, maxH / img.height, 1);
           const off = document.createElement('canvas');
-          off.width = Math.round(width);
-          off.height = Math.round(height);
+          off.width = Math.max(1, Math.round(img.width * scale));
+          off.height = Math.max(1, Math.round(img.height * scale));
           const ctx = off.getContext('2d');
           if (!ctx) return;
-          const scale = Math.min(off.width / img.width, off.height / img.height);
-          const w = img.width * scale;
-          const h = img.height * scale;
-          const x = (off.width - w) / 2;
-          const y = (off.height - h) / 2;
-          ctx.drawImage(img, x, y, w, h);
+          ctx.clearRect(0, 0, off.width, off.height);
+          ctx.drawImage(img, 0, 0, off.width, off.height);
           try {
             onChange(off.toDataURL('image/png'));
+            setMode(UPLOAD);
           } catch {
             // ignore
           }
@@ -175,13 +173,20 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
         <div className="flex items-center gap-0.5 shrink-0">
           <button
             type="button"
+            onClick={() => setMode(UPLOAD)}
+            className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${mode === UPLOAD ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'}`}
+          >
+            Upload
+          </button>
+          <button
+            type="button"
             onClick={() => setMode(DRAW)}
             className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${mode === DRAW ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'}`}
           >
             Draw
           </button>
-          <label className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-slate-200 text-slate-600 cursor-pointer hover:bg-slate-300">
-            Upload
+          <label className={`px-1.5 py-0.5 text-[10px] font-medium rounded cursor-pointer ${mode === UPLOAD ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>
+            Choose file
             <input
               type="file"
               accept="image/png,image/jpeg,image/jpg"

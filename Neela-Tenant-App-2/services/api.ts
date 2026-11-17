@@ -1553,6 +1553,43 @@ export const api = {
     return await response.json();
   },
 
+  /** Mark lease Sent for Acrobat web Request e-signatures (manual hand-off). */
+  prepareAcrobatSigning: async (legalDocumentId: string): Promise<any> => {
+    const response = await fetchWithAuth(
+      `${API_URL}/legal-documents/${legalDocumentId}/prepare_acrobat_signing/`,
+      {
+        method: 'POST',
+        headers: getHeaders(true, true),
+      }
+    );
+    if (!response.ok) {
+      let error: any = { detail: 'Failed to prepare Acrobat signing' };
+      try { error = await response.json(); } catch { /* keep default */ }
+      throw new Error(error.error || error.detail || error.message || 'Failed to prepare Acrobat signing');
+    }
+    return await response.json();
+  },
+
+  /** Upload fully signed PDF from Acrobat and mark lease Signed. */
+  uploadAcrobatSignedPdf: async (legalDocumentId: string, file: File): Promise<any> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetchWithAuth(
+      `${API_URL}/legal-documents/${legalDocumentId}/upload_acrobat_signed/`,
+      {
+        method: 'POST',
+        headers: getHeaders(false, true),
+        body: formData,
+      }
+    );
+    if (!response.ok) {
+      let error: any = { detail: 'Failed to upload signed PDF' };
+      try { error = await response.json(); } catch { /* keep default */ }
+      throw new Error(error.error || error.detail || error.message || 'Failed to upload signed PDF');
+    }
+    return await response.json();
+  },
+
   /** Admin/PM: open landlord counter-sign link after tenant has signed. */
   getLandlordSigningLink: async (legalDocumentId: string): Promise<{ signing_url: string }> => {
     const response = await fetchWithAuth(
@@ -1588,6 +1625,7 @@ export const api = {
       pdfUrl: item.pdf_url,
       signedPdfUrl: item.signed_pdf_url,
       signedAt: item.signed_at,
+      deliveryMethod: item.delivery_method ?? item.deliveryMethod ?? null,
       generatedContent: item.generated_content ?? item.generatedContent ?? '',
     }));
   },

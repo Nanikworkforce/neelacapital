@@ -128,15 +128,13 @@ def _bbox_for_range(chars: list[dict], start: int, end: int) -> fitz.Rect:
 
 def _expand_for_signature(rect: fitz.Rect) -> fitz.Rect:
     """
-    Underscore runs are ~11pt tall; place a short signature band just above the line.
-    Keep height under ~22pt so we do not collide with the Print Name / prior row
-    (~22–24pt line spacing on the branded lease).
+    Underscore runs are ~11pt tall; grow a signature band upward from the line.
+    ~20pt fits ink without covering the Print Name row (~22pt spacing).
     """
     if rect.is_empty:
         return rect
-    # ~15pt keeps ink on the signature line without covering Print Name above
-    height = min(15.0, max(12.0, rect.height * 1.35))
-    return fitz.Rect(rect.x0, max(0.0, rect.y1 - height), rect.x1, rect.y1 + 0.5)
+    height = min(20.0, max(16.0, rect.height * 1.8))
+    return fitz.Rect(rect.x0, max(0.0, rect.y1 - height), rect.x1, rect.y1 + 0.8)
 
 
 def _expand_for_text(rect: fitz.Rect) -> fitz.Rect:
@@ -220,7 +218,8 @@ def _stamp_signature(page: fitz.Page, rect: fitz.Rect, data_url: str) -> None:
     if not image_bytes:
         return
     box = _expand_for_signature(rect)
-    _whiteout(page, rect)
+    # Clear the underscore line fully so the image is visible
+    _whiteout(page, fitz.Rect(rect.x0 - 0.5, box.y0, rect.x1 + 0.5, rect.y1 + 0.8))
     try:
         page.insert_image(box, stream=image_bytes, keep_proportion=True)
     except Exception as e:
@@ -297,6 +296,9 @@ def stamp_signed_pdf(pdf_bytes: bytes, fields: list[dict], values: dict[str, Any
                 continue
             fid = field.get('id')
             ftype = field.get('type')
+            # date/initials are text stamps; keep signature/checkbox as-is
+            if ftype in ('date', 'initials'):
+                ftype = 'text'
             if not fid or ftype not in ('checkbox', 'text', 'signature'):
                 continue
             if fid in _NON_STAMP_FIELD_IDS or field.get('stamp') is False:
@@ -319,8 +321,18 @@ def stamp_signed_pdf(pdf_bytes: bytes, fields: list[dict], values: dict[str, Any
                 continue
 
             placed = False
-            # 1) Prefer normalized coords from DocumentField / signing metadata
-            if field:
+            # 1) Label search first on branded Texas lease (survives page shifts Final = p13/p14)
+            target = _LABEL_TARGETS.get(fid)
+            if target:
+                kind = target.get('kind') or ftype
+                for page_index, rect in _iter_label_targets(doc, target):
+                    page = doc[page_index]
+                    use_type = 'signature' if (kind == 'signature' or ftype == 'signature') else ftype
+                    _place_on_rect(page, use_type, fid, raw, rect)
+                    placed = True
+
+            # 2) Normalized coords from DocumentField / signing metadata
+            if not placed and field:
                 page_index = max(0, int(field.get('page', 1)) - 1)
                 if page_index < len(doc):
                     page = doc[page_index]
@@ -329,22 +341,8 @@ def stamp_signed_pdf(pdf_bytes: bytes, fields: list[dict], values: dict[str, Any
                         _place_on_rect(page, ftype, fid, raw, rect)
                         placed = True
 
-            if placed:
-                continue
-
-            # 2) Label search fallback (known Texas keys)
-            target = _LABEL_TARGETS.get(fid)
-            if not target:
-                logger.info('Skipping stamp for %s — no safe coords and no label rule', fid)
-                continue
-            kind = target.get('kind') or ftype
-            for page_index, rect in _iter_label_targets(doc, target):
-                page = doc[page_index]
-                use_type = 'signature' if (kind == 'signature' or ftype == 'signature') else ftype
-                _place_on_rect(page, use_type, fid, raw, rect)
-                placed = True
             if not placed:
-                logger.info('Skipping stamp for %s — label search found nothing', fid)
+                logger.info('Skipping stamp for %s — no label match and no safe coords', fid)
 
         doc.save(out, deflate=True, garbage=4)
     finally:

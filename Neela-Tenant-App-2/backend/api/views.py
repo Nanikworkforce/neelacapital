@@ -2465,6 +2465,137 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=['post'],
+        url_path='prepare_acrobat_signing',
+        permission_classes=[IsAuthenticated],
+    )
+    def prepare_acrobat_signing(self, request, pk=None):
+        """
+        Mark a prefilled lease as out for Acrobat web Request e-signatures (manual).
+        Staff downloads the PDF, uploads it in Acrobat, then returns the signed file.
+        """
+        try:
+            legal_doc = self.get_object()
+        except LegalDocument.DoesNotExist:
+            return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not user_can_manage_tenant_lease(request.user, legal_doc.tenant):
+            raise PermissionDenied('You do not have access to send this lease.')
+
+        if not legal_doc.pdf_file:
+            return Response(
+                {'error': 'No PDF file available. Generate the lease first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if legal_doc.status == 'Signed':
+            return Response(
+                {'error': 'This lease is already fully signed.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        legal_doc.status = 'Sent'
+        legal_doc.delivery_method = 'Acrobat'
+        legal_doc.save(update_fields=['status', 'delivery_method'])
+
+        legal_doc.tenant.lease_status = 'Sent'
+        legal_doc.tenant.save(update_fields=['lease_status'])
+
+        serializer = self.get_serializer(legal_doc)
+        return Response(
+            {
+                **serializer.data,
+                'acrobat_url': 'https://acrobat.adobe.com/link/home/',
+                'admin_notice': (
+                    'Download the prefilled PDF, open Acrobat → Request e-signatures, '
+                    'then upload the fully signed PDF back into Neela.'
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='upload_acrobat_signed',
+        permission_classes=[IsAuthenticated],
+    )
+    def upload_acrobat_signed(self, request, pk=None):
+        """Replace lease PDF with Acrobat-signed file and mark fully executed."""
+        try:
+            legal_doc = self.get_object()
+        except LegalDocument.DoesNotExist:
+            return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not user_can_manage_tenant_lease(request.user, legal_doc.tenant):
+            raise PermissionDenied('You do not have access to update this lease.')
+
+        if legal_doc.status == 'Signed' and legal_doc.signed_at:
+            return Response(
+                {'error': 'This lease is already marked signed. Generate a new lease to replace it.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        upload = request.FILES.get('file') or request.FILES.get('pdf')
+        if not upload:
+            return Response(
+                {'error': 'Attach the signed PDF as file (or pdf).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        name = (getattr(upload, 'name', '') or '').lower()
+        content_type = (getattr(upload, 'content_type', '') or '').lower()
+        if not (name.endswith('.pdf') or 'pdf' in content_type):
+            return Response(
+                {'error': 'Upload must be a PDF file.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        pdf_bytes = upload.read()
+        if not pdf_bytes or pdf_bytes[:4] != b'%PDF':
+            return Response(
+                {'error': 'File does not look like a valid PDF.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.utils import timezone as dj_timezone
+        from .lease_service import build_lease_pdf_filename
+        from .lease_signing import save_stamped_pdf
+        from .email_service import run_async, send_lease_signed_confirmation
+
+        filename = build_lease_pdf_filename(legal_doc.tenant, prefix='Lease_Signed')
+        if not filename.lower().endswith('.pdf'):
+            filename = f'{filename}.pdf'
+
+        save_stamped_pdf(legal_doc, pdf_bytes, filename)
+        legal_doc.status = 'Signed'
+        legal_doc.delivery_method = legal_doc.delivery_method or 'Acrobat'
+        legal_doc.signed_at = dj_timezone.now()
+        audit = dict(legal_doc.signing_audit or {})
+        audit['acrobat_manual'] = {
+            'uploaded_by': getattr(request.user, 'email', None) or str(request.user),
+            'uploaded_at': legal_doc.signed_at.isoformat(),
+            'original_filename': getattr(upload, 'name', '') or filename,
+        }
+        legal_doc.signing_audit = audit
+        legal_doc.save()
+
+        legal_doc.tenant.lease_status = 'Signed'
+        legal_doc.tenant.save(update_fields=['lease_status'])
+
+        try:
+            run_async(send_lease_signed_confirmation, legal_doc.id)
+        except Exception:
+            try:
+                send_lease_signed_confirmation(legal_doc.id)
+            except Exception as e:
+                logger.warning(f'Could not send lease signed confirmation: {e}')
+
+        serializer = self.get_serializer(legal_doc)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(
+        detail=True,
+        methods=['post'],
         url_path='landlord_signing_link',
         permission_classes=[IsAuthenticated],
     )

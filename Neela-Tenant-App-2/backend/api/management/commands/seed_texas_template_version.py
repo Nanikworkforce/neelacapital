@@ -1,6 +1,6 @@
 """
-Seed DocumentTemplateVersion v1 + DocumentFields for Neela Texas Residential Lease.
-Idempotent: skips if a published version already exists for that template.
+Seed DocumentTemplateVersion + DocumentFields for Neela Texas Residential Lease.
+Use --force to archive published versions and seed a new one for the Final PDF.
 """
 from __future__ import annotations
 
@@ -19,13 +19,13 @@ TEMPLATE_NAMES = (
     'Neela Texas Residential',
 )
 
-# Measured blanks on branded 14-page lease (page 12 execution block)
+# Measured blanks on Final 16-page lease (execution p13, lead ACK + initials p14)
 TEXAS_V1_FIELDS = [
     {
         'field_key': 'agree_terms',
         'field_type': DocumentField.TYPE_CHECKBOX,
         'label': 'I agree to the terms',
-        'page_number': 12,
+        'page_number': 13,
         'x': 0.12,
         'y': 0.50,
         'width': 0.04,
@@ -38,7 +38,7 @@ TEXAS_V1_FIELDS = [
         'field_key': 'agree_rules',
         'field_type': DocumentField.TYPE_CHECKBOX,
         'label': 'I agree to community rules',
-        'page_number': 12,
+        'page_number': 13,
         'x': 0.12,
         'y': 0.53,
         'width': 0.04,
@@ -51,11 +51,11 @@ TEXAS_V1_FIELDS = [
         'field_key': 'landlord_signature',
         'field_type': DocumentField.TYPE_SIGNATURE,
         'label': 'Authorized Signature',
-        'page_number': 12,
+        'page_number': 13,
         'x': 0.279,
-        'y': 0.509,
+        'y': 0.495,
         'width': 0.268,
-        'height': 0.045,
+        'height': 0.038,
         'required': True,
         'signer_role': DocumentField.ROLE_LANDLORD,
         'stamp': True,
@@ -64,7 +64,7 @@ TEXAS_V1_FIELDS = [
         'field_key': 'landlord_signature_date',
         'field_type': DocumentField.TYPE_DATE,
         'label': 'Date',
-        'page_number': 12,
+        'page_number': 13,
         'x': 0.601,
         'y': 0.509,
         'width': 0.125,
@@ -77,11 +77,11 @@ TEXAS_V1_FIELDS = [
         'field_key': 'tenant_signature',
         'field_type': DocumentField.TYPE_SIGNATURE,
         'label': 'Tenant Signature',
-        'page_number': 12,
+        'page_number': 13,
         'x': 0.266,
-        'y': 0.566,
+        'y': 0.552,
         'width': 0.268,
-        'height': 0.045,
+        'height': 0.038,
         'required': True,
         'signer_role': DocumentField.ROLE_TENANT,
         'stamp': True,
@@ -90,9 +90,9 @@ TEXAS_V1_FIELDS = [
         'field_key': 'tenant_signature_date',
         'field_type': DocumentField.TYPE_DATE,
         'label': 'Date',
-        'page_number': 12,
+        'page_number': 13,
         'x': 0.587,
-        'y': 0.566,
+        'y': 0.576,
         'width': 0.125,
         'height': 0.02,
         'required': True,
@@ -103,9 +103,9 @@ TEXAS_V1_FIELDS = [
         'field_key': 'tenant_initials',
         'field_type': DocumentField.TYPE_INITIALS,
         'label': 'Initials',
-        'page_number': 12,
+        'page_number': 14,
         'x': 0.364,
-        'y': 0.885,
+        'y': 0.187,
         'width': 0.054,
         'height': 0.02,
         'required': True,
@@ -129,7 +129,14 @@ def _find_template() -> LeaseTemplate | None:
 
 
 class Command(BaseCommand):
-    help = 'Seed published DocumentTemplateVersion v1 for Neela Texas lease PDF + signing fields'
+    help = 'Seed published DocumentTemplateVersion for Neela Texas lease PDF + signing fields'
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--force',
+            action='store_true',
+            help='Archive existing published versions and seed a new one from the current PDF',
+        )
 
     def handle(self, *args, **options):
         template = _find_template()
@@ -142,11 +149,18 @@ class Command(BaseCommand):
         existing = template.versions.filter(
             status=DocumentTemplateVersion.STATUS_PUBLISHED
         ).first()
-        if existing:
+        if existing and not options['force']:
             self.stdout.write(self.style.SUCCESS(
-                f'Already have published version v{existing.version_number} for {template.name}'
+                f'Already have published version v{existing.version_number} for {template.name} '
+                '(use --force to reseed for Final lease)'
             ))
             return
+
+        if options['force'] and existing:
+            template.versions.filter(
+                status=DocumentTemplateVersion.STATUS_PUBLISHED
+            ).update(status=DocumentTemplateVersion.STATUS_ARCHIVED)
+            self.stdout.write('Archived previous published version(s).')
 
         pdf_path = (
             Path(__file__).resolve().parents[2]
@@ -162,7 +176,7 @@ class Command(BaseCommand):
         try:
             page_count = fitz.open(stream=pdf_bytes, filetype='pdf').page_count
         except Exception:
-            page_count = 14
+            page_count = 16
 
         next_num = 1
         last = template.versions.order_by('-version_number').first()
@@ -188,5 +202,6 @@ class Command(BaseCommand):
             DocumentField.objects.create(template_version=version, **spec)
 
         self.stdout.write(self.style.SUCCESS(
-            f'Seeded {template.name} v{next_num} published with {len(TEXAS_V1_FIELDS)} fields'
+            f'Seeded {template.name} v{next_num} published ({page_count} pages) '
+            f'with {len(TEXAS_V1_FIELDS)} fields'
         ))

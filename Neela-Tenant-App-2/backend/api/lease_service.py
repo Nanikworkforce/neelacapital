@@ -328,6 +328,20 @@ def build_lease_replacements(tenant: Tenant) -> dict:
             )
             or ''
         ),
+        # Notice/mailing block on Final lease p5 — prefer current address, else unit
+        '{{tenant_mailing_address}}': (
+            application_data.get('currentAddress')
+            or ', '.join(
+                p for p in [
+                    application_data.get('currentAddressStreet'),
+                    application_data.get('currentAddressCity'),
+                    f"{application_data.get('currentAddressState') or ''} {application_data.get('currentAddressZip') or ''}".strip(),
+                ]
+                if p
+            )
+            or tenant.property_unit
+            or ''
+        ),
         '{{move_in_date}}': move_in_display,
         '{{lease_term_months}}': lease_term_months,
         '{{additional_notes}}': _val_or_blank(application_data.get('additionalNotes')),
@@ -832,10 +846,12 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
                 is_active=True
             )
     
-    # Fill text template (signing UI / audit) and prefer branded PDF overlay
+    # Fill text template (signing UI / audit). Prefer Adobe PDF Services on
+    # AcroForm template when configured; else Neela blank overlay; else text PDF.
     filled_content = fill_lease_template(template.content, tenant)
     replacements = build_lease_replacements(tenant)
     pdf_bytes = None
+    use_branded = False
     try:
         from .lease_pdf_template import render_filled_template_pdf, template_pdf_available
         use_branded = template_pdf_available() and (
@@ -843,7 +859,24 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
             or 'texas residential' in (template.name or '').lower()
         )
         if use_branded:
-            pdf_bytes = render_filled_template_pdf(replacements)
+            from .adobe_pdf_services import fill_lease_pdf_with_adobe, pdf_services_configured
+            from .lease_prepare_acroform import ensure_fillable_template
+
+            if pdf_services_configured():
+                try:
+                    fillable_path = ensure_fillable_template()
+                    pdf_bytes = fill_lease_pdf_with_adobe(
+                        fillable_path.read_bytes(), replacements
+                    )
+                    logger.info('Lease PDF filled via Adobe PDF Services for tenant %s', tenant.id)
+                except Exception as adobe_err:
+                    logger.warning(
+                        'Adobe PDF Services fill failed; using Neela blank-fill: %s',
+                        adobe_err,
+                    )
+                    pdf_bytes = None
+            if not pdf_bytes:
+                pdf_bytes = render_filled_template_pdf(replacements)
     except Exception as e:
         logger.warning('Branded lease PDF fill failed; falling back to text render: %s', e)
         pdf_bytes = None

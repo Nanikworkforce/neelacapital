@@ -825,6 +825,17 @@ Landlord                            Tenant
     }
   };
 
+  const refreshLeaseDocFromServer = async () => {
+    if (!selectedApplicant?.id) return;
+    const updatedDoc = await api.getLegalDocuments(selectedApplicant.id);
+    const leaseDocs = updatedDoc.filter((d: any) => d.type === 'Lease Agreement');
+    if (leaseDocs.length > 0) {
+      const latest = leaseDocs[leaseDocs.length - 1];
+      setGeneratedLeaseDoc(latest);
+      setLeaseStatus((latest.status as 'Draft' | 'Sent' | 'AwaitingLandlord' | 'Signed') || 'Sent');
+    }
+  };
+
   const handleSendLease = async () => {
     if (!generatedLeaseDoc?.id) {
       setErrorMessage('No lease document available. Please generate the lease first.');
@@ -847,13 +858,8 @@ Landlord                            Tenant
         'Lease sent to the tenant. After they sign, check your email for the landlord signing link — both signatures are required before Finalize Move-In.'
       );
 
-      const updatedDoc = await api.getLegalDocuments(selectedApplicant!.id);
-      const leaseDocs = updatedDoc.filter((d: any) => d.type === 'Lease Agreement');
-      if (leaseDocs.length > 0) {
-        const latest = leaseDocs[leaseDocs.length - 1];
-        setGeneratedLeaseDoc(latest);
-        setLeaseStatus((latest.status as 'Draft' | 'Sent' | 'AwaitingLandlord' | 'Signed') || 'Sent');
-      } else {
+      await refreshLeaseDocFromServer();
+      if (!selectedApplicant?.id) {
         setLeaseStatus('Sent');
       }
     } catch (error) {

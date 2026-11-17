@@ -310,6 +310,11 @@ PROPERTY_DEFAULT_CITY_STATE_ZIP = os.environ.get('PROPERTY_DEFAULT_CITY_STATE_ZI
 # Admin notification emails (proof of payment, applications, etc.)
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', '').strip() or None
 
+# Adobe PDF Services — fill/prep when wired; Acrobat Sign API is separate (license required)
+ADOBE_PDF_SERVICES_CLIENT_ID = (os.environ.get('ADOBE_PDF_SERVICES_CLIENT_ID') or '').strip() or None
+ADOBE_PDF_SERVICES_CLIENT_SECRET = (os.environ.get('ADOBE_PDF_SERVICES_CLIENT_SECRET') or '').strip() or None
+ADOBE_PDF_SERVICES_ORG_ID = (os.environ.get('ADOBE_PDF_SERVICES_ORG_ID') or '').strip() or None
+
 logger = logging.getLogger(__name__)
 
 # Celery/Redis are optional. Emails use background threads (run_async) by default.
