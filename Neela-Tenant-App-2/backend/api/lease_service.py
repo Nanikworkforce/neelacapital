@@ -1,6 +1,7 @@
 
 import base64
 import logging
+import os
 import re
 from io import BytesIO
 from datetime import datetime, timedelta
@@ -549,7 +550,11 @@ def build_lease_replacements(tenant: Tenant) -> dict:
         due_total = _money(due_total)
 
     replacements.update({
-        '{{occupant_phone}}': _val_or_blank(application_data.get('occupantPhone') or opts.get('occupantPhone')),
+        '{{occupant_phone}}': _val_or_blank(
+            application_data.get('occupantPhone')
+            or opts.get('occupantPhone')
+            or tenant.phone
+        ),
         '{{residence_type}}': _val_or_blank(opts.get('residenceType') or 'Residential Unit'),
         '{{bedrooms}}': str(opts.get('bedrooms') or prop_beds),
         '{{bathrooms}}': str(opts.get('bathrooms') or prop_baths),
@@ -862,7 +867,9 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
             from .adobe_pdf_services import fill_lease_pdf_with_adobe, pdf_services_configured
             from .lease_prepare_acroform import ensure_fillable_template
 
-            if pdf_services_configured():
+            # Adobe Import Form Data ignores the month-to-month vs standard term
+            # logic and mis-fills duplicate date fields; opt in via env only.
+            if pdf_services_configured() and os.environ.get('LEASE_FILL_ENGINE', '').lower() == 'adobe':
                 try:
                     fillable_path = ensure_fillable_template()
                     pdf_bytes = fill_lease_pdf_with_adobe(

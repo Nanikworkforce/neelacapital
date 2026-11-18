@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import { FloatingPillSwitch } from './FloatingPillSwitch';
 import ViewportPortal from './ViewportPortal';
-import NeelaLogo from './NeelaLogo';
 import { billsNote, formatMonthlyRate, monthlyRate, shortStayDescription, shortStayLocation, shortStayTitle } from '../utils/shortStayListings';
 import { SEO_PAGES, setPageMeta, shortStayListingMeta } from '../utils/seo';
 import {
@@ -964,8 +963,7 @@ const ShortStayPortal: React.FC<ShortStayPortalProps> = ({ onBack, initialProper
         className="sticky top-4 z-30 mb-8"
       />
 
-      <div className="mb-8 flex flex-col sm:flex-row sm:items-center gap-4">
-        <NeelaLogo variant="full" size="md" showGlow />
+      <div className="mb-8">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 mb-2">Short Stays & Airbnb-Style Getaways</h1>
           <p className="text-slate-600">Browse properties and book your stay by the night.</p>

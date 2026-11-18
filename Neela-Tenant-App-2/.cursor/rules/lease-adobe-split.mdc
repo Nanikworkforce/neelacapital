@@ -1,0 +1,19 @@
+---
+description: Neela vs Adobe ownership for leases until Sign API is licensed
+alwaysApply: true
+---
+
+# Lease signing & Adobe split
+
+## Ownership
+- **Adobe owns everything it can** (PDF Services fill/prep on the AcroForm lease).
+- **Neela owns signing only** until Acrobat Sign API is licensed (email links, tenant/landlord sign, stamp, store signed PDF).
+- Do **not** use Acrobat web hand-off as the primary staff flow.
+
+## Adobe — blocked vs allowed
+- **Acrobat Sign API**: **not licensed** on org `paalarkllc-gmail.com`. When available, move the full send→sign→callback path to Adobe.
+- **PDF Services API**: opt-in only (`LEASE_FILL_ENGINE=adobe`). Adobe Import Form Data mis-filled Term dates (end date in month-to-month start, unchosen Standard line filled), so **Neela blank-fill is the default** engine.
+
+## Do not
+- Ask for Adobe account passwords in chat.
+- Assume Sign API works because Acrobat web “Request e-signatures” works for a human.
