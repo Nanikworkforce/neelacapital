@@ -383,6 +383,22 @@ function splitAtSignatures(content: string): { body: string; sigIntro: string } 
   return { body, sigIntro };
 }
 
+// Pull only the Landlord / Tenant print names out of the signature block text;
+// the signature/date lines themselves are rendered by the signing UI below.
+function extractSigPrintNames(sigIntro: string): { role: string; name: string }[] {
+  if (!/Print Name:/i.test(sigIntro)) return [];
+  const roles = ['Landlord', 'Tenant'];
+  const names: string[] = [];
+  const re = /Print Name:\s*([^_\n]*?)(?=\s*(?:Landlord's|Tenant's|Occupant's|_|$))/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sigIntro)) && names.length < roles.length) {
+    names.push(m[1].trim());
+  }
+  return names
+    .map((name, i) => ({ role: roles[i], name }))
+    .filter((p) => p.name);
+}
+
 // ─── Signature block ──────────────────────────────────────────────────────────
 interface SigBlockProps {
   sigField: Field | undefined;
@@ -706,6 +722,7 @@ const LeaseSigningPage: React.FC = () => {
   const landlordSig = fields.find((f) => f.id === 'landlord_signature');
 
   const { body, sigIntro } = splitAtSignatures(data?.generated_content ?? '');
+  const sigPrintNames = extractSigPrintNames(sigIntro);
   const tenantName = data?.tenant_name ?? '';
 
   return (
@@ -814,7 +831,17 @@ const LeaseSigningPage: React.FC = () => {
                 {isLandlordParty ? 'Complete Signature' : 'Signatures'}
               </h3>
               {!isLandlordParty && sigIntro && (
-                <p className="text-[13px] text-slate-700 mb-5 print:text-black">{sigIntro}</p>
+                sigPrintNames.length > 0 ? (
+                  <div className="mb-5 space-y-1 text-[13px] text-slate-700 print:text-black">
+                    {sigPrintNames.map((p) => (
+                      <p key={p.role}>
+                        <span className="font-semibold">{p.role} Print Name:</span> {p.name}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[13px] text-slate-700 mb-5 print:text-black">{sigIntro}</p>
+                )
               )}
 
               {/* Acknowledgements + Initials (tenant only) */}
