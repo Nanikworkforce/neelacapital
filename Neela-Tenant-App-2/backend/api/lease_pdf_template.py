@@ -307,6 +307,9 @@ def _resolve_blank_line(text: str, counters: dict[str, int]) -> list[str] | None
         return ["{{tenant_mailing_address}}"]
     if "no more than" in t and "hours" in t:
         return ["{{guest_hours}}"]
+    # Guests clause wraps: "...no more" / "than ______ hours."
+    if t.startswith("than") and "hours" in t:
+        return ["{{guest_hours}}"]
     if t.startswith("Within") and "hours of the Tenant's occupancy" in t:
         return ["{{occupancy_accept_hours}}"]
     if "by providing" in t and "hours' notice" in t:
