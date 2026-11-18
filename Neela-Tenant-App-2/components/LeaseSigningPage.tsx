@@ -446,6 +446,8 @@ const SigBlock: React.FC<SigBlockProps> = ({ sigField, dateFieldId, signerLabel,
         <div className="print-only border-b-2 border-black pb-1 min-h-[24px] text-sm">
           {(values[dateFieldId] as string) || ''}
         </div>
+        {/* Matches the signer-name line under the signature so both underlines sit level */}
+        <p className="text-xs mt-1 invisible" aria-hidden="true">&nbsp;</p>
       </div>
     </div>
   );
