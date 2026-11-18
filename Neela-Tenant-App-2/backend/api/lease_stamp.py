@@ -87,11 +87,13 @@ _EXTRA_LABEL_TARGETS: dict[str, list[dict[str, Any]]] = {
     'tenant_initials': [
         {'line_contains': 'Lessee received copies', 'blank_index': 0, 'all_occurrences': True},
         {'line_contains': 'Lessee received the pamphlet', 'blank_index': 0, 'all_occurrences': True},
-        # p16: "Initials:  Landlord ______" / next line "Tenant ______"
+        # p16: "Tenant ______" on its own line
         {'line_startswith': 'Tenant ___', 'blank_index': 0, 'all_occurrences': True},
     ],
     'landlord_initials': [
         {'line_contains': 'Agent has informed the lessor', 'blank_index': 0, 'all_occurrences': True},
+        # p16: "Initials:" / "Landlord ______" / "Tenant ______" on separate lines
+        {'line_startswith': 'Landlord ___', 'blank_index': 0, 'all_occurrences': True},
     ],
 }
 
@@ -179,7 +181,7 @@ def _iter_label_targets(
                 text = _line_text(chars)
                 if needle and needle not in text:
                     continue
-                if prefix and not text.strip().startswith(prefix):
+                if prefix and not text.replace('\xa0', ' ').strip().startswith(prefix):
                     continue
                 runs = _underscore_runs(chars)
                 if not runs:
