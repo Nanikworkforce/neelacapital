@@ -207,15 +207,40 @@ def get_valid_signing_token(raw_token):
     return token
 
 
-def user_can_access_legal_document(user, legal_doc, raw_token=None):
+def get_signing_token_for_pdf_access(raw_token):
+    """
+    Signing link may download the PDF even after it was used to sign,
+    until the token's expiry (so Save / Print a Copy works on the done screen).
+    """
+    if not raw_token:
+        return None
+    from django.utils import timezone
+
+    from .models import LeaseSigningToken
+
+    try:
+        token = LeaseSigningToken.objects.select_related('legal_document').get(token=raw_token)
+    except (LeaseSigningToken.DoesNotExist, ValueError, TypeError):
+        return None
+    if timezone.now() >= token.expires_at:
+        return None
+    return token
+
+
+def user_can_access_legal_document(user, legal_doc, raw_token=None, *, allow_used_token=False):
     """
     Admin, assigned property manager, owning tenant (login), or valid signing link.
+    When allow_used_token=True (PDF download), a used-but-unexpired signing token is OK.
     """
     if legal_doc is None:
         return False
     if is_admin_user(user):
         return True
-    token = get_valid_signing_token(raw_token)
+    token = (
+        get_signing_token_for_pdf_access(raw_token)
+        if allow_used_token
+        else get_valid_signing_token(raw_token)
+    )
     if token and token.legal_document_id == legal_doc.id:
         return True
     if not user or not user.is_authenticated:

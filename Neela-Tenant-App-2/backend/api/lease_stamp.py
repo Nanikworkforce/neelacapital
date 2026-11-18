@@ -344,6 +344,11 @@ def stamp_signed_pdf(pdf_bytes: bytes, fields: list[dict], values: dict[str, Any
             if not placed:
                 logger.info('Skipping stamp for %s — no label match and no safe coords', fid)
 
+        # Flatten any leftover form widgets so stamps/values stay visible as ink
+        has_widgets = any(bool(list(page.widgets() or [])) for page in doc)
+        if has_widgets and hasattr(doc, 'bake'):
+            doc.bake(annots=True, widgets=True)
+
         doc.save(out, deflate=True, garbage=4)
     finally:
         doc.close()

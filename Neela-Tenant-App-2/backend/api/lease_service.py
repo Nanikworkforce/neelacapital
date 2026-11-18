@@ -877,6 +877,10 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
                     pdf_bytes = None
             if not pdf_bytes:
                 pdf_bytes = render_filled_template_pdf(replacements)
+            if pdf_bytes:
+                from .lease_pdf_template import flatten_form_fields
+
+                pdf_bytes = flatten_form_fields(pdf_bytes)
     except Exception as e:
         logger.warning('Branded lease PDF fill failed; falling back to text render: %s', e)
         pdf_bytes = None

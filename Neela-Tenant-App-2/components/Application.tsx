@@ -60,8 +60,6 @@ export const useApplication = (): UseApplicationReturn => {
       hasOtherAdults: null,
       occupantPhone: '',
       photoIdFiles: [],
-      earlyMoveInRequested: null,
-      earlyMoveInDate: '',
       
       // Employment/Income
       currentEmployer: '',
@@ -340,15 +338,6 @@ export const useApplication = (): UseApplicationReturn => {
       return;
     }
 
-    if (formData.earlyMoveInRequested === null) {
-      reportApplicationError('Please indicate if you need an early move-in');
-      return;
-    }
-    if (formData.earlyMoveInRequested && !formData.earlyMoveInDate) {
-      reportApplicationError('Please select your early move-in date');
-      return;
-    }
-
     const leaseMonths = parseInt(formData.desiredLeaseMonths, 10);
     if (!leaseMonths || leaseMonths < 1) {
       reportApplicationError('Please select how long you want to rent (in months)');
@@ -419,8 +408,6 @@ export const useApplication = (): UseApplicationReturn => {
             .map(o => ({ name: o.name.trim(), age: (o.age || '').trim() })),
           hasOtherAdults: formData.hasOtherAdults,
           occupantPhone: formData.occupantPhone.trim(),
-          earlyMoveInRequested: formData.earlyMoveInRequested,
-          earlyMoveInDate: formData.earlyMoveInRequested ? formData.earlyMoveInDate : '',
           
           // Employment/Income
           currentEmployer: formData.currentEmployer,
@@ -521,8 +508,6 @@ export const useApplication = (): UseApplicationReturn => {
         hasOtherAdults: null,
         occupantPhone: '',
         photoIdFiles: [],
-        earlyMoveInRequested: null,
-        earlyMoveInDate: '',
         
         // Employment/Income
         currentEmployer: '',
@@ -1366,46 +1351,6 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
                       onChange={(e) => setFormData({...formData, desiredMoveInDate: e.target.value})}
                       required
                     />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                      Need to move in before the lease start date? <span className="text-rose-500">*</span>
-                    </label>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="earlyMoveInRequested"
-                          checked={formData.earlyMoveInRequested === true}
-                          onChange={() => setFormData({ ...formData, earlyMoveInRequested: true })}
-                          className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
-                        />
-                        <span className="text-slate-700">Yes</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="earlyMoveInRequested"
-                          checked={formData.earlyMoveInRequested === false}
-                          onChange={() => setFormData({ ...formData, earlyMoveInRequested: false, earlyMoveInDate: '' })}
-                          className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
-                        />
-                        <span className="text-slate-700">No</span>
-                      </label>
-                    </div>
-                    {formData.earlyMoveInRequested && (
-                      <div className="mt-3">
-                        <label className="block text-sm font-medium text-slate-700 mb-1">
-                          Early move-in date <span className="text-rose-500">*</span>
-                        </label>
-                        <input
-                          type="date"
-                          className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          value={formData.earlyMoveInDate}
-                          onChange={(e) => setFormData({ ...formData, earlyMoveInDate: e.target.value })}
-                        />
-                      </div>
-                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">

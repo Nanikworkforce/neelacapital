@@ -2110,18 +2110,13 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         if not pdf_bytes:
             return Response({'error': 'Could not retrieve PDF'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        try:
-            signed_pdf_bytes = stamp_signed_pdf(pdf_bytes, fields, values)
-        except Exception as e:
-            logger.error(f"Error stamping PDF: {e}", exc_info=True)
-            return Response({'error': f'Failed to stamp PDF: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
         from .lease_signing import (
             STATUS_AWAITING_LANDLORD,
             STATUS_SIGNED,
             complete_landlord_signature,
             complete_tenant_signature,
-            save_stamped_pdf,
+            fields_for_role,
+            stamp_and_save,
         )
         from .models import LeaseSigningToken as LST
 
@@ -2133,10 +2128,20 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         else:
             party = LST.ROLE_TENANT
 
+        if party == LST.ROLE_TENANT and legal_doc.status in (STATUS_AWAITING_LANDLORD, STATUS_SIGNED):
+            return Response({'error': 'Tenant has already signed this lease.'}, status=status.HTTP_400_BAD_REQUEST)
+        if party == LST.ROLE_LANDLORD and legal_doc.status != STATUS_AWAITING_LANDLORD:
+            return Response({'error': 'Tenant must sign before the landlord.'}, status=status.HTTP_400_BAD_REQUEST)
+
         from .lease_service import build_lease_pdf_filename
         party_prefix = 'Landlord_Signed_Lease' if party == LST.ROLE_LANDLORD else 'Tenant_Signed_Lease'
         filename = build_lease_pdf_filename(legal_doc.tenant, prefix=party_prefix)
-        save_stamped_pdf(legal_doc, signed_pdf_bytes, filename)
+        try:
+            stamp_fields = fields_for_role(party, legal_doc=legal_doc) or fields
+            stamp_and_save(legal_doc, pdf_bytes, stamp_fields, values, filename)
+        except Exception as e:
+            logger.error(f"Error stamping PDF: {e}", exc_info=True)
+            return Response({'error': f'Failed to stamp PDF: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         request_obj = request._request if hasattr(request, '_request') else request
         audit = {
@@ -2151,23 +2156,24 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
             signing_token.used_at = timezone.now()
             signing_token.save(update_fields=['used_at'])
 
+        pdf_qs = f"?token={raw_token}" if raw_token else ""
+        pdf_url = request_obj.build_absolute_uri(
+            f"/api/legal-documents/{legal_doc.id}/pdf/{pdf_qs}"
+        )
+
         if party == LST.ROLE_TENANT:
-            if legal_doc.status in (STATUS_AWAITING_LANDLORD, STATUS_SIGNED):
-                return Response({'error': 'Tenant has already signed this lease.'}, status=status.HTTP_400_BAD_REQUEST)
             complete_tenant_signature(legal_doc, audit)
             serializer = self.get_serializer(legal_doc)
             data = dict(serializer.data)
-            data['pdf_url'] = request_obj.build_absolute_uri(f"/api/legal-documents/{legal_doc.id}/pdf/")
+            data['pdf_url'] = pdf_url
             data['status'] = STATUS_AWAITING_LANDLORD
             data['message'] = 'Tenant signature recorded. Landlord has been notified to counter-sign.'
             return Response(data, status=status.HTTP_200_OK)
 
-        if legal_doc.status != STATUS_AWAITING_LANDLORD:
-            return Response({'error': 'Tenant must sign before the landlord.'}, status=status.HTTP_400_BAD_REQUEST)
         complete_landlord_signature(legal_doc, audit)
         serializer = self.get_serializer(legal_doc)
         data = dict(serializer.data)
-        data['pdf_url'] = request_obj.build_absolute_uri(f"/api/legal-documents/{legal_doc.id}/pdf/")
+        data['pdf_url'] = pdf_url
         data['signed_at'] = legal_doc.signed_at.isoformat() if legal_doc.signed_at else None
         data['status'] = STATUS_SIGNED
         return Response(data, status=status.HTTP_200_OK)
@@ -2704,7 +2710,9 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
 
         raw_token = request.query_params.get('token')
-        if not user_can_access_legal_document(request.user, legal_doc, raw_token=raw_token):
+        if not user_can_access_legal_document(
+            request.user, legal_doc, raw_token=raw_token, allow_used_token=True
+        ):
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
         if not legal_doc.pdf_file:
@@ -2726,6 +2734,14 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
                 logger.warning(f"Could not read PDF file for document {pk}: {e}")
         if not pdf_bytes:
             return Response({'error': 'Could not retrieve PDF'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Flatten leftover AcroForm widgets so filled values don't show as blue boxes
+        try:
+            from .lease_pdf_template import flatten_form_fields
+
+            pdf_bytes = flatten_form_fields(pdf_bytes)
+        except Exception as flatten_err:
+            logger.warning('PDF flatten skipped for document %s: %s', pk, flatten_err)
 
         from .lease_service import build_lease_pdf_filename
         filename = build_lease_pdf_filename(legal_doc.tenant, prefix='Lease')
@@ -3405,7 +3421,9 @@ def sign_lease_by_token(request):
         from .lease_service import build_lease_pdf_filename
         party_prefix = 'Landlord_Signed_Lease' if role == LST.ROLE_LANDLORD else 'Tenant_Signed_Lease'
         filename = build_lease_pdf_filename(legal_doc.tenant, prefix=party_prefix)
-        stamp_and_save(legal_doc, pdf_bytes, fields, values, filename)
+        # Prefer server field map so stamps land even if the client payload is thin
+        stamp_fields = fields_for_role(role, legal_doc=legal_doc) or fields
+        stamp_and_save(legal_doc, pdf_bytes, stamp_fields, values, filename)
     except Exception as e:
         logger.error(f"Error stamping PDF (token signing): {e}", exc_info=True)
         return Response({'error': f'Failed to stamp PDF: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -3423,9 +3441,13 @@ def sign_lease_by_token(request):
     signing_token.used_at = timezone.now()
     signing_token.save(update_fields=['used_at'])
 
+    # Keep token on pdf_url so Save / Print works after the link is marked used
+    pdf_url = request_obj.build_absolute_uri(
+        f"/api/legal-documents/{legal_doc.id}/pdf/?token={raw_token}"
+    )
+
     if role == LST.ROLE_TENANT:
         complete_tenant_signature(legal_doc, audit)
-        pdf_url = request_obj.build_absolute_uri(f"/api/legal-documents/{legal_doc.id}/pdf/")
         return Response({
             'status': STATUS_AWAITING_LANDLORD,
             'party': role,
@@ -3434,7 +3456,6 @@ def sign_lease_by_token(request):
         }, status=status.HTTP_200_OK)
 
     complete_landlord_signature(legal_doc, audit)
-    pdf_url = request_obj.build_absolute_uri(f"/api/legal-documents/{legal_doc.id}/pdf/")
     return Response({
         'status': STATUS_SIGNED,
         'party': role,

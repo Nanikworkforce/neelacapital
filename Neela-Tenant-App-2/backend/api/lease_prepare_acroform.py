@@ -106,7 +106,10 @@ def prepare_fillable_lease_pdf(
                         w.rect = fitz.Rect(rect.x0, rect.y0 - 1.0, rect.x1, rect.y1 + 1.0)
                         w.field_value = ""
                         w.text_fontsize = 9
-                        w.fill_color = (1, 1, 1)
+                        w.text_color = (0, 0, 0)
+                        w.fill_color = (1, 1, 1)  # white — avoid blue field chrome
+                        w.border_color = None
+                        w.border_width = 0
                         page.add_widget(w)
 
         buf = BytesIO()

@@ -22,6 +22,26 @@ def template_pdf_available() -> bool:
     return TEMPLATE_PDF_PATH.is_file()
 
 
+def flatten_form_fields(pdf_bytes: bytes) -> bytes:
+    """
+    Bake AcroForm widgets into page content so filled values look like normal
+    printed text (no blue/lavender field backgrounds in PDF viewers).
+    """
+    if not pdf_bytes:
+        return pdf_bytes
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    out = BytesIO()
+    try:
+        has_widgets = any(bool(list(page.widgets() or [])) for page in doc)
+        if has_widgets and hasattr(doc, "bake"):
+            doc.bake(annots=True, widgets=True)
+        doc.save(out, deflate=True, garbage=4)
+    finally:
+        doc.close()
+    out.seek(0)
+    return out.read()
+
+
 def _is_checked(value: Any) -> bool:
     if value is True:
         return True

@@ -447,7 +447,11 @@ const LeaseSigningPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [signedPdfUrl, setSignedPdfUrl] = useState<string | null>(null);
+  const [signedPdfBlobUrl, setSignedPdfBlobUrl] = useState<string | null>(null);
+  const [savingCopy, setSavingCopy] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const signedPdfBlobUrlRef = useRef<string | null>(null);
   const [pdfBlobLoading, setPdfBlobLoading] = useState(false);
   const [pdfBlobError, setPdfBlobError] = useState<string | null>(null);
   const pdfBlobUrlRef = useRef<string | null>(null);
@@ -551,12 +555,64 @@ const LeaseSigningPage: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ values, fields: fieldsPayload, filled_content }),
       });
-      if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || 'Submission failed.'); }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Submission failed.');
+      const nextPdf =
+        (typeof body.pdf_url === 'string' && body.pdf_url) ||
+        (data.pdf_url
+          ? data.pdf_url
+          : `${BASE_URL}/api/legal-documents/${data.id}/pdf/?token=${encodeURIComponent(token)}`);
+      setSignedPdfUrl(nextPdf);
+      // Prefetch as blob so the done-screen preview/download isn't blocked by X-Frame
+      try {
+        const pdfRes = await fetch(nextPdf, { method: 'GET', credentials: 'omit' });
+        if (pdfRes.ok) {
+          const blob = await pdfRes.blob();
+          if (signedPdfBlobUrlRef.current) URL.revokeObjectURL(signedPdfBlobUrlRef.current);
+          const blobUrl = URL.createObjectURL(blob);
+          signedPdfBlobUrlRef.current = blobUrl;
+          setSignedPdfBlobUrl(blobUrl);
+        }
+      } catch {
+        /* open/download can still use nextPdf */
+      }
       setDone(true);
     } catch (e: any) {
       setSubmitError(e.message || 'Something went wrong. Please try again.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const saveLeaseCopy = async () => {
+    const remoteUrl = signedPdfUrl || data?.pdf_url;
+    setSavingCopy(true);
+    try {
+      let objectUrl = signedPdfBlobUrl;
+      if (!objectUrl && remoteUrl) {
+        const res = await fetch(remoteUrl, { method: 'GET', credentials: 'omit' });
+        if (!res.ok) throw new Error('Could not download lease PDF');
+        const blob = await res.blob();
+        objectUrl = URL.createObjectURL(blob);
+      }
+      if (!objectUrl) throw new Error('No PDF available');
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = `Lease_${(data?.property_unit || 'copy').replace(/[^\w\-]+/g, '_')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Also open print dialog on the PDF blob for "Print a Copy"
+      const printWin = window.open(objectUrl, '_blank', 'noopener,noreferrer');
+      if (printWin) {
+        setTimeout(() => {
+          try { printWin.print(); } catch { /* ignore */ }
+        }, 750);
+      }
+    } catch {
+      if (remoteUrl) window.open(remoteUrl, '_blank', 'noopener,noreferrer');
+    } finally {
+      setSavingCopy(false);
     }
   };
 
@@ -589,9 +645,11 @@ const LeaseSigningPage: React.FC = () => {
   // ── Done ──
   if (done) {
     const isLandlord = data?.party === 'landlord';
+    const copyUrl = signedPdfBlobUrl || signedPdfUrl || data?.pdf_url || null;
+    const openUrl = signedPdfBlobUrl || signedPdfUrl || data?.pdf_url || null;
     return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-8">
+      <div className="max-w-3xl w-full bg-white rounded-2xl shadow-lg p-8 text-center">
         <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
           <svg className="w-7 h-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -606,10 +664,29 @@ const LeaseSigningPage: React.FC = () => {
             ? `The lease for ${data?.property_unit} is now signed by both parties. The tenant will receive their account setup email.`
             : `Your signature for ${data?.property_unit} has been submitted. The landlord will counter-sign next, then you will receive a confirmation email to set up your account.`}
         </p>
-        <button onClick={() => window.print()}
-          className="mt-6 w-full py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 text-sm">
-          Save / Print a Copy
-        </button>
+        <div className="mt-6 flex flex-col sm:flex-row gap-2 justify-center">
+          <button
+            type="button"
+            onClick={saveLeaseCopy}
+            disabled={!copyUrl || savingCopy}
+            className="flex-1 sm:flex-none px-6 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+            {savingCopy ? 'Preparing PDF…' : 'Save / Print a Copy'}
+          </button>
+          {openUrl && (
+            <a
+              href={openUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 sm:flex-none px-6 py-2.5 border border-slate-300 text-slate-700 font-semibold rounded-xl hover:bg-slate-50 text-sm">
+              Open Lease PDF
+            </a>
+          )}
+        </div>
+        {copyUrl && (
+          <div className="mt-6 border border-slate-200 rounded-xl overflow-hidden bg-slate-100 text-left">
+            <iframe title="Signed lease PDF" src={copyUrl} className="w-full h-[70vh] bg-white" />
+          </div>
+        )}
         {!isLandlord && (
           <p className="text-slate-400 text-xs mt-4">
             To access your tenant portal after both parties sign, visit <a href={withBase('/tenant')} className="text-indigo-600 underline">your login page</a>.

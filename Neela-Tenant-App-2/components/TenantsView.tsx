@@ -1473,41 +1473,6 @@ Landlord                            Tenant
                                 </div>
                              ) : null}
                              
-                             {/* Background Check Files */}
-                             {selectedApplicant.backgroundCheckFiles && selectedApplicant.backgroundCheckFiles.length > 0 ? (
-                                <div>
-                                   <p className="text-xs text-slate-500 font-medium mb-2">Background Check Report</p>
-                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                     {selectedApplicant.backgroundCheckFiles.map((file: any, idx: number) => {
-                                        const fileUrl = getFilePreviewUrl(file, selectedApplicant.id);
-                                        const fileDownloadUrl = getFileDownloadUrl(file, selectedApplicant.id);
-                                        return (
-                                        <div key={idx} className="flex items-center justify-between p-3 border border-green-200 bg-green-50 rounded-lg hover:bg-green-100">
-                                            <div className="flex items-center gap-3">
-                                               <div className="p-2 bg-green-200 rounded text-green-700">
-                                                  <FileText className="w-4 h-4" />
-                                               </div>
-                                               <div>
-                                                  <p className="text-sm font-medium text-slate-800">{file.filename || 'Background Check'}</p>
-                                                  <p className="text-xs text-slate-500">{file.size ? `${(file.size / 1024).toFixed(1)} KB` : ''}</p>
-                                               </div>
-                                            </div>
-                                           {fileUrl && (
-                                              <button
-                                                   type="button"
-                                                   onClick={() => void downloadFileAuthenticated(file, selectedApplicant.id, file.filename || 'document')}
-                                                   className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
-                                                   title="Download"
-                                                 >
-                                                   <Download className="w-4 h-4" /> Download
-                                                 </button>
-                                            )}
-                                         </div>
-                                     ); })}
-                                   </div>
-                                </div>
-                             ) : null}
-                             
                              {/* Legacy Documents */}
                              {selectedApplicant.applicationData?.documents && selectedApplicant.applicationData.documents.length > 0 ? (
                                 <div>
@@ -1531,7 +1496,7 @@ Landlord                            Tenant
                                 </div>
                              ) : null}
                              
-                             {!selectedApplicant.photoIdFiles?.length && !selectedApplicant.incomeVerificationFiles?.length && !selectedApplicant.backgroundCheckFiles?.length && !selectedApplicant.applicationData?.documents?.length && (
+                             {!selectedApplicant.photoIdFiles?.length && !selectedApplicant.incomeVerificationFiles?.length && !selectedApplicant.applicationData?.documents?.length && (
                                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
                                    <p className="text-sm text-slate-600">No documents uploaded</p>
                                 </div>
@@ -1696,64 +1661,6 @@ Landlord                            Tenant
                              )}
                           </div>
                           
-                          {/* Background Check Report */}
-                          <div>
-                             <h4 className="font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                                <Shield className="w-4 h-4" />
-                                Background Check Report
-                             </h4>
-                             {selectedApplicant.backgroundCheckFiles && selectedApplicant.backgroundCheckFiles.length > 0 ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                   {selectedApplicant.backgroundCheckFiles.map((file: any, idx: number) => {
-                                      const fileUrl = getFilePreviewUrl(file, selectedApplicant.id);
-                                      const fileDownloadUrl = getFileDownloadUrl(file, selectedApplicant.id);
-                                      return (
-                                      <div key={idx} className="flex items-center justify-between gap-3 p-4 border border-green-200 bg-green-50/50 rounded-xl hover:bg-green-50 shadow-sm">
-                                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                                            <div className="p-2.5 bg-green-200 rounded-lg text-green-700 shrink-0">
-                                               <Shield className="w-5 h-5" />
-                                            </div>
-                                            <div className="min-w-0">
-                                               <p className="text-sm font-medium text-slate-800 truncate">{file.filename || 'Background Check'}</p>
-                                               <p className="text-xs text-slate-500">{file.size ? `${(file.size / 1024).toFixed(1)} KB` : ''}</p>
-                                            </div>
-                                         </div>
-                                         <div className="flex items-center gap-2 shrink-0">
-                                            {fileUrl ? (
-                                               <>
-                                                 <button
-                                                   type="button"
-                                                  onClick={() => {
-                                                    setPreviewLoadFailed(false);
-                                                    setDocumentPreview(buildDocumentPreview(file, 'Background Check', selectedApplicant.id));
-                                                  }}
-                                                   className="flex items-center gap-1.5 px-3 py-2 bg-green-700 text-white text-sm font-medium rounded-lg hover:bg-green-800 transition-colors shadow-sm"
-                                                   title="Preview document"
-                                                 >
-                                                   <Eye className="w-4 h-4" /> Preview
-                                                 </button>
-                                                <button
-                                                   type="button"
-                                                   onClick={() => void downloadFileAuthenticated(file, selectedApplicant.id, file.filename || 'document')}
-                                                   className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
-                                                   title="Download"
-                                                 >
-                                                   <Download className="w-4 h-4" /> Download
-                                                 </button>
-                                               </>
-                                            ) : (
-                                               <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1.5 rounded-lg">Preview unavailable</span>
-                                            )}
-                                         </div>
-                                      </div>
-                                   ); })}
-                                </div>
-                             ) : (
-                                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                                   <p className="text-sm text-slate-600">No background check report uploaded</p>
-                                </div>
-                             )}
-                          </div>
                        </div>
                     </div>
                  )}

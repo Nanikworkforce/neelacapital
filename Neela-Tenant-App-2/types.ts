@@ -523,8 +523,6 @@ export interface ApplicationForm {
   hasOtherAdults: boolean | null;
   occupantPhone: string;
   photoIdFiles: File[];
-  earlyMoveInRequested: boolean | null;
-  earlyMoveInDate: string;
   
   // Employment/Income
   currentEmployer: string;
