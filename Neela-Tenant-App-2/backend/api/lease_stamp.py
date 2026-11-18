@@ -68,7 +68,9 @@ _LABEL_TARGETS: dict[str, dict[str, Any]] = {
     },
     'tenant_initials': {
         'line_contains': 'Initials:',
-        'blank_index': 1,  # Landlord ______  Tenant ______
+        'blank_index': 0,
+        # Landlord blank is prefilled (NCI), so take the first blank after "Tenant"
+        'run_after': 'Tenant',
         'kind': 'text',
         'all_occurrences': True,
         'prefer_contains': 'Tenant',
@@ -87,8 +89,8 @@ _EXTRA_LABEL_TARGETS: dict[str, list[dict[str, Any]]] = {
     'tenant_initials': [
         {'line_contains': 'Lessee received copies', 'blank_index': 0, 'all_occurrences': True},
         {'line_contains': 'Lessee received the pamphlet', 'blank_index': 0, 'all_occurrences': True},
-        # p16: "Tenant ______" on its own line
-        {'line_startswith': 'Tenant ___', 'blank_index': 0, 'all_occurrences': True},
+        # "Tenant ______" left on its own line (p16, or p14 after the NCI prefill reflow)
+        {'line_contains': 'Tenant ___', 'run_after': 'Tenant', 'blank_index': 0, 'all_occurrences': True},
     ],
     'landlord_initials': [
         {'line_contains': 'Agent has informed the lessor', 'blank_index': 0, 'all_occurrences': True},
@@ -179,11 +181,15 @@ def _iter_label_targets(
                 if not chars:
                     continue
                 text = _line_text(chars)
-                if needle and needle not in text:
+                if needle and needle not in text.replace('\xa0', ' '):
                     continue
                 if prefix and not text.replace('\xa0', ' ').strip().startswith(prefix):
                     continue
                 runs = _underscore_runs(chars)
+                run_after = target.get('run_after')
+                if run_after:
+                    anchor = text.find(run_after)
+                    runs = [r for r in runs if anchor >= 0 and r[0] > anchor]
                 if not runs:
                     continue
                 if blank_index >= len(runs):

@@ -572,6 +572,7 @@ def build_lease_replacements(tenant: Tenant) -> dict:
             break
 
     replacements.update({
+        '{{landlord_initials}}': os.environ.get('LANDLORD_INITIALS', 'NCI'),
         '{{landlord_print_name}}': (
             getattr(settings, 'LANDLORD_NAME', None)
             or getattr(settings, 'PROPERTY_MANAGER_NAME', None)

@@ -454,6 +454,11 @@ def _resolve_blank_line(text: str, counters: dict[str, int]) -> list[str] | None
             return ["{{smoking_areas}}"]
     if "minimum liability coverage of" in t:
         return ["{{insurance_min}}"]
+    # Landlord initials are fixed (NCI); tenant initials are stamped at signing
+    if t.startswith("Initials:") and "Landlord" in t:
+        return ["{{landlord_initials}}", ""]
+    if "Agent has informed the lessor" in t or t.startswith("Landlord _"):
+        return ["{{landlord_initials}}"]
     if t.startswith("Landlord's Name:"):
         # Page 1 is already filled with NEELA; only blank ones need fill
         if "_" in text:
