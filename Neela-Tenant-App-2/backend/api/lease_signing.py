@@ -294,6 +294,10 @@ def stamp_and_save(legal_doc, pdf_bytes: bytes, fields, values, filename: str) -
             or getattr(settings, 'PROPERTY_MANAGER_NAME', None)
             or 'NEELA CAPITAL INVESTMENTS'
         )
+    # Landlord has no initials input; derive from the landlord name when they sign
+    if merged.get('landlord_signature') and not merged.get('landlord_initials'):
+        words = [w for w in str(merged.get('landlord_print_name') or '').split() if w[:1].isalpha()]
+        merged['landlord_initials'] = ''.join(w[0].upper() for w in words[:3])
     _persist_signature_images(legal_doc, merged)
     signed_pdf_bytes = stamp_signed_pdf(pdf_bytes, fields, merged)
     save_stamped_pdf(legal_doc, signed_pdf_bytes, filename)

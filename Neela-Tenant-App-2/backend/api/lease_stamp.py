@@ -82,6 +82,19 @@ _LABEL_TARGETS: dict[str, dict[str, Any]] = {
     },
 }
 
+# Additional blanks for the same field (lead-paint disclosure, wrapped initials lines)
+_EXTRA_LABEL_TARGETS: dict[str, list[dict[str, Any]]] = {
+    'tenant_initials': [
+        {'line_contains': 'Lessee received copies', 'blank_index': 0, 'all_occurrences': True},
+        {'line_contains': 'Lessee received the pamphlet', 'blank_index': 0, 'all_occurrences': True},
+        # p16: "Initials:  Landlord ______" / next line "Tenant ______"
+        {'line_startswith': 'Tenant ___', 'blank_index': 0, 'all_occurrences': True},
+    ],
+    'landlord_initials': [
+        {'line_contains': 'Agent has informed the lessor', 'blank_index': 0, 'all_occurrences': True},
+    ],
+}
+
 
 def _line_chars(line: dict) -> list[dict]:
     chars: list[dict] = []
@@ -146,7 +159,8 @@ def _expand_for_text(rect: fitz.Rect) -> fitz.Rect:
 def _iter_label_targets(
     doc: fitz.Document, target: dict[str, Any]
 ) -> list[tuple[int, fitz.Rect]]:
-    needle = target['line_contains']
+    needle = target.get('line_contains') or ''
+    prefix = target.get('line_startswith')
     blank_index = int(target.get('blank_index', 0))
     all_occ = bool(target.get('all_occurrences'))
     occurrence = int(target.get('occurrence', 0))
@@ -163,7 +177,9 @@ def _iter_label_targets(
                 if not chars:
                     continue
                 text = _line_text(chars)
-                if needle not in text:
+                if needle and needle not in text:
+                    continue
+                if prefix and not text.strip().startswith(prefix):
                     continue
                 runs = _underscore_runs(chars)
                 if not runs:
@@ -329,6 +345,10 @@ def stamp_signed_pdf(pdf_bytes: bytes, fields: list[dict], values: dict[str, Any
                     page = doc[page_index]
                     use_type = 'signature' if (kind == 'signature' or ftype == 'signature') else ftype
                     _place_on_rect(page, use_type, fid, raw, rect)
+                    placed = True
+            for extra in _EXTRA_LABEL_TARGETS.get(fid, []):
+                for page_index, rect in _iter_label_targets(doc, extra):
+                    _place_on_rect(doc[page_index], 'text', fid, raw, rect)
                     placed = True
 
             # 2) Normalized coords from DocumentField / signing metadata
