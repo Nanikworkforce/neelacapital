@@ -655,7 +655,7 @@ def build_lease_replacements(tenant: Tenant) -> dict:
         '{{due_deposit}}': due_dep if deposit_required else '$0.00',
         '{{due_prepaid}}': due_prepaid,
         '{{due_pet_fee}}': due_pet,
-        '{{due_other_label}}': _val_or_blank(amounts.get('otherLabel')),
+        '{{due_other_label}}': (amounts.get('otherLabel') or '').strip() or 'None',
         '{{due_other_amount}}': due_other_amt,
         '{{due_total}}': due_total,
     })
