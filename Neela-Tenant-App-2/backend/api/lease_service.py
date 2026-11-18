@@ -299,7 +299,12 @@ def build_lease_replacements(tenant: Tenant) -> dict:
         
         # Landlord/company from settings only (no hardcoded defaults)
         '{{landlord_name}}': getattr(settings, 'LANDLORD_NAME', None) or '[Landlord Name]',
-        '{{landlord_address}}': getattr(settings, 'LANDLORD_ADDRESS', None) or '[Landlord Address]',
+        # Env value is only trusted when it's a full street address (Render had just "Houston, Texas")
+        '{{landlord_address}}': (
+            (getattr(settings, 'LANDLORD_ADDRESS', None) or '')
+            if re.match(r'^\s*\d', getattr(settings, 'LANDLORD_ADDRESS', None) or '')
+            else '6705 Sherman Street, Houston, Texas 77011'
+        ),
         '{{landlord_phone}}': getattr(settings, 'LANDLORD_PHONE', None) or '[Landlord Phone]',
         '{{landlord_email}}': getattr(settings, 'LANDLORD_EMAIL', None) or '[Landlord Email]',
         
