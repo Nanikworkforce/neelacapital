@@ -342,6 +342,23 @@ def _draw_reflow(page: fitz.Page, chars: list[dict], plan: dict, fonts: _FontCac
         x += w
 
 
+_NA_KEY = "{{__na__}}"
+
+
+def _is_signing_line(text: str, replacements: dict[str, Any]) -> bool:
+    """Blanks filled when the parties sign (signatures, dates, tenant initials)."""
+    t = " ".join(text.split())
+    if t.startswith("Occupant's Signature") and not _plain_text(replacements.get("{{occupant_print_name}}")):
+        return False  # no occupant: whole block reads N/A
+    return (
+        "Signature" in t
+        or "Date:" in t
+        or "Lessee received" in t
+        or t.startswith("Tenant _")
+        or t.startswith("Initials:")
+    )
+
+
 def _write_runs(page, chars, runs, values: list[str | None], fontsize: float) -> None:
     for run, value in zip(runs, values):
         if not value:
@@ -720,9 +737,13 @@ def render_filled_template_pdf(replacements: dict[str, Any]) -> bytes:
 
                     keys = _resolve_blank_line(text, counters)
                     if not keys:
-                        continue
+                        if _is_signing_line(text, replacements):
+                            continue
+                        keys = [_NA_KEY] * len(runs)
+                    elif len(keys) < len(runs) and not _is_signing_line(text, replacements):
+                        keys = list(keys) + [_NA_KEY] * (len(runs) - len(keys))
 
-                    # Don't fill blanks belonging to an unselected term type
+                    # Blanks of an unselected term type read N/A
                     is_mtm_line = (
                         "and terminates upon either the Landlord or Tenant" in text
                         or ("of at least" in text and "days" in text)
@@ -730,17 +751,24 @@ def render_filled_template_pdf(replacements: dict[str, Any]) -> bytes:
                     is_std_line = "Standard lease:" in text or (
                         text.strip().startswith("________________") and text.rstrip().endswith(".")
                     )
-                    if is_mtm_line and not _is_checked(replacements.get("{{term_month_to_month}}")):
-                        continue
-                    if is_std_line and not _is_checked(replacements.get("{{term_standard}}")):
-                        continue
+                    if (is_mtm_line and not _is_checked(replacements.get("{{term_month_to_month}}"))) or (
+                        is_std_line and not _is_checked(replacements.get("{{term_standard}}"))
+                    ):
+                        keys = [_NA_KEY] * len(runs)
 
-                    values = [_value_for_key(k, replacements) for k in keys]
-                    filled = {
-                        run[0]: (run[1], value)
-                        for run, value in zip(runs, values)
-                        if value
-                    }
+                    filled = {}
+                    for run, key in zip(runs, keys):
+                        if key == "":
+                            continue  # stamped at signing
+                        value = None if key == _NA_KEY else _value_for_key(key, replacements)
+                        if value:
+                            filled[run[0]] = (run[1], value)
+                            continue
+                        start = run[0]
+                        # "$____" with nothing to show reads "N/A", not "$N/A"
+                        if start > 0 and chars[start - 1].get("c") == "$":
+                            start -= 1
+                        filled[start] = (run[1], "N/A")
                     plan = _plan_reflow(chars, filled)
                     if plan:
                         pending_reflows.append((chars, plan, fontsize))
