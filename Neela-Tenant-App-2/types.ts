@@ -165,7 +165,8 @@ export interface Inquiry {
   email: string;
   phone: string;
   message: string;
-  source: 'website' | 'portal';
+  source: 'website' | 'portal' | 'zillow';
+  propertyAddress: string;
   status: 'new' | 'read' | 'archived';
   createdAt: string;
   updatedAt: string;

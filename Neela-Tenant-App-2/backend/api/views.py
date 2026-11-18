@@ -221,6 +221,9 @@ class InquiryViewSet(viewsets.ModelViewSet):
         # Website/portal leads are admin-only — not tenants or managers.
         if not is_admin_user(self.request.user):
             return Inquiry.objects.none()
+        if self.action == 'list':
+            from .zillow_inquiries import sync_zillow_inquiries_throttled
+            sync_zillow_inquiries_throttled()
         qs = Inquiry.objects.all().order_by('-created_at')
         status_filter = self.request.query_params.get('status')
         if status_filter:

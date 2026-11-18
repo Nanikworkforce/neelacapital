@@ -13,6 +13,7 @@ const statusStyles: Record<string, string> = {
 const sourceLabels: Record<string, string> = {
   website: 'Main Website',
   portal: 'Portal',
+  zillow: 'Zillow',
 };
 
 const InquiriesView: React.FC = () => {
@@ -21,6 +22,7 @@ const InquiriesView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [sourceFilter, setSourceFilter] = useState<string>('All');
   const [selected, setSelected] = useState<Inquiry | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -42,10 +44,11 @@ const InquiriesView: React.FC = () => {
   }, []);
 
   const filtered = inquiries.filter((item) => {
-    const haystack = `${item.firstName} ${item.lastName} ${item.email} ${item.message}`.toLowerCase();
+    const haystack = `${item.firstName} ${item.lastName} ${item.email} ${item.message} ${item.propertyAddress}`.toLowerCase();
     const matchesSearch = haystack.includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'All' || item.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesSource = sourceFilter === 'All' || item.source === sourceFilter;
+    return matchesSearch && matchesStatus && matchesSource;
   });
 
   const updateStatus = async (id: string, status: Inquiry['status']) => {
@@ -77,7 +80,7 @@ const InquiriesView: React.FC = () => {
         <div>
           <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Inquiries</h2>
           <p className="text-slate-500 mt-1 text-sm">
-            Contact messages from the main website and portal
+            Contact messages from the main website, portal, and Zillow
             {newCount > 0 && (
               <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
                 {newCount} new
@@ -108,6 +111,16 @@ const InquiriesView: React.FC = () => {
             <option value="new">New</option>
             <option value="read">Read</option>
             <option value="archived">Archived</option>
+          </select>
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+          >
+            <option value="All">All sources</option>
+            <option value="website">Main Website</option>
+            <option value="portal">Portal</option>
+            <option value="zillow">Zillow</option>
           </select>
         </div>
 
@@ -158,6 +171,9 @@ const InquiriesView: React.FC = () => {
                       </td>
                       <td className="px-4 py-3.5 hidden md:table-cell text-slate-600">
                         {sourceLabels[item.source] || item.source}
+                        {item.propertyAddress && (
+                          <div className="text-xs text-slate-400 mt-0.5 max-w-[180px] truncate">{item.propertyAddress}</div>
+                        )}
                       </td>
                       <td className="px-4 py-3.5 text-slate-600 max-w-xs truncate">
                         {item.message}
@@ -217,6 +233,12 @@ const InquiriesView: React.FC = () => {
               </button>
             </div>
             <div className="p-5">
+              {selected.propertyAddress && (
+                <>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Property</p>
+                  <p className="text-sm text-slate-700 mb-4">{selected.propertyAddress}</p>
+                </>
+              )}
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Message</p>
               <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">{selected.message}</p>
               <p className="text-xs text-slate-400 mt-4">

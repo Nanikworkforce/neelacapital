@@ -783,6 +783,7 @@ class Inquiry(models.Model):
     SOURCE_CHOICES = [
         ('website', 'Main Website'),
         ('portal', 'Tenant Portal'),
+        ('zillow', 'Zillow'),
     ]
     STATUS_CHOICES = [
         ('new', 'New'),
@@ -795,6 +796,9 @@ class Inquiry(models.Model):
     email = models.EmailField()
     phone = models.CharField(max_length=50, blank=True, default='')
     message = models.TextField()
+    property_address = models.CharField(max_length=255, blank=True, default='')
+    # Message-ID of the source email (Zillow), used to avoid importing twice
+    external_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
     source = models.CharField(max_length=30, choices=SOURCE_CHOICES, default='website')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
     created_at = models.DateTimeField(auto_now_add=True)
