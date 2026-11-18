@@ -462,40 +462,50 @@ def build_lease_replacements(tenant: Tenant) -> dict:
 
     # Property / furnishing defaults from matched Property when present
     prop_furnishing = ''
+    prop_items: list[str] = []
     prop_beds = bedrooms_val
     prop_baths = bathrooms_val
     try:
         from .models import Property
-        unit_text = (tenant.property_unit or '').lower()
-        for p in Property.objects.all()[:200]:
-            name = (p.name or '').lower()
-            addr = (p.address or '').lower()
-            if name and name in unit_text:
-                prop_furnishing = (getattr(p, 'furnishing_type', None) or '') or ''
-                if getattr(p, 'bedrooms', None):
-                    prop_beds = str(p.bedrooms)
-                if getattr(p, 'bathrooms', None):
-                    prop_baths = str(p.bathrooms)
-                break
-            if addr and addr.split(',')[0] in unit_text:
-                prop_furnishing = (getattr(p, 'furnishing_type', None) or '') or ''
-                if getattr(p, 'bedrooms', None):
-                    prop_beds = str(p.bedrooms)
-                if getattr(p, 'bathrooms', None):
-                    prop_baths = str(p.bathrooms)
-                break
+        matched = None
+        prop_id = application_data.get('propertyId')
+        if prop_id:
+            matched = Property.objects.filter(id=prop_id).first()
+        if matched is None:
+            unit_text = (tenant.property_unit or '').lower()
+            for p in Property.objects.all()[:200]:
+                name = (p.name or '').lower()
+                addr = (p.address or '').lower()
+                if (name and name in unit_text) or (addr and addr.split(',')[0] in unit_text):
+                    matched = p
+                    break
+        if matched is not None:
+            prop_furnishing = (getattr(matched, 'furnishing_type', None) or '') or ''
+            breakdown = getattr(matched, 'furnishings_breakdown', None) or []
+            if isinstance(breakdown, list):
+                prop_items = [str(x).strip() for x in breakdown if str(x).strip()]
+            if getattr(matched, 'bedrooms', None):
+                prop_beds = str(matched.bedrooms)
+            if getattr(matched, 'bathrooms', None):
+                prop_baths = str(matched.bathrooms)
     except Exception:
         pass
 
+    # Furnishing level: none / semi / full (lease options override the property)
+    level_raw = str(opts.get('furnishingLevel') or prop_furnishing or '').strip().lower()
     furnished_opt = opts.get('furnished')
-    if furnished_opt is None:
-        furnished = bool(prop_furnishing and 'unfurnished' not in str(prop_furnishing).lower() and str(prop_furnishing).strip())
-        if prop_furnishing and 'semi' in str(prop_furnishing).lower():
-            furnished = True
-        if prop_furnishing and ('not furnished' in str(prop_furnishing).lower() or str(prop_furnishing).lower() == 'unfurnished'):
-            furnished = False
+    if 'semi' in level_raw:
+        furnish_level = 'semi'
+    elif 'fully' in level_raw or level_raw in ('full', 'furnished'):
+        furnish_level = 'full'
     else:
-        furnished = bool(furnished_opt)
+        furnish_level = 'none'
+    if furnished_opt is not None and not opts.get('furnishingLevel'):
+        if not furnished_opt:
+            furnish_level = 'none'
+        elif furnish_level == 'none':
+            furnish_level = 'full'
+    furnished = furnish_level != 'none'
 
     term_type = (opts.get('termType') or 'month_to_month').strip().lower()
     is_mtm = term_type in ('month_to_month', 'month-to-month', 'mtm')
@@ -531,7 +541,7 @@ def build_lease_replacements(tenant: Tenant) -> dict:
 
     early_date = _opt_date(opts.get('earlyMoveInDate') or application_data.get('earlyMoveInDate'))
     pet_terms = opts.get('petTerms') or pets_desc or _BLANK_MD
-    furnishings_list = opts.get('furnishingsList') or (str(prop_furnishing) if furnished and prop_furnishing else _BLANK_MD)
+    furnishings_list = (opts.get('furnishingsList') or ', '.join(prop_items)).strip()
     appliances_list = opts.get('appliances') or 'Mini-split AC, Refrigerator, Stove/Oven, Smoke Detector(s)'
 
     due_first = _money(amounts.get('firstMonth'), f"${tenant.rent_amount:,.2f}")
@@ -580,6 +590,11 @@ def build_lease_replacements(tenant: Tenant) -> dict:
         '{{furnished_yes}}': _chk(furnished),
         '{{furnished_no}}': _chk(not furnished),
         '{{furnishings_list}}': furnishings_list if furnished else _BLANK_MD,
+        '{{furnished_none}}': _chk(furnish_level == 'none'),
+        '{{furnished_semi}}': _chk(furnish_level == 'semi'),
+        '{{furnished_full}}': _chk(furnish_level == 'full'),
+        '{{furnish_semi_items}}': furnishings_list if furnish_level == 'semi' else '',
+        '{{furnish_full_items}}': furnishings_list if furnish_level == 'full' else '',
         '{{appliances_list}}': appliances_list,
         '{{rent_due_day}}': str(opts.get('rentDueDay') or '3rd'),
         '{{pay_ach}}': _chk(bool(opts.get('payAch'))),

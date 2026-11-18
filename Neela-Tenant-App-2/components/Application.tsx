@@ -1,12 +1,72 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ApplicationForm, Listing, Property, TenantStatus } from '../types';
 import { api } from '../services/api';
-import { Loader2, BedDouble, Bath, Plus, Trash2 } from 'lucide-react';
+import { Loader2, BedDouble, Bath, Plus, Trash2, X, FileText } from 'lucide-react';
 import Modal from './Modal';
 import { folderImageForProperty } from '../utils/listingImages';
 import { assetUrl } from '../utils/basePath';
 import { getApiOrigin } from '../utils/apiOrigin';
 import { formatPropertyUnitLabel } from '../utils/propertyLabel';
+
+const MAX_UPLOAD_FILES = 5;
+
+const FileListInput: React.FC<{
+  files: File[];
+  onChange: (files: File[]) => void;
+}> = ({ files, onChange }) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const addFiles = (picked: File[]) => {
+    const seen = new Set(files.map((f) => `${f.name}:${f.size}`));
+    const merged = [...files, ...picked.filter((f) => !seen.has(`${f.name}:${f.size}`))];
+    onChange(merged.slice(0, MAX_UPLOAD_FILES));
+  };
+
+  return (
+    <div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          addFiles(Array.from(e.target.files || []));
+          // Reset so picking the same file again (after removing it) still fires onChange
+          e.target.value = '';
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={files.length >= MAX_UPLOAD_FILES}
+        className="w-full p-2.5 border border-dashed border-slate-300 rounded-lg bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+      >
+        <Plus className="w-4 h-4" />
+        {files.length === 0 ? 'Choose files' : files.length >= MAX_UPLOAD_FILES ? `Maximum ${MAX_UPLOAD_FILES} files` : 'Add more files'}
+      </button>
+      {files.length > 0 && (
+        <ul className="mt-2 space-y-1.5">
+          {files.map((f, i) => (
+            <li key={`${f.name}-${f.size}-${i}`} className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
+              <FileText className="w-4 h-4 text-slate-400 flex-shrink-0" />
+              <span className="flex-1 truncate">{f.name}</span>
+              <button
+                type="button"
+                onClick={() => onChange(files.filter((_, idx) => idx !== i))}
+                className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                aria-label={`Remove ${f.name}`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-1 text-xs text-slate-500">{files.length} of {MAX_UPLOAD_FILES} files</p>
+    </div>
+  );
+};
 
 export interface UseApplicationReturn {
   // Application state
@@ -382,6 +442,7 @@ export const useApplication = (): UseApplicationReturn => {
           submissionDate: new Date().toISOString(),
           
           // Property Preferences
+          propertyId: selectedListing?.id || null,
           propertyAddress: formData.propertyAddress,
           bedroomsDesired: formData.bedroomsDesired,
           bathroomsDesired: formData.bathroomsDesired,
@@ -1059,21 +1120,10 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
                       Upload a valid government-issued photo ID (for yourself and all adult occupants) <span className="text-rose-500">*</span>
                     </label>
                     <p className="text-xs text-slate-500 mb-2">Upload up to 5 files. Max 10 MB per file. Accepted: PDF, JPG, PNG</p>
-                    <input 
-                      type="file" 
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      multiple
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
-                        setFormData({...formData, photoIdFiles: files});
-                      }}
-                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    <FileListInput
+                      files={formData.photoIdFiles}
+                      onChange={(files) => setFormData((prev) => ({ ...prev, photoIdFiles: files }))}
                     />
-                    {formData.photoIdFiles.length > 0 && (
-                      <div className="mt-2 text-sm text-slate-600">
-                        {formData.photoIdFiles.length} file(s) selected
-                      </div>
-                    )}
                   </div>
                 </div>
                 
@@ -1113,21 +1163,10 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
                       Upload 2 Most Recent Pay Stubs or 2 Months of Bank Statements <span className="text-rose-500">*</span>
                     </label>
                     <p className="text-xs text-slate-500 mb-2">Upload up to 5 files. Max 10 MB per file. Accepted: PDF, JPG, PNG</p>
-                    <input 
-                      type="file" 
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      multiple
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
-                        setFormData({...formData, incomeVerificationFiles: files});
-                      }}
-                      className="w-full p-2.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    <FileListInput
+                      files={formData.incomeVerificationFiles}
+                      onChange={(files) => setFormData((prev) => ({ ...prev, incomeVerificationFiles: files }))}
                     />
-                    {formData.incomeVerificationFiles.length > 0 && (
-                      <div className="mt-2 text-sm text-slate-600">
-                        {formData.incomeVerificationFiles.length} file(s) selected
-                      </div>
-                    )}
                   </div>
                 </div>
                 

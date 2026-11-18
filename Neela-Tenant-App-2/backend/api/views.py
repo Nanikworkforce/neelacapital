@@ -306,6 +306,35 @@ def dashboard_stats(request):
 
 
 # Note: OAuth callback and token refresh functions removed - using JWT authentication instead
+def _mark_tenant_property_occupied(tenant):
+    """After Finalize Move-In, flag the applied-for property Occupied so it stops taking applications."""
+    app = tenant.application_data or {}
+    prop = None
+    prop_id = app.get('propertyId')
+    if prop_id:
+        prop = Property.objects.filter(pk=prop_id).first()
+    if prop is None:
+        wanted = (app.get('propertyAddress') or '').strip().lower()
+        if wanted:
+            candidates = [
+                p for p in Property.objects.all()
+                if f"{p.address}, {p.city}, {p.state}".strip().lower() == wanted
+            ]
+            unit_label = (tenant.property_unit or '').lower()
+            named = [p for p in candidates if (p.name or '').strip().lower() in unit_label]
+            if len(named) == 1:
+                prop = named[0]
+            elif len(candidates) == 1:
+                prop = candidates[0]
+    if prop is None:
+        logger.info('Finalize move-in: no property match for tenant %s', tenant.id)
+        return
+    if prop.status != 'occupied':
+        prop.status = 'occupied'
+        prop.save(update_fields=['status'])
+        logger.info('Property %s marked occupied after move-in of tenant %s', prop.id, tenant.id)
+
+
 class TenantViewSet(viewsets.ModelViewSet):
     queryset = Tenant.objects.all()
     serializer_class = TenantSerializer
@@ -378,6 +407,9 @@ class TenantViewSet(viewsets.ModelViewSet):
         
         tenant = serializer.save()
         new_status = tenant.status
+
+        if old_status != 'Active' and new_status == 'Active':
+            _mark_tenant_property_occupied(tenant)
         
         # If status changed from 'Applicant' to 'Approved', OR from 'Approved'/'Signed' to 'Active' (Move-In)
         # Ensure user account exists and send setup email if they haven't set a password yet

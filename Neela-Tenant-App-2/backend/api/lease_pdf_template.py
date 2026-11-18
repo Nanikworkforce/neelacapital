@@ -162,26 +162,184 @@ def _fill_blank(page: fitz.Page, rect: fitz.Rect, text: str, fontsize: float = 1
 
 
 def _queue_checkbox(page: fitz.Page, box_rect: fitz.Rect, pending_marks: list) -> None:
-    """Redact empty ☐ glyph; queue an X to draw after redactions apply."""
+    """Keep the printed ☐ and queue a tick to draw inside it."""
     if box_rect.is_empty:
         return
-    pad = fitz.Rect(box_rect.x0 - 1.0, box_rect.y0 - 1.0, box_rect.x1 + 1.0, box_rect.y1 + 1.0)
-    page.add_redact_annot(pad, fill=(1, 1, 1))
     pending_marks.append(box_rect)
+
+
+def _visible_box(glyph_rect: fitz.Rect) -> fitz.Rect:
+    """Approximate the drawn square of a ☐ glyph inside its (taller) font bbox."""
+    side = min(glyph_rect.width * 0.82, glyph_rect.height * 0.62)
+    cx = (glyph_rect.x0 + glyph_rect.x1) / 2
+    bottom = glyph_rect.y1 - glyph_rect.height * 0.22
+    return fitz.Rect(cx - side / 2, bottom - side, cx + side / 2, bottom)
+
+
+def _draw_tick(page: fitz.Page, glyph_rect: fitz.Rect) -> None:
+    box = _visible_box(glyph_rect)
+    w, h = box.width, box.height
+    page.draw_polyline(
+        [
+            fitz.Point(box.x0 + w * 0.18, box.y0 + h * 0.52),
+            fitz.Point(box.x0 + w * 0.42, box.y0 + h * 0.80),
+            fitz.Point(box.x0 + w * 0.86, box.y0 + h * 0.12),
+        ],
+        color=(0, 0, 0),
+        width=max(1.0, w * 0.14),
+        closePath=False,
+        lineCap=1,
+        lineJoin=1,
+    )
 
 
 def _draw_checkbox_marks(page: fitz.Page, marks: list[fitz.Rect]) -> None:
     for box_rect in marks:
-        size = min(10.5, max(8.0, box_rect.height * 0.78))
-        x = box_rect.x0 + (box_rect.width - size * 0.55) / 2
-        y = box_rect.y0 + box_rect.height * 0.78
-        page.insert_text(
-            fitz.Point(x, y),
-            "X",
-            fontsize=size,
-            fontname="helv",
-            color=(0, 0, 0),
-        )
+        _draw_tick(page, box_rect)
+
+
+class _FontCache:
+    """Reuse the lease's own embedded fonts so reflowed text matches the document."""
+
+    def __init__(self, doc: fitz.Document):
+        self.doc = doc
+        self._by_base: dict[str, tuple[str, fitz.Font] | None] = {}
+        self._inserted: set[tuple[int, str]] = set()
+        self._xrefs: dict[str, int] = {}
+        for page in doc:
+            for xref, _ext, ftype, basefont, _name, _enc in page.get_fonts():
+                base = basefont.split("+", 1)[-1]
+                if ftype == "TrueType" and base not in self._xrefs:
+                    self._xrefs[base] = xref
+
+    def get(self, base: str) -> tuple[str, fitz.Font] | None:
+        if base in self._by_base:
+            return self._by_base[base]
+        entry = None
+        xref = self._xrefs.get(base)
+        if xref:
+            try:
+                _n, _e, _t, buf = self.doc.extract_font(xref)
+                if buf:
+                    alias = "nl_" + re.sub(r"[^A-Za-z0-9]", "", base)[:20]
+                    entry = (alias, fitz.Font(fontbuffer=buf), buf)
+            except Exception as e:
+                logger.warning("Could not extract lease font %s: %s", base, e)
+        self._by_base[base] = entry
+        return entry
+
+    def ensure_on_page(self, page: fitz.Page, base: str) -> tuple[str, fitz.Font] | None:
+        entry = self.get(base)
+        if entry is None:
+            return None
+        alias, font, buf = entry
+        key = (page.number, alias)
+        if key not in self._inserted:
+            page.insert_font(fontname=alias, fontbuffer=buf)
+            self._inserted.add(key)
+        return alias, font
+
+
+def _span_chars(line: dict) -> list[dict]:
+    out = []
+    for sp in line.get("spans", []):
+        base = str(sp.get("font") or "").split("+", 1)[-1]
+        for c in sp.get("chars") or []:
+            out.append({**c, "_font": base, "_size": float(sp.get("size") or 10.0), "_color": sp.get("color", 0)})
+    return out
+
+
+def _rgb(color_int: int) -> tuple[float, float, float]:
+    c = int(color_int or 0) & 0xFFFFFF
+    return ((c >> 16) / 255.0, ((c >> 8) & 0xFF) / 255.0, (c & 0xFF) / 255.0)
+
+
+_RIGHT_MARGIN = 545.0
+
+
+def _plan_reflow(chars: list[dict], filled: dict[int, tuple[int, str]]) -> dict | None:
+    """filled: run_start_index -> (run_end_index, value). Returns redact rect + tail."""
+    if not filled:
+        return None
+    start = min(filled)
+    tail = chars[start:]
+    if not tail:
+        return None
+    ys0 = [c["bbox"][1] for c in tail]
+    ys1 = [c["bbox"][3] for c in tail]
+    band_top = min(ys0) + 1.5
+    band_bot = max(ys1) - 1.5
+    rect = fitz.Rect(tail[0]["bbox"][0] - 0.3, band_top, max(c["bbox"][2] for c in tail) + 0.6, band_bot)
+    return {"start": start, "rect": rect, "filled": filled}
+
+
+def _draw_reflow(page: fitz.Page, chars: list[dict], plan: dict, fonts: _FontCache, value_size: float,
+                 check_shift: dict) -> None:
+    start = plan["start"]
+    filled = plan["filled"]
+    # Values use regular Calibri: the bold subset lacks many glyphs (x, J, @, +).
+    value_font = fonts.ensure_on_page(page, "Calibri")
+    if value_font:
+        all_values = "".join(v for _e, v in filled.values())
+        if any(not value_font[1].has_glyph(ord(ch)) for ch in all_values if not ch.isspace()):
+            value_font = None
+    baseline = chars[start]["origin"][1]
+    x0 = chars[start]["bbox"][0]
+
+    # Build drawing segments: ("value", text) | ("text", text, font, size, color) | ("box", glyph_rect)
+    segments: list[tuple] = []
+    i, n = start, len(chars)
+    while i < n:
+        if i in filled:
+            end, value = filled[i]
+            segments.append(("value", value))
+            i = end
+            continue
+        c = chars[i]
+        if "Symbol" in c["_font"]:
+            segments.append(("box", c))
+            i += 1
+            continue
+        j = i
+        while j < n and j not in filled and chars[j]["_font"] == c["_font"] and "Symbol" not in chars[j]["_font"]:
+            j += 1
+        segments.append(("text", "".join(ch["c"] for ch in chars[i:j]), c["_font"], c["_size"], c["_color"]))
+        i = j
+
+    def seg_width(seg, vsize):
+        if seg[0] == "value":
+            return value_font[1].text_length(seg[1], vsize) if value_font else len(seg[1]) * vsize * 0.5
+        if seg[0] == "box":
+            b = seg[1]["bbox"]
+            return b[2] - b[0]
+        f = fonts.get(seg[2])
+        return f[1].text_length(seg[1], seg[3]) if f else len(seg[1]) * seg[3] * 0.5
+
+    vsize = value_size
+    while vsize > 7.0 and x0 + sum(seg_width(s, vsize) for s in segments) > _RIGHT_MARGIN:
+        vsize -= 0.25
+
+    x = x0
+    for seg in segments:
+        w = seg_width(seg, vsize)
+        if seg[0] == "value":
+            if value_font:
+                page.insert_text(fitz.Point(x, baseline), seg[1], fontname=value_font[0], fontsize=vsize, color=(0, 0, 0))
+            else:
+                page.insert_text(fitz.Point(x, baseline), seg[1], fontname="helv", fontsize=vsize * 0.92, color=(0, 0, 0))
+        elif seg[0] == "box":
+            b = fitz.Rect(seg[1]["bbox"])
+            moved = fitz.Rect(x, b.y0, x + b.width, b.y1)
+            vb = _visible_box(moved)
+            page.draw_rect(vb, color=(0, 0, 0), width=0.6)
+            check_shift[(round(b.x0, 1), round(b.y0, 1))] = x - b.x0
+        else:
+            f = fonts.ensure_on_page(page, seg[2])
+            page.insert_text(
+                fitz.Point(x, baseline), seg[1],
+                fontname=f[0] if f else "helv", fontsize=seg[3], color=_rgb(seg[4]),
+            )
+        x += w
 
 
 def _write_runs(page, chars, runs, values: list[str | None], fontsize: float) -> None:
@@ -223,8 +381,11 @@ def _resolve_blank_line(text: str, counters: dict[str, int]) -> list[str] | None
         return ["{{bedrooms}}"]
     if t.startswith("Bathroom(s):"):
         return ["{{bathrooms}}"]
-    if "furnished with the following:" in t:
-        return ["{{furnishings_list}}"]
+    tn = t.replace("\u2010", "-")
+    if "Semi-furnished (" in tn:
+        return ["{{furnish_semi_items}}"]
+    if "Fully furnished (" in tn:
+        return ["{{furnish_full_items}}"]
     if t.startswith("Appliances Included:"):
         return ["{{appliances_list}}"]
     if t.startswith("Monthly Rent:"):
@@ -384,9 +545,15 @@ def _resolve_checkbox_line(text: str, counters: dict[str, int]) -> str | None:
         counters[name] = n + 1
         return n
 
+    t = t.replace("\u2010", "-")
+    if t == "Unfurnished":
+        return "{{furnished_none}}"
+    if t.startswith("Semi-furnished"):
+        return "{{furnished_semi}}"
+    if t.startswith("Fully furnished"):
+        return "{{furnished_full}}"
+
     rules = [
-        ("The Property is not furnished.", "{{furnished_no}}"),
-        ("The Property is furnished with the following:", "{{furnished_yes}}"),
         ("ACH (electronic bank transfer)", "{{pay_ach}}"),
         ("Cash", "{{pay_cash}}"),
         ("Check", "{{pay_check}}"),
@@ -477,16 +644,17 @@ def render_filled_template_pdf(replacements: dict[str, Any]) -> bytes:
     doc = fitz.open(str(TEMPLATE_PDF_PATH))
     out = BytesIO()
     counters: dict[str, int] = {}
+    fonts = _FontCache(doc)
     try:
         for page in doc:
             pending_checks: list[fitz.Rect] = []
-            pending_blanks: list[tuple[fitz.Rect, str, float]] = []
+            pending_reflows: list[tuple[list[dict], dict, float]] = []
             raw = page.get_text("rawdict")
             for block in raw.get("blocks", []):
                 if block.get("type") != 0:
                     continue
                 for line in block.get("lines", []):
-                    chars = _line_chars(line)
+                    chars = _span_chars(line)
                     if not chars:
                         continue
                     text = _line_text(chars)
@@ -563,23 +731,30 @@ def render_filled_template_pdf(replacements: dict[str, Any]) -> bytes:
                         continue
 
                     values = [_value_for_key(k, replacements) for k in keys]
-                    for run, value in zip(runs, values):
-                        if not value:
-                            continue
-                        pending_blanks.append(
-                            (
-                                _bbox_for_range(chars, run[0], run[1]),
-                                value,
-                                max(8.5, fontsize - 0.5),
-                            )
-                        )
+                    filled = {
+                        run[0]: (run[1], value)
+                        for run, value in zip(runs, values)
+                        if value
+                    }
+                    plan = _plan_reflow(chars, filled)
+                    if plan:
+                        pending_reflows.append((chars, plan, fontsize))
 
-            # Redact checkbox glyphs once per page, then paint marks + blanks
-            if pending_checks:
-                page.apply_redactions()
-                _draw_checkbox_marks(page, pending_checks)
-            for rect, value, size in pending_blanks:
-                _fill_blank(page, rect, value, fontsize=size)
+            # Remove each filled line's tail (blank + following words), then redraw it
+            # with the value in place so no wide gap is left where the blank was.
+            for _chars, plan, _size in pending_reflows:
+                page.add_redact_annot(plan["rect"], fill=None)
+            if pending_reflows:
+                page.apply_redactions(
+                    images=fitz.PDF_REDACT_IMAGE_NONE,
+                    graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+                )
+            check_shift: dict[tuple[float, float], float] = {}
+            for chars, plan, size in pending_reflows:
+                _draw_reflow(page, chars, plan, fonts, size, check_shift)
+            for box in pending_checks:
+                dx = check_shift.get((round(box.x0, 1), round(box.y0, 1)), 0.0)
+                _draw_tick(page, fitz.Rect(box.x0 + dx, box.y0, box.x1 + dx, box.y1))
 
         doc.save(out, deflate=True, garbage=4)
     finally:
