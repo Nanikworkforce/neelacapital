@@ -307,6 +307,14 @@ def _resolve_blank_line(text: str, counters: dict[str, int]) -> list[str] | None
         return ["{{tenant_mailing_address}}"]
     if "no more than" in t and "hours" in t:
         return ["{{guest_hours}}"]
+    # Execution block Print Name lines: landlord, tenant, occupant (in that order)
+    if t.startswith("Print Name:"):
+        n = take("print_name")
+        return [
+            ("{{landlord_print_name}}", "{{tenant_print_name}}", "{{occupant_print_name}}")[n]
+            if n < 3
+            else ""
+        ]
     # NSF clause wraps: "...a penalty equal to" / "☐ $____ ☐ the maximum allowable..."
     if "maximum allowable statutory" in t and "$" in t:
         return ["{{nsf_amount}}"]

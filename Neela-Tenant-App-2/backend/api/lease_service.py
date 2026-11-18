@@ -549,7 +549,26 @@ def build_lease_replacements(tenant: Tenant) -> dict:
     else:
         due_total = _money(due_total)
 
+    occupant_print_name = ''
+    for o in (application_data.get('otherOccupantsList') or []):
+        if not isinstance(o, dict) or not str(o.get('name') or '').strip():
+            continue
+        try:
+            is_adult = int(str(o.get('age') or '').strip()) >= 18
+        except ValueError:
+            is_adult = True
+        if is_adult:
+            occupant_print_name = str(o.get('name')).strip()
+            break
+
     replacements.update({
+        '{{landlord_print_name}}': (
+            getattr(settings, 'LANDLORD_NAME', None)
+            or getattr(settings, 'PROPERTY_MANAGER_NAME', None)
+            or 'NEELA CAPITAL INVESTMENTS'
+        ),
+        '{{tenant_print_name}}': tenant.name,
+        '{{occupant_print_name}}': occupant_print_name,
         '{{occupant_phone}}': _val_or_blank(
             application_data.get('occupantPhone')
             or opts.get('occupantPhone')
