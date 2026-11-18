@@ -235,13 +235,46 @@ def _stamp_signature(page: fitz.Page, rect: fitz.Rect, data_url: str) -> None:
         return
     if not image_bytes:
         return
-    box = _expand_for_signature(rect)
-    # Clear the underscore line fully so the image is visible
-    _whiteout(page, fitz.Rect(rect.x0 - 0.5, box.y0, rect.x1 + 0.5, rect.y1 + 0.8))
+    image_bytes, aspect = _crop_signature(image_bytes)
+    band = _expand_for_signature(rect)
+    # Signature pads leave wide transparent margins; after cropping to the ink,
+    # size it to the band and sit it at the start of the line (line stays visible).
+    height = band.height + 4.0
+    width = min(rect.width, height * aspect) if aspect else rect.width
+    if aspect and width < height * aspect:
+        height = width / aspect
+    box = fitz.Rect(rect.x0 + 2.0, rect.y1 - height + 2.0, rect.x0 + 2.0 + width, rect.y1 + 2.0)
     try:
         page.insert_image(box, stream=image_bytes, keep_proportion=True)
     except Exception as e:
         logger.warning('Failed to insert signature image: %s', e)
+
+
+def _crop_signature(image_bytes: bytes) -> tuple[bytes, float]:
+    """Trim transparent / white margins around the ink. Returns (png bytes, width/height)."""
+    try:
+        from io import BytesIO
+        from PIL import Image, ImageChops
+
+        img = Image.open(BytesIO(image_bytes)).convert('RGBA')
+        alpha_box = img.getchannel('A').getbbox()
+        white = Image.new('RGBA', img.size, (255, 255, 255, 255))
+        flat = Image.alpha_composite(white, img).convert('L')
+        ink_box = ImageChops.invert(flat).point(lambda v: 255 if v > 40 else 0).getbbox()
+        bbox = ink_box or alpha_box
+        if bbox:
+            pad = 4
+            bbox = (
+                max(0, bbox[0] - pad), max(0, bbox[1] - pad),
+                min(img.width, bbox[2] + pad), min(img.height, bbox[3] + pad),
+            )
+            img = img.crop(bbox)
+        out = BytesIO()
+        img.save(out, format='PNG')
+        return out.getvalue(), (img.width / img.height if img.height else 0.0)
+    except Exception as e:
+        logger.warning('Could not crop signature image: %s', e)
+        return image_bytes, 0.0
 
 
 def _format_date(raw: Any) -> str:
