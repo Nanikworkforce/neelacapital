@@ -292,12 +292,6 @@ export const useApplication = (): UseApplicationReturn => {
       return;
     }
     
-    const hasValidOccupant = formData.otherOccupantsList.some(o => o.name.trim() !== '');
-    if (!hasValidOccupant) {
-      reportApplicationError('Please provide at least one other occupant (name and age)');
-      return;
-    }
-    
     if (formData.hasRentedRecently === null) {
       reportApplicationError('Please indicate if you have rented in the past 2 years');
       return;
@@ -963,7 +957,7 @@ export const ApplicationFormView: React.FC<ApplicationFormViewProps> = ({
                   
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-3">
-                      Names of All Other Occupants (Include ages of minors) <span className="text-rose-500">*</span>
+                      Names of All Other Occupants (Include ages of minors) <span className="text-slate-400 font-normal">(optional)</span>
                     </label>
                     <div className="space-y-3">
                       {formData.otherOccupantsList.map((occupant, index) => (
