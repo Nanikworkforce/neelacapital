@@ -501,7 +501,8 @@ def render_filled_template_pdf(replacements: dict[str, Any]) -> bytes:
                                 _queue_checkbox(
                                     page, _bbox_for_range(chars, ci, ci + 1), pending_checks
                                 )
-                            elif after.startswith("for each day") and _is_checked(
+                            # "for each day" may wrap, leaving only "for" on this line
+                            elif after.startswith("for") and _is_checked(
                                 replacements.get("{{late_fee_daily}}")
                             ):
                                 _queue_checkbox(
