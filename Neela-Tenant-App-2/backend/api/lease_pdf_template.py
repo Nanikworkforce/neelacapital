@@ -307,10 +307,13 @@ def _resolve_blank_line(text: str, counters: dict[str, int]) -> list[str] | None
         return ["{{tenant_mailing_address}}"]
     if "no more than" in t and "hours" in t:
         return ["{{guest_hours}}"]
+    # NSF clause wraps: "...a penalty equal to" / "☐ $____ ☐ the maximum allowable..."
+    if "maximum allowable statutory" in t and "$" in t:
+        return ["{{nsf_amount}}"]
     # Guests clause wraps: "...no more" / "than ______ hours."
     if t.startswith("than") and "hours" in t:
         return ["{{guest_hours}}"]
-    if t.startswith("Within") and "hours of the Tenant's occupancy" in t:
+    if "Within" in t and "hours of the Tenant" in t and "occupancy" in t:
         return ["{{occupancy_accept_hours}}"]
     if "by providing" in t and "hours' notice" in t:
         return ["{{entry_notice_hours}}"]
