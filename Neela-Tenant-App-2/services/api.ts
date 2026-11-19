@@ -1497,7 +1497,7 @@ export const api = {
   },
 
   // Lease Generation API
-  generateLease: async (tenantId: string, templateId?: string, customContent?: string): Promise<any> => {
+  generateLease: async (tenantId: string, templateId?: string, customContent?: string, fillValues?: string[]): Promise<any> => {
     const body: any = {
       tenant_id: tenantId,
     };
@@ -1506,6 +1506,9 @@ export const api = {
     }
     if (customContent) {
       body.custom_content = customContent;
+    }
+    if (fillValues && fillValues.length) {
+      body.fill_values = fillValues;
     }
     const response = await fetchWithAuth(`${API_URL}/legal-documents/generate_lease/`, {
       method: 'POST',

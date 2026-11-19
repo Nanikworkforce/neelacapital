@@ -139,13 +139,13 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
     }
   };
 
-  const BLANK_RE = /_{3,}|\[ \]/g;
+  const BLANK_RE = /_{4,}|\[\s*\]/g;
 
   const buildFinalDoc = () => {
     let i = 0;
     return generatedDoc.replace(BLANK_RE, (m) => {
       const v = (blankValues[i++] || '').trim();
-      if (m === '[ ]') return v ? '[X]' : '[ ]';
+      if (m.startsWith('[')) return v ? '[X]' : m;
       return v || m;
     });
   };
@@ -158,7 +158,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
       const idx = i++;
       const start = m.index ?? 0;
       parts.push(generatedDoc.slice(last, start));
-      if (m[0] === '[ ]') {
+      if (m[0].startsWith('[')) {
         parts.push(
           <input
             key={idx}
@@ -195,7 +195,9 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
             let latestDoc: any;
             const hasEdits = Object.values(blankValues).some(v => v.trim() !== '');
             if (hasEdits) {
-              latestDoc = await api.generateLease(selectedTenantId, generatedTemplateId || undefined, buildFinalDoc());
+              const count = (generatedDoc.match(BLANK_RE) || []).length;
+              const fillValues = Array.from({ length: count }, (_, i) => blankValues[i] || '');
+              latestDoc = await api.generateLease(selectedTenantId, generatedTemplateId || undefined, undefined, fillValues);
             } else if (generatedDocId) {
               latestDoc = { id: generatedDocId };
             } else {

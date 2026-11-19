@@ -742,17 +742,59 @@ def bake_inline_fills(content: str, values: dict) -> str:
     return _cap_underscore_runs('\n\n'.join(out_paras))
 
 
-def _pdf_markup_line(text: str) -> str:
+_FILL_BLANK_RE = re.compile(r'_{4,}|\[\s*\]')
+_FILL_MARK_RE = re.compile(r'\x00(\d+)\x00')
+
+
+def _escape_markup(text: str) -> str:
+    return (text or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def mark_fill_values(content: str, fill_values) -> tuple[str, dict, str]:
+    """
+    Replace blanks (____ / [ ]) that have a typed value with \\x00i\\x00 markers.
+    Returns (marked content, {i: markup}, plain filled text). Order matches the
+    frontend's blank indexing over generated_content.
+    """
+    values = list(fill_values or [])
+    markup: dict[int, str] = {}
+    counter = {'i': 0}
+
+    def sub_marked(m):
+        i = counter['i']
+        counter['i'] += 1
+        raw = values[i] if i < len(values) else ''
+        val = str(raw).strip() if raw not in (None, False) else ''
+        if not val:
+            return m.group(0)
+        if m.group(0).startswith('['):
+            markup[i] = '[<b>X</b>]'
+        else:
+            markup[i] = f'<u><font color="#1e3a8a">&nbsp;{_escape_markup(val)}&nbsp;</font></u>'
+        return f'\x00{i}\x00'
+
+    marked = _FILL_BLANK_RE.sub(sub_marked, content or '')
+    counter['i'] = 0
+
+    def sub_plain(m):
+        i = counter['i']
+        counter['i'] += 1
+        raw = values[i] if i < len(values) else ''
+        val = str(raw).strip() if raw not in (None, False) else ''
+        if not val:
+            return m.group(0)
+        return '[X]' if m.group(0).startswith('[') else val
+
+    plain = _FILL_BLANK_RE.sub(sub_plain, content or '')
+    return marked, markup, plain
+
+
+def _pdf_markup_line(text: str, fills: dict | None = None) -> str:
     """
     Escape text for ReportLab Paragraph and convert underscore blanks to
     underlined non-breaking spaces so wrap never splits a ____ run mid-glyph.
     """
-    escaped = (
-        (text or '')
-        .replace('&', '&amp;')
-        .replace('<', '&lt;')
-        .replace('>', '&gt;')
-    )
+    escaped = _escape_markup(text)
 
     def blank_to_underline(match: re.Match) -> str:
         # Cap visual width (~0.4–1.6"); &nbsp; underline stays one visual blank
@@ -760,6 +802,8 @@ def _pdf_markup_line(text: str) -> str:
         return f'<u>{"&nbsp;" * n}</u>'
 
     escaped = re.sub(r'_{4,}', blank_to_underline, escaped)
+    if fills:
+        escaped = _FILL_MARK_RE.sub(lambda m: fills.get(int(m.group(1)), ''), escaped)
     return escaped.replace('\n', '<br/>')
 
 
@@ -774,7 +818,11 @@ def _lease_logo_path():
     return None
 
 
-def render_lease_pdf_bytes(filled_content: str, title: str = 'RESIDENTIAL LEASE APPLICATION') -> bytes:
+def render_lease_pdf_bytes(
+    filled_content: str,
+    title: str = 'RESIDENTIAL LEASE APPLICATION',
+    fills: dict | None = None,
+) -> bytes:
     """Render lease/application text content to a PDF byte string (fallback path)."""
     from reportlab.platypus import Image as RLImage
 
@@ -844,7 +892,7 @@ def render_lease_pdf_bytes(filled_content: str, title: str = 'RESIDENTIAL LEASE 
             )
         )
         style = header_style if is_header and '\n' not in raw else body_style
-        elements.append(Paragraph(_pdf_markup_line(raw), style))
+        elements.append(Paragraph(_pdf_markup_line(raw, fills), style))
         elements.append(Spacer(1, 0.1 * inch))
 
     doc.build(elements)
@@ -852,7 +900,7 @@ def render_lease_pdf_bytes(filled_content: str, title: str = 'RESIDENTIAL LEASE 
     return buffer.read()
 
 
-def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
+def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None, fill_values=None):
     """
     Generate PDF lease document from template.
     
@@ -894,6 +942,12 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None):
     # Fill text template (signing UI / audit). Prefer Adobe PDF Services on
     # AcroForm template when configured; else Neela blank overlay; else text PDF.
     filled_content = fill_lease_template(template.content, tenant)
+    if fill_values:
+        marked, fills, plain = mark_fill_values(filled_content, fill_values)
+        pdf_bytes = render_lease_pdf_bytes(
+            marked, template.name or 'RESIDENTIAL LEASE APPLICATION', fills
+        )
+        return BytesIO(pdf_bytes), plain
     replacements = build_lease_replacements(tenant)
     pdf_bytes = None
     use_branded = False

@@ -2198,6 +2198,9 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         tenant_id = request.data.get('tenant_id')
         template_id = request.data.get('template_id')
         custom_content = request.data.get('custom_content')  # Optional custom content
+        fill_values = request.data.get('fill_values')
+        if not isinstance(fill_values, list):
+            fill_values = None
         
         if not tenant_id:
             return Response(
@@ -2228,7 +2231,9 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         
         try:
             # Generate PDF - use custom content if provided, otherwise generate from template
-            if custom_content:                
+            if fill_values:
+                pdf_buffer, filled_content = generate_lease_pdf(tenant, template, fill_values=fill_values)
+            elif custom_content:                
                 buffer = BytesIO()
                 doc = SimpleDocTemplate(buffer, pagesize=letter,
                                        rightMargin=72, leftMargin=72,
