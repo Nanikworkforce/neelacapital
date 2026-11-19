@@ -2402,7 +2402,7 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         custom_content = request.data.get('custom_content')  # Optional custom content
         fill_values = request.data.get('fill_values')
         if not isinstance(fill_values, list):
-            fill_values = None
+            fill_values = [] if request.data.get('is_notice') else None
         
         if not tenant_id:
             return Response(
@@ -2433,7 +2433,7 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         
         try:
             # Generate PDF - use custom content if provided, otherwise generate from template
-            if fill_values:
+            if fill_values is not None:
                 pdf_buffer, filled_content = generate_lease_pdf(tenant, template, fill_values=fill_values)
             elif custom_content:                
                 buffer = BytesIO()
@@ -3518,6 +3518,69 @@ class EmailTestViewSet(viewsets.ViewSet):
 
 # ==================== Token-based in-house lease signing ====================
 
+def _clean_signature_image(data_url: str) -> str:
+    """Decode a signature image, make the paper background transparent, crop to the ink."""
+    import base64
+    from PIL import Image
+
+    header, _, payload = data_url.partition(',')
+    if not header.startswith('data:image') or not payload:
+        raise ValueError('Signature must be a PNG or JPG image.')
+    raw = base64.b64decode(payload)
+    if len(raw) > 3 * 1024 * 1024:
+        raise ValueError('Signature image is too large (max 3 MB).')
+    img = Image.open(BytesIO(raw)).convert('RGBA')
+    img.thumbnail((1800, 600))
+    px = img.load()
+    w, h = img.size
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if a and r > 215 and g > 215 and b > 215:
+                px[x, y] = (255, 255, 255, 0)
+    bbox = img.getchannel('A').point(lambda v: 255 if v > 20 else 0).getbbox()
+    if not bbox:
+        raise ValueError('The signature looks empty. Please draw or upload it again.')
+    pad = 6
+    img = img.crop((max(0, bbox[0] - pad), max(0, bbox[1] - pad), min(w, bbox[2] + pad), min(h, bbox[3] + pad)))
+    img.thumbnail((900, 300))
+    out = BytesIO()
+    img.save(out, format='PNG', optimize=True)
+    return 'data:image/png;base64,' + base64.b64encode(out.getvalue()).decode('ascii')
+
+
+@api_view(['GET', 'POST', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def landlord_signature(request):
+    """Saved landlord signature stamped on leases and notices (admin / property manager)."""
+    if not is_staff_portal_user(request.user):
+        raise PermissionDenied('Admin or property manager access required.')
+    if request.method == 'GET':
+        sig = SavedSignature.objects.filter(role=SavedSignature.ROLE_LANDLORD).first()
+        if not sig:
+            return Response({'image': '', 'updated_at': None, 'signer_name': ''})
+        return Response({'image': sig.image_data, 'updated_at': sig.updated_at, 'signer_name': sig.signer_name})
+    if request.method == 'DELETE':
+        SavedSignature.objects.filter(role=SavedSignature.ROLE_LANDLORD).delete()
+        return Response({'message': 'Saved signature removed.'})
+    try:
+        image = _clean_signature_image(str(request.data.get('image') or ''))
+    except ValueError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.warning(f"Could not read signature image: {e}")
+        return Response({'error': 'Could not read that image. Please try a PNG or JPG.'}, status=status.HTTP_400_BAD_REQUEST)
+    sig, _ = SavedSignature.objects.update_or_create(
+        role=SavedSignature.ROLE_LANDLORD,
+        defaults={
+            'image_data': image,
+            'signer_name': (request.data.get('signer_name') or '').strip()[:255],
+            'updated_by': request.user,
+        },
+    )
+    return Response({'image': sig.image_data, 'updated_at': sig.updated_at, 'signer_name': sig.signer_name})
+
+
 TENANT_PROFILE_FIELDS = (
     'dateOfBirth', 'currentAddress', 'currentEmployer', 'jobTitle', 'monthlyIncome',
     'emergencyContactName', 'emergencyContactRelationship', 'emergencyContactPhone',
@@ -3607,6 +3670,7 @@ def sign_lease_by_token(request):
         complete_landlord_signature,
         complete_tenant_signature,
         fields_for_role,
+        get_saved_signature,
         stamp_and_save,
     )
     from .models import LeaseSigningToken as LST
@@ -3667,6 +3731,7 @@ def sign_lease_by_token(request):
             'pdf_url': pdf_proxy_url,
             'generated_content': legal_doc.generated_content or '',
             'fields': fields,
+            'saved_signature': get_saved_signature('landlord') if role == LST.ROLE_LANDLORD else '',
         }, status=status.HTTP_200_OK)
 
     # POST — submit signed values for this party

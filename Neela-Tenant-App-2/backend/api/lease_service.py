@@ -790,7 +790,35 @@ def mark_fill_values(content: str, fill_values) -> tuple[str, dict, str]:
     return marked, markup, plain
 
 
-def _pdf_markup_line(text: str, fills: dict | None = None) -> str:
+_LANDLORD_SIG_LINE_RE = re.compile(r"(Landlord(?:'s)?\s+Signature\s*:?\s*)<u>(?:&nbsp;)+</u>", re.I)
+
+
+def _write_signature_temp(data_url: str):
+    """Decode a signature data URL to a temp PNG; returns (path, width_pt, height_pt) or None."""
+    import base64
+    import tempfile
+    from PIL import Image
+
+    try:
+        raw = base64.b64decode(data_url.split(',', 1)[1])
+        img = Image.open(BytesIO(raw))
+        w, h = img.size
+        tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+        tmp.write(raw)
+        tmp.close()
+        aspect = (w / h) if h else 3.0
+        height = 28.0
+        width = height * aspect
+        if width > 170.0:
+            width = 170.0
+            height = width / aspect
+        return tmp.name, width, height
+    except Exception as e:
+        logger.warning('Could not prepare saved signature image: %s', e)
+        return None
+
+
+def _pdf_markup_line(text: str, fills: dict | None = None, signature=None) -> str:
     """
     Escape text for ReportLab Paragraph and convert underscore blanks to
     underlined non-breaking spaces so wrap never splits a ____ run mid-glyph.
@@ -803,6 +831,12 @@ def _pdf_markup_line(text: str, fills: dict | None = None) -> str:
         return f'<u>{"&nbsp;" * n}</u>'
 
     escaped = re.sub(r'_{4,}', blank_to_underline, escaped)
+    if signature:
+        path, sw, sh = signature
+        escaped = _LANDLORD_SIG_LINE_RE.sub(
+            lambda m: f'{m.group(1)}<img src="{path}" width="{sw:.1f}" height="{sh:.1f}" valign="-6"/>',
+            escaped,
+        )
     if fills:
         escaped = _FILL_MARK_RE.sub(lambda m: fills.get(int(m.group(1)), ''), escaped)
     return escaped.replace('\n', '<br/>')
@@ -823,6 +857,7 @@ def render_lease_pdf_bytes(
     filled_content: str,
     title: str = 'RESIDENTIAL LEASE APPLICATION',
     fills: dict | None = None,
+    landlord_signature: str | None = None,
 ) -> bytes:
     """Render lease/application text content to a PDF byte string (fallback path)."""
     from reportlab.platypus import Image as RLImage
@@ -878,6 +913,9 @@ def render_lease_pdf_bytes(
     elements.append(Paragraph(doc_title.replace('&', '&amp;'), title_style))
     elements.append(Spacer(1, 0.1 * inch))
 
+    signature = _write_signature_temp(landlord_signature) if landlord_signature else None
+    sig_style = ParagraphStyle('LeaseBodySig', parent=body_style, autoLeading='max', spaceBefore=22)
+
     content = _cap_underscore_runs(filled_content or '')
     for para in content.split('\n\n'):
         raw = para.strip()
@@ -893,10 +931,20 @@ def render_lease_pdf_bytes(
             )
         )
         style = header_style if is_header and '\n' not in raw else body_style
-        elements.append(Paragraph(_pdf_markup_line(raw, fills), style))
+        markup = _pdf_markup_line(raw, fills, signature)
+        if '<img ' in markup:
+            style = sig_style
+        elements.append(Paragraph(markup, style))
         elements.append(Spacer(1, 0.1 * inch))
 
-    doc.build(elements)
+    try:
+        doc.build(elements)
+    finally:
+        if signature:
+            try:
+                os.unlink(signature[0])
+            except OSError:
+                pass
     buffer.seek(0)
     return buffer.read()
 
@@ -943,10 +991,16 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None, fill_valu
     # Fill text template (signing UI / audit). Prefer Adobe PDF Services on
     # AcroForm template when configured; else Neela blank overlay; else text PDF.
     filled_content = fill_lease_template(template.content, tenant)
-    if fill_values:
+    if fill_values is not None:
+        # Notices (Legal & Compliance): typed blanks + saved landlord signature
+        from .lease_signing import get_saved_signature
+
         marked, fills, plain = mark_fill_values(filled_content, fill_values)
         pdf_bytes = render_lease_pdf_bytes(
-            marked, template.name or 'RESIDENTIAL LEASE APPLICATION', fills
+            marked,
+            template.name or 'RESIDENTIAL LEASE APPLICATION',
+            fills,
+            landlord_signature=get_saved_signature('landlord') or None,
         )
         return BytesIO(pdf_bytes), plain
     replacements = build_lease_replacements(tenant)

@@ -11,6 +11,7 @@ from .views import (
     contact_manager,
     sign_lease_by_token,
     tenant_profile_by_token,
+    landlord_signature,
     manager_me,
     PropertyManagerViewSet,
     PropertyMonthInputViewSet,
@@ -39,4 +40,5 @@ urlpatterns = [
     path('contact-manager/', contact_manager, name='contact-manager'),
     path('sign-lease/', sign_lease_by_token, name='sign-lease-by-token'),
     path('tenant-profile/', tenant_profile_by_token, name='tenant-profile-by-token'),
+    path('landlord-signature/', landlord_signature, name='landlord-signature'),
 ]

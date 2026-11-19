@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Building2, FileText, DollarSign, Palette, Save, Plus, Trash2, Upload,
-  Check, AlertCircle, LayoutTemplate, Calendar, Home, Sliders, Mail, X, Loader2, UserCog
+  Check, AlertCircle, LayoutTemplate, Calendar, Home, Sliders, Mail, X, Loader2, UserCog, PenTool
 } from 'lucide-react';
+import LandlordSignaturePanel from './LandlordSignaturePanel';
 import { api } from '../services/api';
 import { Property } from '../types';
 import Modal from './Modal';
@@ -19,7 +20,7 @@ import {
 const PROPERTY_AREAS = PORTFOLIO_DISPLAY_ORDER;
 
 const SettingsView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'properties' | 'managers' | 'templates' | 'finance' | 'branding'>('properties');
+  const [activeTab, setActiveTab] = useState<'properties' | 'managers' | 'templates' | 'finance' | 'branding' | 'signature'>('properties');
 
   // Properties - Real API Data
   const [properties, setProperties] = useState<Property[]>([]);
@@ -417,6 +418,7 @@ ________________________ Tenant`);
           <TabButton id="templates" label="Application & Lease" icon={FileText} />
           <TabButton id="finance" label="Payment Rules" icon={DollarSign} />
           <TabButton id="branding" label="Branding & Look" icon={Palette} />
+          <TabButton id="signature" label="Landlord Signature" icon={PenTool} />
         </div>
 
         <div className="p-4 sm:p-6 flex-1 bg-slate-50/50">
@@ -687,6 +689,8 @@ ________________________ Tenant`);
               </div>
             </div>
           )}
+
+          {activeTab === 'signature' && <LandlordSignaturePanel />}
 
           {/* 4. BRANDING TAB */}
           {activeTab === 'branding' && (

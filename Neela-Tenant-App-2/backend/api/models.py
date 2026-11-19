@@ -816,3 +816,20 @@ class Inquiry(models.Model):
     def __str__(self):
         name = f'{self.first_name} {self.last_name}'.strip() or self.email
         return f'{name} ({self.source})'
+
+
+class SavedSignature(models.Model):
+    """Signature saved once and stamped wherever that party signs (e.g. the landlord)."""
+
+    ROLE_LANDLORD = 'landlord'
+
+    role = models.CharField(max_length=30, unique=True, default=ROLE_LANDLORD)
+    image_data = models.TextField(help_text='PNG data URL of the signature')
+    signer_name = models.CharField(max_length=255, blank=True, default='')
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+'
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'Saved signature ({self.role})'

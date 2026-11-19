@@ -25,6 +25,11 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
   const [generatedTemplateId, setGeneratedTemplateId] = useState<string>('');
   const [generatedDocId, setGeneratedDocId] = useState<string>('');
   const [blankValues, setBlankValues] = useState<Record<number, string>>({});
+  const [savedLandlordSig, setSavedLandlordSig] = useState<string>('');
+
+  useEffect(() => {
+    api.getLandlordSignature().then(s => setSavedLandlordSig(s.image || '')).catch(() => setSavedLandlordSig(''));
+  }, []);
 
   // History State
   const [history, setHistory] = useState<LegalDocument[]>([]);
@@ -121,7 +126,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
       const templateToUse = templates.find(t => t.name === templateName) || templates[0];
       
       if (templateToUse) {
-          const doc = await api.generateLease(tenant.id, templateToUse.id);
+          const doc = await api.generateLease(tenant.id, templateToUse.id, undefined, undefined, true);
           setGeneratedDoc(doc.generated_content);
           setGeneratedTemplateId(String(templateToUse.id));
           setGeneratedDocId(String(doc.id));
@@ -142,26 +147,53 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
   const BLANK_RE = /_{4,}|\[\s*\]/g;
 
   const MONEY_LINE_RE = /^\s*[^:\n]{1,40}:\s*\$/;
+  const LANDLORD_SIG_RE = /Landlord(?:'s)?\s+Signature\s*:?\s*_{4,}/i;
+
+  // Blank indexes on "Landlord Signature: ____" lines; the saved signature is
+  // stamped there by the server, so they are not typed into.
+  const getLandlordSigIndexes = (): Set<number> => {
+    const set = new Set<number>();
+    if (!savedLandlordSig) return set;
+    let idx = 0;
+    for (const line of generatedDoc.split('\n')) {
+      const blanks = line.match(BLANK_RE) || [];
+      if (blanks.length && LANDLORD_SIG_RE.test(line)) set.add(idx);
+      idx += blanks.length;
+    }
+    return set;
+  };
 
   // Typed values plus auto totals: a blank on a "Total ...: $" line sums the
-  // "$" amounts on the lines above it (back to the previous total).
+  // "$" amounts on the lines above it (back to the previous total). A "Date:"
+  // blank just below a stamped landlord signature defaults to today.
   const getEffectiveValues = (): string[] => {
     const out: string[] = [];
+    const sigIdx = getLandlordSigIndexes();
+    const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
     let idx = 0;
     let sum = 0;
     let hasAmount = false;
+    let linesSinceSig = Infinity;
     for (const line of generatedDoc.split('\n')) {
       const blanks = line.match(BLANK_RE) || [];
       const isMoney = MONEY_LINE_RE.test(line);
       const isTotal = isMoney && /total/i.test(line);
+      const isSigDate = /^\s*Date\s*:/i.test(line) && linesSinceSig <= 6;
+      let lineHasSig = false;
       for (let k = 0; k < blanks.length; k++) {
         let v = blankValues[idx] || '';
-        if (isTotal && !v.trim() && hasAmount) {
+        if (sigIdx.has(idx)) {
+          v = '';
+          lineHasSig = true;
+        } else if (isTotal && !v.trim() && hasAmount) {
           v = sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        } else if (isSigDate && blanks[k][0] === '_' && blankValues[idx] === undefined) {
+          v = today;
         }
         out.push(v);
         idx++;
       }
+      linesSinceSig = lineHasSig ? 0 : linesSinceSig + 1;
       if (!isMoney) continue;
       if (isTotal) {
         sum = 0;
@@ -191,13 +223,24 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
   const renderEditableDoc = () => {
     const parts: React.ReactNode[] = [];
     const eff = getEffectiveValues();
+    const sigIdx = getLandlordSigIndexes();
     let last = 0;
     let i = 0;
     for (const m of generatedDoc.matchAll(BLANK_RE)) {
       const idx = i++;
       const start = m.index ?? 0;
       parts.push(generatedDoc.slice(last, start));
-      if (m[0].startsWith('[')) {
+      if (sigIdx.has(idx)) {
+        parts.push(
+          <img
+            key={idx}
+            src={savedLandlordSig}
+            alt="Landlord signature"
+            title="Saved landlord signature (stamped automatically)"
+            className="inline-block h-10 align-bottom mx-1 border-b border-slate-400"
+          />
+        );
+      } else if (m[0].startsWith('[')) {
         parts.push(
           <input
             key={idx}
@@ -234,8 +277,8 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
             let latestDoc: any;
             const fillValues = getEffectiveValues();
             const hasEdits = fillValues.some(v => v.trim() !== '');
-            if (hasEdits) {
-              latestDoc = await api.generateLease(selectedTenantId, generatedTemplateId || undefined, undefined, fillValues);
+            if (hasEdits || !generatedDocId) {
+              latestDoc = await api.generateLease(selectedTenantId, generatedTemplateId || undefined, undefined, fillValues, true);
             } else if (generatedDocId) {
               latestDoc = { id: generatedDocId };
             } else {

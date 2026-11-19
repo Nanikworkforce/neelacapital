@@ -1546,10 +1546,42 @@ export const api = {
     return data;
   },
 
-  generateLease: async (tenantId: string, templateId?: string, customContent?: string, fillValues?: string[]): Promise<any> => {
+  getLandlordSignature: async (): Promise<{ image: string; updated_at: string | null; signer_name: string }> => {
+    const response = await fetchWithAuth(`${API_URL}/landlord-signature/`, { headers: getHeaders() });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || data.detail || 'Failed to load saved signature');
+    return data;
+  },
+
+  saveLandlordSignature: async (image: string, signerName = ''): Promise<{ image: string; updated_at: string | null; signer_name: string }> => {
+    const response = await fetchWithAuth(`${API_URL}/landlord-signature/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ image, signer_name: signerName }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || data.detail || 'Failed to save signature');
+    return data;
+  },
+
+  deleteLandlordSignature: async (): Promise<void> => {
+    const response = await fetchWithAuth(`${API_URL}/landlord-signature/`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || data.detail || 'Failed to remove signature');
+    }
+  },
+
+  generateLease: async (tenantId: string, templateId?: string, customContent?: string, fillValues?: string[], isNotice?: boolean): Promise<any> => {
     const body: any = {
       tenant_id: tenantId,
     };
+    if (isNotice) {
+      body.is_notice = true;
+    }
     if (templateId) {
       body.template_id = templateId;
     }
