@@ -469,23 +469,6 @@ class TenantViewSet(viewsets.ModelViewSet):
                 logger.warning(f"Celery connection failed, using threading fallback for declined email: {e}")
                 send_application_declined_email_to_user(tenant.id)
 
-    def partial_update(self, request, *args, **kwargs):
-        if is_property_manager(request.user):
-            tenant = self.get_object()
-            disallowed = set(request.data.keys()) - MANAGER_EDITABLE_TENANT_FIELDS
-            if disallowed:
-                raise PermissionDenied(
-                    f'Property managers may only update: {", ".join(sorted(MANAGER_EDITABLE_TENANT_FIELDS))}.'
-                )
-            new_status = request.data.get('status')
-            if new_status is not None and new_status != tenant.status:
-                allowed = MANAGER_TENANT_STATUS_TRANSITIONS.get(tenant.status, set())
-                if new_status not in allowed:
-                    raise PermissionDenied(
-                        f'Cannot change status from {tenant.status} to {new_status}.'
-                    )
-        return super().partial_update(request, *args, **kwargs)
-
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='send-message')
     def send_message(self, request, pk=None):
         """Send a direct email message from admin or property manager to a tenant."""
