@@ -988,6 +988,7 @@ export const api = {
       // Handle Django REST Framework error format
       const errorMessage = errorData.detail || errorData.message || 
         (errorData.non_field_errors && errorData.non_field_errors[0]) ||
+        (Array.isArray(errorData.email) && errorData.email[0]) ||
         (typeof errorData === 'object' && Object.keys(errorData).length > 0 
           ? JSON.stringify(errorData) 
           : 'Application Failed');

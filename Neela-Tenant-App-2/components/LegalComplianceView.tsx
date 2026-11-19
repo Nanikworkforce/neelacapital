@@ -91,7 +91,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
   const tenantsMap = tenants.reduce((acc, t) => ({ ...acc, [t.id]: t }), {} as Record<string, Tenant>);
   // Legal/Compliance actions should only be available for actual tenants
   // (not pending applicants).
-  const eligibleTenants = tenants.filter(t => t.status !== 'Applicant');
+  const eligibleTenants = tenants.filter(t => t.status === 'Active' || t.status === 'Eviction Pending');
   const delinquentTenants = eligibleTenants.filter(
     (t) => t.balance > 0 || t.status === 'Eviction Pending'
   );
@@ -141,10 +141,48 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
 
   const BLANK_RE = /_{4,}|\[\s*\]/g;
 
+  const MONEY_LINE_RE = /^\s*[^:\n]{1,40}:\s*\$/;
+
+  // Typed values plus auto totals: a blank on a "Total ...: $" line sums the
+  // "$" amounts on the lines above it (back to the previous total).
+  const getEffectiveValues = (): string[] => {
+    const out: string[] = [];
+    let idx = 0;
+    let sum = 0;
+    let hasAmount = false;
+    for (const line of generatedDoc.split('\n')) {
+      const blanks = line.match(BLANK_RE) || [];
+      const isMoney = MONEY_LINE_RE.test(line);
+      const isTotal = isMoney && /total/i.test(line);
+      for (let k = 0; k < blanks.length; k++) {
+        let v = blankValues[idx] || '';
+        if (isTotal && !v.trim() && hasAmount) {
+          v = sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        out.push(v);
+        idx++;
+      }
+      if (!isMoney) continue;
+      if (isTotal) {
+        sum = 0;
+        hasAmount = false;
+        continue;
+      }
+      const raw = blanks.length ? out[idx - blanks.length] : line.slice(line.indexOf('$') + 1);
+      const n = parseFloat(String(raw || '').replace(/[^0-9.]/g, ''));
+      if (!isNaN(n)) {
+        sum += n;
+        hasAmount = true;
+      }
+    }
+    return out;
+  };
+
   const buildFinalDoc = () => {
+    const eff = getEffectiveValues();
     let i = 0;
     return generatedDoc.replace(BLANK_RE, (m) => {
-      const v = (blankValues[i++] || '').trim();
+      const v = (eff[i++] || '').trim();
       if (m.startsWith('[')) return v ? '[X]' : m;
       return v || m;
     });
@@ -152,6 +190,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
 
   const renderEditableDoc = () => {
     const parts: React.ReactNode[] = [];
+    const eff = getEffectiveValues();
     let last = 0;
     let i = 0;
     for (const m of generatedDoc.matchAll(BLANK_RE)) {
@@ -173,11 +212,11 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
           <input
             key={idx}
             type="text"
-            value={blankValues[idx] || ''}
+            value={eff[idx] || ''}
             onChange={(e) => setBlankValues(prev => ({ ...prev, [idx]: e.target.value }))}
             placeholder="Type here"
             className="inline-block mx-1 px-1 border-0 border-b border-slate-400 bg-indigo-50/60 focus:bg-indigo-50 focus:outline-none focus:border-indigo-600 font-sans text-sm"
-            style={{ width: `${Math.max(8, Math.min(40, Math.max(Math.round(m[0].length * 0.6), (blankValues[idx] || '').length + 2)))}ch` }}
+            style={{ width: `${Math.max(8, Math.min(40, Math.max(Math.round(m[0].length * 0.6), (eff[idx] || '').length + 2)))}ch` }}
           />
         );
       }
@@ -193,10 +232,9 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
     if (method === 'Certified Mail' || method === 'Email') {
         try {
             let latestDoc: any;
-            const hasEdits = Object.values(blankValues).some(v => v.trim() !== '');
+            const fillValues = getEffectiveValues();
+            const hasEdits = fillValues.some(v => v.trim() !== '');
             if (hasEdits) {
-              const count = (generatedDoc.match(BLANK_RE) || []).length;
-              const fillValues = Array.from({ length: count }, (_, i) => blankValues[i] || '');
               latestDoc = await api.generateLease(selectedTenantId, generatedTemplateId || undefined, undefined, fillValues);
             } else if (generatedDocId) {
               latestDoc = { id: generatedDocId };
@@ -411,12 +449,12 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
                        <option value="">-- Select Tenant --</option>
                        {delinquentTenants.map(t => (
                           <option key={t.id} value={t.id}>
-                             {t.name} (Due: ${t.balance})
+                             {t.name}{t.propertyUnit ? ` — ${t.propertyUnit}` : ''} (Due: ${t.balance})
                           </option>
                        ))}
                        <option disabled>---</option>
                        {eligibleTenants.filter(t => !delinquentTenants.includes(t)).map(t => (
-                          <option key={t.id} value={t.id}>{t.name} (Good Standing)</option>
+                          <option key={t.id} value={t.id}>{t.name}{t.propertyUnit ? ` — ${t.propertyUnit}` : ''} (Good Standing)</option>
                        ))}
                     </select>
                  </div>

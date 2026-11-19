@@ -373,6 +373,13 @@ class TenantViewSet(viewsets.ModelViewSet):
         instance.delete()
 
     def perform_create(self, serializer):
+        email = (serializer.validated_data.get('email') or '').strip()
+        if email and Tenant.objects.filter(
+            email__iexact=email, status__in=['Active', 'Eviction Pending']
+        ).exists():
+            raise ValidationError({
+                'email': ['This email already belongs to an active tenant. Please use a different email or contact the office.'],
+            })
         tenant = serializer.save()
         # Persist a clear label (e.g. "6707 Sherman St — Unit 1") before emails fire
         try:
