@@ -164,10 +164,12 @@ const InquiriesView: React.FC = () => {
                     >
                       <td className="px-4 py-3.5">
                         <div className="font-semibold text-slate-900">{name}</div>
-                        <div className="text-slate-500 text-xs flex items-center gap-1 mt-0.5">
-                          <Mail className="w-3 h-3" />
-                          {item.email}
-                        </div>
+                        {item.source !== 'zillow' && (
+                          <div className="text-slate-500 text-xs flex items-center gap-1 mt-0.5">
+                            <Mail className="w-3 h-3" />
+                            {item.email}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3.5 hidden md:table-cell text-slate-600">
                         {sourceLabels[item.source] || item.source}
@@ -217,9 +219,11 @@ const InquiriesView: React.FC = () => {
                 <h3 className="text-lg font-bold text-slate-900">
                   {`${selected.firstName} ${selected.lastName}`.trim() || 'Inquiry'}
                 </h3>
-                <a href={`mailto:${selected.email}`} className="text-sm text-blue-600 hover:underline">
-                  {selected.email}
-                </a>
+                {selected.source !== 'zillow' && (
+                  <a href={`mailto:${selected.email}`} className="text-sm text-blue-600 hover:underline">
+                    {selected.email}
+                  </a>
+                )}
                 {selected.phone && (
                   <p className="text-sm text-slate-500 mt-0.5">{selected.phone}</p>
                 )}
