@@ -721,9 +721,22 @@ def _send_maintenance_ticket_notification_to_manager(maintenance_request_id):
         logger.error(f"Maintenance request with ID {maintenance_request_id} not found for manager notification.")
         return
     
-    admin_emails = get_admin_emails()
+    admin_emails = list(get_admin_emails() or [])
+    try:
+        from .models import PropertyManagerProfile, Tenant
+        from .permissions import filter_tenants_for_user
+
+        tenant_qs = Tenant.objects.filter(id=maintenance_request.tenant_id)
+        for profile in PropertyManagerProfile.objects.select_related('user'):
+            mgr_email = (getattr(profile.user, 'email', '') or '').strip()
+            if not mgr_email or mgr_email.lower() in {e.lower() for e in admin_emails}:
+                continue
+            if filter_tenants_for_user(tenant_qs, profile.user).exists():
+                admin_emails.append(mgr_email)
+    except Exception as e:
+        logger.warning(f"Could not resolve property manager emails for maintenance request {maintenance_request_id}: {e}")
     if not admin_emails:
-        logger.warning("No admin emails configured for maintenance ticket notification.")
+        logger.warning("No admin or manager emails configured for maintenance ticket notification.")
         return
     
     subject = f'New Maintenance Request: {maintenance_request.category} - {maintenance_request.tenant.name}'
