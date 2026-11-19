@@ -22,6 +22,9 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
   const [noticeType, setNoticeType] = useState<LegalNoticeType>(LegalNoticeType.NOTICE_TO_VACATE_3_DAY);
   const [generatedDoc, setGeneratedDoc] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedTemplateId, setGeneratedTemplateId] = useState<string>('');
+  const [generatedDocId, setGeneratedDocId] = useState<string>('');
+  const [blankValues, setBlankValues] = useState<Record<number, string>>({});
 
   // History State
   const [history, setHistory] = useState<LegalDocument[]>([]);
@@ -120,6 +123,9 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
       if (templateToUse) {
           const doc = await api.generateLease(tenant.id, templateToUse.id);
           setGeneratedDoc(doc.generated_content);
+          setGeneratedTemplateId(String(templateToUse.id));
+          setGeneratedDocId(String(doc.id));
+          setBlankValues({});
           // Also set history/state if needed
       } else {
          setGeneratedDoc("Template not found. Please contact support.");
@@ -133,14 +139,69 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
     }
   };
 
+  const BLANK_RE = /_{3,}|\[ \]/g;
+
+  const buildFinalDoc = () => {
+    let i = 0;
+    return generatedDoc.replace(BLANK_RE, (m) => {
+      const v = (blankValues[i++] || '').trim();
+      if (m === '[ ]') return v ? '[X]' : '[ ]';
+      return v || m;
+    });
+  };
+
+  const renderEditableDoc = () => {
+    const parts: React.ReactNode[] = [];
+    let last = 0;
+    let i = 0;
+    for (const m of generatedDoc.matchAll(BLANK_RE)) {
+      const idx = i++;
+      const start = m.index ?? 0;
+      parts.push(generatedDoc.slice(last, start));
+      if (m[0] === '[ ]') {
+        parts.push(
+          <input
+            key={idx}
+            type="checkbox"
+            className="mx-1 align-middle w-4 h-4 accent-indigo-600 cursor-pointer"
+            checked={!!blankValues[idx]}
+            onChange={(e) => setBlankValues(prev => ({ ...prev, [idx]: e.target.checked ? 'X' : '' }))}
+          />
+        );
+      } else {
+        parts.push(
+          <input
+            key={idx}
+            type="text"
+            value={blankValues[idx] || ''}
+            onChange={(e) => setBlankValues(prev => ({ ...prev, [idx]: e.target.value }))}
+            placeholder="Type here"
+            className="inline-block mx-1 px-1 border-0 border-b border-slate-400 bg-indigo-50/60 focus:bg-indigo-50 focus:outline-none focus:border-indigo-600 font-sans text-sm"
+            style={{ width: `${Math.max(8, Math.min(40, Math.max(Math.round(m[0].length * 0.6), (blankValues[idx] || '').length + 2)))}ch` }}
+          />
+        );
+      }
+      last = start + m[0].length;
+    }
+    parts.push(generatedDoc.slice(last));
+    return parts;
+  };
+
   const handleSendNotice = async (method: 'Email' | 'Certified Mail' | 'Portal') => {
     if (!selectedTenantId || !generatedDoc) return;
 
     if (method === 'Certified Mail' || method === 'Email') {
         try {
-            // Send the already-generated preview PDF (the backend email uses the stored PDF).
-            const docs = await api.getLegalDocuments(selectedTenantId);
-            const latestDoc = docs[docs.length - 1];
+            let latestDoc: any;
+            const hasEdits = Object.values(blankValues).some(v => v.trim() !== '');
+            if (hasEdits) {
+              latestDoc = await api.generateLease(selectedTenantId, generatedTemplateId || undefined, buildFinalDoc());
+            } else if (generatedDocId) {
+              latestDoc = { id: generatedDocId };
+            } else {
+              const docs = await api.getLegalDocuments(selectedTenantId);
+              latestDoc = docs[docs.length - 1];
+            }
             if (!latestDoc) return;
 
             await api.sendNoticeEmail(latestDoc.id, {
@@ -163,7 +224,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
               id: latestDoc.id,
               tenantId: selectedTenantId,
               type: noticeType,
-              generatedContent: generatedDoc,
+              generatedContent: buildFinalDoc(),
               createdAt: new Date().toISOString().split('T')[0],
               status: 'Sent',
               deliveryMethod: method,
@@ -193,7 +254,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
       id: `doc-${Date.now()}`,
       tenantId: selectedTenantId,
       type: noticeType,
-      generatedContent: generatedDoc,
+      generatedContent: buildFinalDoc(),
       createdAt: new Date().toISOString().split('T')[0],
       status: 'Sent',
       deliveryMethod: method,
@@ -415,7 +476,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
                  <div className="flex-1 bg-slate-100 p-4 sm:p-6 lg:p-8 overflow-y-auto">
                     {generatedDoc ? (
                        <div className="bg-white shadow-lg min-h-[45vh] lg:min-h-[600px] p-5 sm:p-8 lg:p-12 max-w-[800px] mx-auto text-slate-900 font-serif leading-relaxed whitespace-pre-wrap">
-                          {generatedDoc}
+                          {renderEditableDoc()}
                        </div>
                     ) : (
                        <div className="h-full flex flex-col items-center justify-center text-slate-400">

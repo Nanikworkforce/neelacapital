@@ -2243,8 +2243,9 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
                     spaceAfter=30,
                     alignment=1,
                 )
-                elements.append(Paragraph("RESIDENTIAL LEASE AGREEMENT", title_style))
-                elements.append(Spacer(1, 0.2*inch))
+                if not template:
+                    elements.append(Paragraph("RESIDENTIAL LEASE AGREEMENT", title_style))
+                    elements.append(Spacer(1, 0.2*inch))
                 paragraphs = custom_content.split('\n\n')
                 for para in paragraphs:
                     if para.strip():
