@@ -218,8 +218,8 @@ class InquiryViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
 
     def get_queryset(self):
-        # Website/portal leads are admin-only — not tenants or managers.
-        if not is_admin_user(self.request.user):
+        # Website/portal/Zillow leads are for office staff, not tenants.
+        if not is_staff_portal_user(self.request.user):
             return Inquiry.objects.none()
         if self.action == 'list':
             from .zillow_inquiries import sync_zillow_inquiries_throttled
@@ -234,13 +234,13 @@ class InquiryViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_update(self, serializer):
-        if not is_admin_user(self.request.user):
-            raise PermissionDenied('Only admin can update inquiries.')
+        if not is_staff_portal_user(self.request.user):
+            raise PermissionDenied('Only staff can update inquiries.')
         serializer.save()
 
     def perform_destroy(self, instance):
-        if not is_admin_user(self.request.user):
-            raise PermissionDenied('Only admin can delete inquiries.')
+        if not is_staff_portal_user(self.request.user):
+            raise PermissionDenied('Only staff can delete inquiries.')
         instance.delete()
 
     def create(self, request, *args, **kwargs):
@@ -368,8 +368,8 @@ class TenantViewSet(viewsets.ModelViewSet):
         return TenantSerializer
 
     def perform_destroy(self, instance):
-        if not is_admin_user(self.request.user):
-            raise PermissionDenied('Only admin can delete tenants.')
+        if not is_staff_portal_user(self.request.user):
+            raise PermissionDenied('Only admin or property manager can delete tenants.')
         instance.delete()
 
     def perform_create(self, serializer):
@@ -923,8 +923,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 send_payment_receipt_to_tenant(payment.id)
     
     def perform_destroy(self, instance):
-        if not is_admin_user(self.request.user):
-            raise PermissionDenied('Only admin can delete payments.')
+        if not is_staff_portal_user(self.request.user):
+            raise PermissionDenied('Only admin or property manager can delete payments.')
         instance.delete()
 
     @action(detail=True, methods=['post'], url_path='send-receipt')
@@ -1787,8 +1787,8 @@ class LeaseTemplateViewSet(viewsets.ModelViewSet):
             if not is_staff_portal_user(request.user):
                 raise PermissionDenied('Lease templates require staff access.')
             return
-        if not is_admin_user(request.user):
-            raise PermissionDenied('Only admin can create or edit lease templates.')
+        if not is_staff_portal_user(request.user):
+            raise PermissionDenied('Only admin or property manager can create or edit lease templates.')
 
     @action(detail=True, methods=['get', 'post'], url_path='versions')
     def versions(self, request, pk=None):
@@ -2047,10 +2047,6 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         return context
     
     def get_queryset(self):
-        if is_property_manager(self.request.user) and self.action in (
-            'create', 'update', 'partial_update', 'destroy',
-        ):
-            raise PermissionDenied('Only admin can create or delete legal documents directly.')
         queryset = LegalDocument.objects.all()
         queryset = filter_legal_documents_for_user(queryset, self.request.user)
         tenant_id = self.request.query_params.get('tenant')
@@ -2690,8 +2686,8 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         This is used by the Legal Compliance Center to ensure the email attachment
         matches the preview/template the admin generated.
         """
-        if not is_admin_user(request.user):
-            raise PermissionDenied('Only admin can send legal notices.')
+        if not is_staff_portal_user(request.user):
+            raise PermissionDenied('Only admin or property manager can send legal notices.')
         from .email_service import send_notice_to_tenant
 
         legal_doc = self.get_object()
@@ -2813,18 +2809,18 @@ class ListingViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
 
     def perform_create(self, serializer):
-        if not is_admin_user(self.request.user):
-            raise PermissionDenied('Only admin can manage listings.')
+        if not is_staff_portal_user(self.request.user):
+            raise PermissionDenied('Only admin or property manager can manage listings.')
         serializer.save()
 
     def perform_update(self, serializer):
-        if not is_admin_user(self.request.user):
-            raise PermissionDenied('Only admin can manage listings.')
+        if not is_staff_portal_user(self.request.user):
+            raise PermissionDenied('Only admin or property manager can manage listings.')
         serializer.save()
 
     def perform_destroy(self, instance):
-        if not is_admin_user(self.request.user):
-            raise PermissionDenied('Only admin can manage listings.')
+        if not is_staff_portal_user(self.request.user):
+            raise PermissionDenied('Only admin or property manager can manage listings.')
         instance.delete()
 
 def _clean_property_name_and_address(name, address, city, state):
@@ -2876,19 +2872,28 @@ class PropertyViewSet(viewsets.ModelViewSet):
             item["address"] = address
         return Response(data)
 
+    def _require_property_access(self, instance):
+        user = self.request.user
+        if is_admin_user(user):
+            return
+        if not is_property_manager(user) or instance.id not in (get_manager_property_ids(user) or []):
+            raise PermissionDenied('You can only manage your own properties.')
+
     def perform_create(self, serializer):
-        if not is_admin_user(self.request.user):
-            raise PermissionDenied('Only admin can add properties.')
-        serializer.save()
+        user = self.request.user
+        if not is_staff_portal_user(user):
+            raise PermissionDenied('Only admin or property manager can add properties.')
+        prop = serializer.save()
+        # A manager's new property is assigned to them so it shows in their list
+        if is_property_manager(user):
+            user.manager_profile.properties.add(prop)
 
     def perform_update(self, serializer):
-        if not is_admin_user(self.request.user):
-            raise PermissionDenied('Only admin can edit properties.')
+        self._require_property_access(serializer.instance)
         serializer.save()
 
     def perform_destroy(self, instance):
-        if not is_admin_user(self.request.user):
-            raise PermissionDenied('Only admin can delete properties.')
+        self._require_property_access(instance)
         instance.delete()
 
     @action(detail=True, methods=['get', 'put', 'patch'], url_path='financials')
@@ -3257,8 +3262,8 @@ class EmailTestViewSet(viewsets.ViewSet):
         Send a test email to verify email configuration.
         Requires 'recipient_email' in request data.
         """
-        if not is_admin_user(request.user):
-            return Response({'error': 'Only admin can send test emails.'}, status=status.HTTP_403_FORBIDDEN)
+        if not is_staff_portal_user(request.user):
+            return Response({'error': 'Only staff can send test emails.'}, status=status.HTTP_403_FORBIDDEN)
         from django.core.mail import send_mail
         from django.conf import settings as django_settings
         from .email_service import validate_email_config

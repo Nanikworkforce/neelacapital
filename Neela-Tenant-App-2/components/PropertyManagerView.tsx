@@ -4,7 +4,7 @@ import {
   Building2, Users, CreditCard, Receipt, LogOut, Menu, X, Home, Plus,
   MapPin, Wallet, Calendar, FileText, Tag, Wrench, ChevronRight, ChevronDown, ChevronUp,
   AlertCircle, TrendingUp, Mail, Loader2, CheckCircle, XCircle, MessageSquare, DollarSign,
-  ArrowUpRight, Zap,
+  ArrowUpRight, Zap, CalendarDays, MessageSquareText, Gavel, Settings,
 } from 'lucide-react';
 import NeelaLogo from './NeelaLogo';
 import MaintenanceView from './MaintenanceView';
@@ -12,6 +12,10 @@ import TenantsView from './TenantsView';
 import AddExpenseModal from './AddExpenseModal';
 import ViewportPortal from './ViewportPortal';
 import PropertyMonthIncomeOpexEditor from './PropertyMonthIncomeOpexEditor';
+import ShortStaysView from './ShortStaysView';
+import InquiriesView from './InquiriesView';
+import LegalComplianceView from './LegalComplianceView';
+import SettingsView from './SettingsView';
 import { isAuthenticated, getCurrentUser, logout, updateStoredUser } from '../services/auth';
 import { api } from '../services/api';
 import { Property, Tenant, Payment, OperatingExpense, MaintenanceRequest, TenantStatus } from '../types';
@@ -43,7 +47,9 @@ function isExcelImportTenant(t: { email?: string; name?: string }) {
   );
 }
 
-type Tab = 'overview' | 'properties' | 'applications' | 'payments' | 'expenses' | 'maintenance';
+type Tab =
+  | 'overview' | 'properties' | 'applications' | 'payments' | 'expenses' | 'maintenance'
+  | 'short-stays' | 'inquiries' | 'legal' | 'settings';
 
 function ManagerStatCard({
   label,
@@ -563,6 +569,10 @@ const PropertyManagerView: React.FC = () => {
     { id: 'maintenance', label: 'Maintenance', icon: Wrench },
     { id: 'payments', label: 'Rent & Payments', icon: CreditCard },
     { id: 'expenses', label: 'Expenses', icon: Receipt },
+    { id: 'short-stays', label: 'Short Stays', icon: CalendarDays },
+    { id: 'inquiries', label: 'Inquiries', icon: MessageSquareText },
+    { id: 'legal', label: 'Legal & Compliance', icon: Gavel },
+    { id: 'settings', label: 'Setup & Config', icon: Settings },
   ];
 
   if (loading) {
@@ -1348,6 +1358,14 @@ const PropertyManagerView: React.FC = () => {
             </SectionCard>
           </div>
         );
+      case 'short-stays':
+        return <ShortStaysView />;
+      case 'inquiries':
+        return <InquiriesView />;
+      case 'legal':
+        return <LegalComplianceView tenants={tenants} />;
+      case 'settings':
+        return <SettingsView />;
       default: {
         const overviewGroups = propertyGroups.slice(0, 4);
         const recentApplicants = applicants.slice(0, 3);
