@@ -3,7 +3,6 @@ import React from 'react';
 import { 
   LayoutDashboard, 
   Users, 
-  FileText,
   CreditCard, 
   Wrench, 
   Gavel, 
@@ -33,7 +32,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMobileMenu
     { id: 'inquiries', label: 'Inquiries', icon: MessageSquareText },
     { id: 'maintenance', label: 'Maintenance', icon: Wrench },
     { id: 'legal', label: 'Legal & Compliance', icon: Gavel },
-    { id: 'documents', label: 'Lease Templates', icon: FileText },
     { id: 'settings', label: 'Setup & Config', icon: Settings },
   ];
 

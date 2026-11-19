@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Tenant, LegalNoticeType, LegalDocument, NoticeTemplate } from '../types';
 import { api } from '../services/api';
 import { 
@@ -8,12 +8,14 @@ import {
 import Modal from './Modal';
 import { formatDateMMDDYYYY } from '../utils/date';
 
+const LeaseTemplateDesigner = lazy(() => import('./LeaseTemplateDesigner'));
+
 interface LegalComplianceProps {
   tenants: Tenant[];
 }
 
 const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
-  const [activeTab, setActiveTab] = useState<'generate' | 'history' | 'templates'>('generate');
+  const [activeTab, setActiveTab] = useState<'generate' | 'history' | 'templates' | 'lease-templates'>('generate');
   
   // Generate State
   const [selectedTenantId, setSelectedTenantId] = useState<string>('');
@@ -283,17 +285,18 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex border-b border-slate-200">
+      <div className="flex border-b border-slate-200 overflow-x-auto">
          {[
            { id: 'generate', label: 'Generate & Send', icon: FileSignature },
            { id: 'history', label: 'Notice History', icon: History },
-           { id: 'templates', label: 'Templates', icon: FileText },
+           { id: 'templates', label: 'Notice Templates', icon: FileText },
+           { id: 'lease-templates', label: 'Lease Templates', icon: FileText },
          ].map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
               className={`
-                flex items-center px-6 py-4 text-sm font-medium border-b-2 transition-colors
+                flex items-center px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
                 ${activeTab === tab.id 
                   ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50' 
                   : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'}
@@ -307,6 +310,19 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
 
       <div className="flex-1">
         
+        {activeTab === 'lease-templates' && (
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center py-20 text-slate-500 gap-2">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Loading lease templates...
+              </div>
+            }
+          >
+            <LeaseTemplateDesigner />
+          </Suspense>
+        )}
+
         {/* 1. GENERATE TAB */}
         {activeTab === 'generate' && (
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
