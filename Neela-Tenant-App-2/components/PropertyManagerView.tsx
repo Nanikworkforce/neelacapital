@@ -1365,7 +1365,7 @@ const PropertyManagerView: React.FC = () => {
       case 'legal':
         return <LegalComplianceView tenants={tenants} />;
       case 'settings':
-        return <SettingsView />;
+        return <SettingsView mode="manager" />;
       default: {
         const overviewGroups = propertyGroups.slice(0, 4);
         const recentApplicants = applicants.slice(0, 3);

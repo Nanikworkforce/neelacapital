@@ -3569,6 +3569,8 @@ def landlord_signature(request):
         if not sig:
             return Response({'image': '', 'updated_at': None, 'signer_name': ''})
         return Response({'image': sig.image_data, 'updated_at': sig.updated_at, 'signer_name': sig.signer_name})
+    if not is_admin_user(request.user):
+        raise PermissionDenied('Only admin can change the saved landlord signature.')
     if request.method == 'DELETE':
         SavedSignature.objects.filter(role=SavedSignature.ROLE_LANDLORD).delete()
         return Response({'message': 'Saved signature removed.'})

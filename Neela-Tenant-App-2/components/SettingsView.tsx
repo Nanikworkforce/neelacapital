@@ -19,7 +19,7 @@ import {
 
 const PROPERTY_AREAS = PORTFOLIO_DISPLAY_ORDER;
 
-const SettingsView: React.FC = () => {
+const SettingsView: React.FC<{ mode?: 'admin' | 'manager' }> = ({ mode = 'admin' }) => {
   const [activeTab, setActiveTab] = useState<'properties' | 'managers' | 'templates' | 'finance' | 'branding' | 'signature'>('properties');
 
   // Properties - Real API Data
@@ -418,7 +418,7 @@ ________________________ Tenant`);
           <TabButton id="templates" label="Application & Lease" icon={FileText} />
           <TabButton id="finance" label="Payment Rules" icon={DollarSign} />
           <TabButton id="branding" label="Branding & Look" icon={Palette} />
-          <TabButton id="signature" label="Landlord Signature" icon={PenTool} />
+          {mode === 'admin' && <TabButton id="signature" label="Landlord Signature" icon={PenTool} />}
         </div>
 
         <div className="p-4 sm:p-6 flex-1 bg-slate-50/50">
@@ -690,7 +690,7 @@ ________________________ Tenant`);
             </div>
           )}
 
-          {activeTab === 'signature' && <LandlordSignaturePanel />}
+          {activeTab === 'signature' && mode === 'admin' && <LandlordSignaturePanel />}
 
           {/* 4. BRANDING TAB */}
           {activeTab === 'branding' && (
