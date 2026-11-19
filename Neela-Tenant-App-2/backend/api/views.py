@@ -2440,7 +2440,10 @@ class LegalDocumentViewSet(viewsets.ModelViewSet):
         try:
             # Generate PDF - use custom content if provided, otherwise generate from template
             if fill_values is not None:
-                pdf_buffer, filled_content = generate_lease_pdf(tenant, template, fill_values=fill_values)
+                pdf_buffer, filled_content = generate_lease_pdf(
+                    tenant, template, fill_values=fill_values,
+                    sign_landlord=bool(request.data.get('sign_landlord')),
+                )
             elif custom_content:                
                 buffer = BytesIO()
                 doc = SimpleDocTemplate(buffer, pagesize=letter,

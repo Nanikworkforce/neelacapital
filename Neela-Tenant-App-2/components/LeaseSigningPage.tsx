@@ -3,6 +3,7 @@ import { SEO_PAGES, usePageMeta } from '../utils/seo';
 import ViewportPortal from './ViewportPortal';
 import { withBase } from '../utils/basePath';
 import { getApiOrigin } from '../utils/apiOrigin';
+import { PenTool } from 'lucide-react';
 
 const BASE_URL = getApiOrigin();
 
@@ -486,12 +487,6 @@ const LeaseSigningPage: React.FC = () => {
         setData(d);
         const init: Record<string, string | boolean> = {};
         (d.fields || []).forEach((f) => { init[f.id] = f.type === 'checkbox' ? false : ''; });
-        if (d.party === 'landlord' && d.saved_signature) {
-          const now = new Date();
-          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-          if ('landlord_signature' in init) init.landlord_signature = d.saved_signature;
-          if ('landlord_signature_date' in init) init.landlord_signature_date = today;
-        }
         setValues(init);
       })
       .catch((e) => setError(e.message))
@@ -886,10 +881,26 @@ const LeaseSigningPage: React.FC = () => {
               {/* Landlord signature block */}
               {landlordSig && (
                 <div className="mb-8">
-                  {isLandlordParty && data?.saved_signature && values.landlord_signature === data.saved_signature && (
-                    <p className="no-print mb-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                      Your saved signature has been applied. Click Complete Signature to finish, or use redo to sign differently.
-                    </p>
+                  {isLandlordParty && data?.saved_signature && (
+                    values.landlord_signature === data.saved_signature ? (
+                      <p className="no-print mb-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                        Saved signature added. Click Complete Signature to finish, or use redo to sign differently.
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const now = new Date();
+                          update('landlord_signature', data.saved_signature as string);
+                          if (!values.landlord_signature_date) {
+                            update('landlord_signature_date', `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`);
+                          }
+                        }}
+                        className="no-print mb-3 inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm"
+                      >
+                        <PenTool className="w-4 h-4" /> Sign with saved signature
+                      </button>
+                    )
                   )}
                   <SigBlock
                     sigField={landlordSig}

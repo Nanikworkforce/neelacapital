@@ -949,7 +949,7 @@ def render_lease_pdf_bytes(
     return buffer.read()
 
 
-def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None, fill_values=None):
+def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None, fill_values=None, sign_landlord=False):
     """
     Generate PDF lease document from template.
     
@@ -993,6 +993,7 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None, fill_valu
     filled_content = fill_lease_template(template.content, tenant)
     if fill_values is not None:
         # Notices (Legal & Compliance): typed blanks + saved landlord signature
+        # only when staff clicked Sign.
         from .lease_signing import get_saved_signature
 
         marked, fills, plain = mark_fill_values(filled_content, fill_values)
@@ -1000,7 +1001,7 @@ def generate_lease_pdf(tenant: Tenant, template: LeaseTemplate = None, fill_valu
             marked,
             template.name or 'RESIDENTIAL LEASE APPLICATION',
             fills,
-            landlord_signature=get_saved_signature('landlord') or None,
+            landlord_signature=(get_saved_signature('landlord') or None) if sign_landlord else None,
         )
         return BytesIO(pdf_bytes), plain
     replacements = build_lease_replacements(tenant)

@@ -26,6 +26,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
   const [generatedDocId, setGeneratedDocId] = useState<string>('');
   const [blankValues, setBlankValues] = useState<Record<number, string>>({});
   const [savedLandlordSig, setSavedLandlordSig] = useState<string>('');
+  const [landlordSigned, setLandlordSigned] = useState(false);
 
   useEffect(() => {
     api.getLandlordSignature().then(s => setSavedLandlordSig(s.image || '')).catch(() => setSavedLandlordSig(''));
@@ -131,6 +132,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
           setGeneratedTemplateId(String(templateToUse.id));
           setGeneratedDocId(String(doc.id));
           setBlankValues({});
+          setLandlordSigned(false);
           // Also set history/state if needed
       } else {
          setGeneratedDoc("Template not found. Please contact support.");
@@ -149,8 +151,8 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
   const MONEY_LINE_RE = /^\s*[^:\n]{1,40}:\s*\$/;
   const LANDLORD_SIG_RE = /Landlord(?:'s)?\s+Signature\s*:?\s*_{4,}/i;
 
-  // Blank indexes on "Landlord Signature: ____" lines; the saved signature is
-  // stamped there by the server, so they are not typed into.
+  // Blank indexes on "Landlord Signature: ____" lines; they hold a Sign button and,
+  // once clicked, the server stamps the saved signature there.
   const getLandlordSigIndexes = (): Set<number> => {
     const set = new Set<number>();
     if (!savedLandlordSig) return set;
@@ -165,7 +167,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
 
   // Typed values plus auto totals: a blank on a "Total ...: $" line sums the
   // "$" amounts on the lines above it (back to the previous total). A "Date:"
-  // blank just below a stamped landlord signature defaults to today.
+  // blank just below the landlord signature defaults to today once signed.
   const getEffectiveValues = (): string[] => {
     const out: string[] = [];
     const sigIdx = getLandlordSigIndexes();
@@ -184,7 +186,7 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
         let v = blankValues[idx] || '';
         if (sigIdx.has(idx)) {
           v = '';
-          lineHasSig = true;
+          lineHasSig = landlordSigned;
         } else if (isTotal && !v.trim() && hasAmount) {
           v = sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         } else if (isSigDate && blanks[k][0] === '_' && blankValues[idx] === undefined) {
@@ -232,13 +234,31 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
       parts.push(generatedDoc.slice(last, start));
       if (sigIdx.has(idx)) {
         parts.push(
-          <img
-            key={idx}
-            src={savedLandlordSig}
-            alt="Landlord signature"
-            title="Saved landlord signature (stamped automatically)"
-            className="inline-block h-10 align-bottom mx-1 border-b border-slate-400"
-          />
+          landlordSigned ? (
+            <span key={idx} className="inline-flex items-end gap-1 mx-1 align-bottom">
+              <img
+                src={savedLandlordSig}
+                alt="Landlord signature"
+                className="inline-block h-10 border-b border-slate-400"
+              />
+              <button
+                type="button"
+                onClick={() => setLandlordSigned(false)}
+                className="font-sans text-[10px] text-rose-600 hover:underline"
+              >
+                remove
+              </button>
+            </span>
+          ) : (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => setLandlordSigned(true)}
+              className="inline-flex items-center gap-1 mx-1 px-2.5 py-1 align-middle rounded-md bg-indigo-600 text-white font-sans text-xs font-semibold hover:bg-indigo-700"
+            >
+              <PenTool className="w-3 h-3" /> Sign
+            </button>
+          )
         );
       } else if (m[0].startsWith('[')) {
         parts.push(
@@ -276,9 +296,10 @@ const LegalComplianceView: React.FC<LegalComplianceProps> = ({ tenants }) => {
         try {
             let latestDoc: any;
             const fillValues = getEffectiveValues();
-            const hasEdits = fillValues.some(v => v.trim() !== '');
+            const signLandlord = landlordSigned && getLandlordSigIndexes().size > 0;
+            const hasEdits = signLandlord || fillValues.some(v => v.trim() !== '');
             if (hasEdits || !generatedDocId) {
-              latestDoc = await api.generateLease(selectedTenantId, generatedTemplateId || undefined, undefined, fillValues, true);
+              latestDoc = await api.generateLease(selectedTenantId, generatedTemplateId || undefined, undefined, fillValues, true, signLandlord);
             } else if (generatedDocId) {
               latestDoc = { id: generatedDocId };
             } else {

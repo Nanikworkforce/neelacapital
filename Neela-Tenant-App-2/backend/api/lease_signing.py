@@ -294,11 +294,6 @@ def get_saved_signature(role: str = 'landlord') -> str:
 def stamp_and_save(legal_doc, pdf_bytes: bytes, fields, values, filename: str) -> bytes:
     # Inject print names so label-based stamping can fill "Print Name:" lines
     merged = dict(values or {})
-    field_ids = {str(f.get('id')) for f in (fields or []) if isinstance(f, dict)}
-    if 'landlord_signature' in field_ids and not str(merged.get('landlord_signature') or '').startswith('data:image'):
-        saved = get_saved_signature('landlord')
-        if saved:
-            merged['landlord_signature'] = saved
     if merged.get('landlord_signature') and not merged.get('landlord_signature_date'):
         merged['landlord_signature_date'] = timezone.localdate().isoformat()
     tenant = getattr(legal_doc, 'tenant', None)

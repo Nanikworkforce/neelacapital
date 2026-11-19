@@ -1605,12 +1605,15 @@ export const api = {
     }
   },
 
-  generateLease: async (tenantId: string, templateId?: string, customContent?: string, fillValues?: string[], isNotice?: boolean): Promise<any> => {
+  generateLease: async (tenantId: string, templateId?: string, customContent?: string, fillValues?: string[], isNotice?: boolean, signLandlord?: boolean): Promise<any> => {
     const body: any = {
       tenant_id: tenantId,
     };
     if (isNotice) {
       body.is_notice = true;
+    }
+    if (signLandlord) {
+      body.sign_landlord = true;
     }
     if (templateId) {
       body.template_id = templateId;
