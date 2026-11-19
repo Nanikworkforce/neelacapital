@@ -169,6 +169,21 @@ const fetchWithAuth = async (
   return response;
 };
 
+export interface PaymentDetailsDraft {
+  subject: string;
+  tenant_name: string;
+  property: string;
+  rent: string;
+  deposit: string;
+  lease_start: string;
+  rent_due: string;
+  pay_to: string;
+  memo: string;
+  methods: string;
+  note: string;
+  company: string;
+}
+
 export const api = {
   mapOperatingExpense: (item: any): OperatingExpense => ({
     id: String(item.id),
@@ -741,12 +756,27 @@ export const api = {
   },
 
   /** After lease is fully signed: email payment details to tenant + remind landlord/PM. */
+  getPaymentDetailsDraft: async (
+    tenantId: string,
+  ): Promise<{ sent_to: string; details: PaymentDetailsDraft }> => {
+    const response = await fetchWithAuth(`${API_URL}/tenants/${tenantId}/share-payment-details/`, {
+      headers: getHeaders(true, true),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to load payment details' }));
+      throw new Error(error.error || error.detail || error.message || 'Failed to load payment details');
+    }
+    return await response.json();
+  },
+
   sharePaymentDetails: async (
     tenantId: string,
+    details?: PaymentDetailsDraft,
   ): Promise<{ status: string; message: string; sent_to?: string }> => {
     const response = await fetchWithAuth(`${API_URL}/tenants/${tenantId}/share-payment-details/`, {
       method: 'POST',
       headers: getHeaders(true, true),
+      body: JSON.stringify(details ? { details } : {}),
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Failed to share payment details' }));

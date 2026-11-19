@@ -1690,8 +1690,45 @@ def _payment_pay_to_email() -> str:
     )
 
 
-def _send_lease_payment_details_to_tenant(tenant_id):
+PAYMENT_DETAIL_FIELDS = (
+    'subject', 'tenant_name', 'property', 'rent', 'deposit', 'lease_start',
+    'rent_due', 'pay_to', 'memo', 'methods', 'note', 'company',
+)
+
+
+def payment_details_defaults(tenant) -> dict:
+    """Editable draft of the payment-details email shown to staff before sending."""
+    company = getattr(settings, 'PROPERTY_MANAGER_NAME', None) or 'Neela Capital'
+    pay_to = _payment_pay_to_email()
+    portal_url = f"{get_frontend_url()}/tenant"
+    return {
+        'subject': f'Payment Details — {tenant.property_unit}',
+        'tenant_name': tenant.name or '',
+        'property': tenant.property_unit or '',
+        'rent': f"{float(tenant.rent_amount or 0):,.2f}",
+        'deposit': f"{float(tenant.deposit or 0):,.2f}",
+        'lease_start': tenant.lease_start.strftime('%m/%d/%Y') if tenant.lease_start else 'TBD',
+        'rent_due': '1st of each month',
+        'pay_to': pay_to,
+        'memo': f'Rent - {tenant.property_unit}',
+        'methods': '\n'.join([
+            f'Tenant portal: {portal_url}',
+            f'Zelle / electronic transfer to: {pay_to}',
+            'Cash, check, or money order arranged with your property manager',
+        ]),
+        'note': 'After you pay, upload proof of payment in the tenant portal so we can confirm receipt.',
+        'company': company,
+    }
+
+
+def _money_text(value: str) -> str:
+    v = (value or '').strip().lstrip('$').strip()
+    return f'${v}' if v else ''
+
+
+def _send_lease_payment_details_to_tenant(tenant_id, overrides=None):
     """Email tenant rent/deposit/payment instructions after lease is fully signed."""
+    from html import escape
     from .models import Tenant
 
     try:
@@ -1703,57 +1740,58 @@ def _send_lease_payment_details_to_tenant(tenant_id):
     if not tenant.email:
         raise RuntimeError('Tenant has no email on file.')
 
-    rent = float(tenant.rent_amount or 0)
-    deposit = float(tenant.deposit or 0)
-    pay_to = _payment_pay_to_email()
-    company = getattr(settings, 'PROPERTY_MANAGER_NAME', None) or 'Neela Capital'
-    portal_url = f"{get_frontend_url()}/tenant"
-    lease_start = tenant.lease_start.strftime('%m/%d/%Y') if tenant.lease_start else 'TBD'
+    d = payment_details_defaults(tenant)
+    for key in PAYMENT_DETAIL_FIELDS:
+        if isinstance(overrides, dict) and isinstance(overrides.get(key), str):
+            d[key] = overrides[key].strip()
 
-    subject = f'Payment Details — {tenant.property_unit}'
-    plain = f"""Hello {tenant.name},
+    methods = [m.strip(' •-\t') for m in (d['methods'] or '').splitlines() if m.strip(' •-\t')]
+    rows = [
+        ('Property', d['property'], True),
+        ('Monthly rent', _money_text(d['rent']), True),
+        ('Security deposit', _money_text(d['deposit']), True),
+        ('Lease start', d['lease_start'], False),
+        ('Rent due', d['rent_due'], False),
+        ('Pay to', d['pay_to'], False),
+        ('Payment memo', d['memo'], False),
+    ]
+    rows = [r for r in rows if r[1]]
+    subject = d['subject'] or f'Payment Details — {tenant.property_unit}'
+    company = d['company'] or 'Neela Capital'
+    name = d['tenant_name'] or tenant.name
 
-Your lease for {tenant.property_unit} is fully signed. Here are your payment details:
+    plain_rows = '\n'.join(f'{label}: {val}' for label, val, _ in rows)
+    plain_methods = '\n'.join(f'• {m}' for m in methods)
+    plain = f"""Hello {name},
 
-Property: {tenant.property_unit}
-Monthly rent: ${rent:,.2f}
-Security deposit: ${deposit:,.2f}
-Lease start: {lease_start}
-Rent due: 1st of each month
+Your lease for {d['property']} is fully signed. Here are your payment details:
 
-How to pay:
-• Tenant portal: {portal_url}
-• Zelle / electronic transfer to: {pay_to}
-  (memo: Rent - {tenant.property_unit})
-• Cash, check, or money order arranged with your property manager
-
-After you pay, upload proof of payment in the tenant portal so we can confirm receipt.
-
-Questions? Reply to this email or contact {company}.
-
-Thank you,
-{company}
+{plain_rows}
 """
+    if methods:
+        plain += f"\nHow to pay:\n{plain_methods}\n"
+    if d['note']:
+        plain += f"\n{d['note']}\n"
+    plain += f"\nQuestions? Reply to this email or contact {company}.\n\nThank you,\n{company}\n"
+
+    cell = 'padding:8px;border:1px solid #e2e8f0;'
+    html_rows = ''.join(
+        f'<tr><td style="{cell}">{escape(label)}</td><td style="{cell}">'
+        + (f'<strong>{escape(val)}</strong>' if bold else escape(val))
+        + '</td></tr>'
+        for label, val, bold in rows
+    )
+    html_methods = ''.join(f'<li>{escape(m)}</li>' for m in methods)
+    html_note = ''.join(f'<p>{escape(p)}</p>' for p in d['note'].splitlines() if p.strip()) if d['note'] else ''
     html = f"""
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#0f172a;">
       <h2 style="margin:0 0 12px;">Payment details for your lease</h2>
-      <p>Hello {tenant.name},</p>
-      <p>Your lease for <strong>{tenant.property_unit}</strong> is fully signed. Please use the details below for rent payments.</p>
-      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-        <tr><td style="padding:8px;border:1px solid #e2e8f0;">Property</td><td style="padding:8px;border:1px solid #e2e8f0;"><strong>{tenant.property_unit}</strong></td></tr>
-        <tr><td style="padding:8px;border:1px solid #e2e8f0;">Monthly rent</td><td style="padding:8px;border:1px solid #e2e8f0;"><strong>${rent:,.2f}</strong></td></tr>
-        <tr><td style="padding:8px;border:1px solid #e2e8f0;">Security deposit</td><td style="padding:8px;border:1px solid #e2e8f0;"><strong>${deposit:,.2f}</strong></td></tr>
-        <tr><td style="padding:8px;border:1px solid #e2e8f0;">Lease start</td><td style="padding:8px;border:1px solid #e2e8f0;">{lease_start}</td></tr>
-        <tr><td style="padding:8px;border:1px solid #e2e8f0;">Rent due</td><td style="padding:8px;border:1px solid #e2e8f0;">1st of each month</td></tr>
-      </table>
-      <h3 style="margin:20px 0 8px;">How to pay</h3>
-      <ul>
-        <li>Tenant portal: <a href="{portal_url}">{portal_url}</a></li>
-        <li>Zelle / electronic transfer to: <strong>{pay_to}</strong> (memo: Rent - {tenant.property_unit})</li>
-        <li>Cash, check, or money order arranged with your property manager</li>
-      </ul>
-      <p>After you pay, upload proof of payment in the tenant portal so we can confirm receipt.</p>
-      <p style="color:#64748b;font-size:13px;">— {company}</p>
+      <p>Hello {escape(name)},</p>
+      <p>Your lease for <strong>{escape(d['property'])}</strong> is fully signed. Please use the details below for rent payments.</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">{html_rows}</table>
+      {f'<h3 style="margin:20px 0 8px;">How to pay</h3><ul>{html_methods}</ul>' if methods else ''}
+      {html_note}
+      <p style="color:#64748b;font-size:13px;">— {escape(company)}</p>
     </div>
     """
     send_email_with_logging(
@@ -1812,8 +1850,8 @@ Portal: {get_frontend_url()}
     )
 
 
-def send_lease_payment_details_to_tenant(tenant_id):
-    _send_lease_payment_details_to_tenant(tenant_id)
+def send_lease_payment_details_to_tenant(tenant_id, overrides=None):
+    _send_lease_payment_details_to_tenant(tenant_id, overrides=overrides)
 
 
 def send_payment_details_shared_staff_notice(tenant_id, shared_by: str = ''):

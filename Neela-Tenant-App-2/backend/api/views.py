@@ -701,10 +701,11 @@ class TenantViewSet(viewsets.ModelViewSet):
             logger.error(f'Error sending tenant message: {e}')
             return Response({'error': 'Failed to send message'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='share-payment-details')
+    @action(detail=True, methods=['get', 'post'], permission_classes=[IsAuthenticated], url_path='share-payment-details')
     def share_payment_details(self, request, pk=None):
         """
-        After both parties signed: email payment details to the tenant and
+        GET: editable draft for staff to preview.
+        POST: email payment details (with staff edits in `details`) to the tenant and
         remind landlord + property manager that details were shared.
         """
         tenant = self.get_object()
@@ -723,9 +724,14 @@ class TenantViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if request.method == 'GET':
+            from .email_service import payment_details_defaults
+            return Response({'sent_to': tenant.email, 'details': payment_details_defaults(tenant)})
+
+        details = request.data.get('details')
         shared_by = request.user.get_full_name() or request.user.email or 'Property manager'
         try:
-            send_lease_payment_details_to_tenant(tenant.id)
+            send_lease_payment_details_to_tenant(tenant.id, overrides=details if isinstance(details, dict) else None)
             try:
                 run_async(send_payment_details_shared_staff_notice, tenant.id, shared_by)
             except Exception:

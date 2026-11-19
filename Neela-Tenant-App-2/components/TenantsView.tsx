@@ -15,6 +15,7 @@ import { getApiOrigin } from '../utils/apiOrigin';
 import { formatTenantPropertyLabel } from '../utils/propertyLabel';
 import { LeaseOptions, mergeLeaseOptions } from '../utils/leaseOptions';
 import AddExistingTenantModal from './AddExistingTenantModal';
+import SharePaymentDetailsModal from './SharePaymentDetailsModal';
 
 interface TenantsProps {
   tenants: Tenant[];
@@ -815,17 +816,9 @@ Landlord                            Tenant
       setErrorMessage('Share payment details only after both parties have signed.');
       return;
     }
-    setIsSharingPaymentDetails(true);
     setErrorMessage(null);
     setSuccessMessage(null);
-    try {
-      const res = await api.sharePaymentDetails(String(selectedApplicant.id));
-      setSuccessMessage(res.message || 'Payment details shared with the tenant. Landlord and property manager were reminded.');
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to share payment details');
-    } finally {
-      setIsSharingPaymentDetails(false);
-    }
+    setIsSharingPaymentDetails(true);
   };
 
   const refreshLeaseDocFromServer = async () => {
@@ -2086,10 +2079,20 @@ Landlord                            Tenant
                                disabled={isSharingPaymentDetails}
                                className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded disabled:opacity-50 shrink-0"
                              >
-                               {isSharingPaymentDetails ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                               {isSharingPaymentDetails ? 'Sending…' : 'Share Payment Details'}
+                               <Send className="w-3.5 h-3.5" />
+                               Share Payment Details
                              </button>
                           </div>
+                       )}
+                       {isSharingPaymentDetails && selectedApplicant?.id && (
+                          <SharePaymentDetailsModal
+                            tenantId={String(selectedApplicant.id)}
+                            onClose={() => setIsSharingPaymentDetails(false)}
+                            onSent={(msg) => {
+                              setIsSharingPaymentDetails(false);
+                              setSuccessMessage(msg);
+                            }}
+                          />
                        )}
 
                        {/* Editor / Preview */}
