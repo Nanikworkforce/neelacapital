@@ -330,6 +330,28 @@ def _mark_tenant_property_occupied(tenant):
             elif len(candidates) == 1:
                 prop = candidates[0]
     if prop is None:
+        # Fall back to the unit label, e.g. "6707 Sherman St — Unit 3":
+        # same street number + street name, and the property name is the unit.
+        def _street_key(addr):
+            m = re.match(r'\s*(\d+)\s+([a-z]+)', (addr or '').lower())
+            return f"{m.group(1)} {m.group(2)}" if m else ''
+
+        label = tenant.property_unit or ''
+        addr_part, _, unit_part = label.partition('—')
+        if not unit_part:
+            addr_part, unit_part = app.get('propertyAddress') or '', label
+        key = _street_key(addr_part) or _street_key(app.get('propertyAddress'))
+        unit_l = unit_part.strip().lower()
+        if key and unit_l:
+            named = [
+                p for p in Property.objects.all()
+                if _street_key(p.address) == key
+                and ((p.name or '').strip().lower() == unit_l
+                     or (p.name or '').strip().lower().startswith(unit_l + ' '))
+            ]
+            if len(named) == 1:
+                prop = named[0]
+    if prop is None:
         logger.info('Finalize move-in: no property match for tenant %s', tenant.id)
         return
     if prop.status != 'occupied':
