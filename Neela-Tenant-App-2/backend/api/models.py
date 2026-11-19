@@ -64,6 +64,11 @@ class Tenant(models.Model):
                 continue
             pending_charges += payment.amount or Decimal('0')
 
+        # Existing tenants added by staff carry month-by-month history: each
+        # unpaid month is its own Pending charge, so paid months don't offset rent.
+        if (self.application_data or {}).get('addedByStaff'):
+            return unpaid_deposit + pending_charges
+
         return self.rent_amount + unpaid_deposit - total_paid + pending_charges
 
     def deposit_is_paid(self) -> bool:

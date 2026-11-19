@@ -9,6 +9,7 @@ import PropertyManagerSignupPage from './components/PropertyManagerSignupPage';
 import PropertyManagerView from './components/PropertyManagerView';
 import LeaseSigningPage from './components/LeaseSigningPage';
 import ShortStaysPublicPage from './components/ShortStaysPublicPage';
+import CompleteProfilePage from './components/CompleteProfilePage';
 import { isAuthenticated, getCurrentUser } from './services/auth';
 
 function LegacySignLeaseRedirect() {
@@ -52,6 +53,7 @@ root.render(
         <Route path="/portal/short-stays" element={<ShortStaysPublicPage />} />
         <Route path="/portal/tenant" element={<TenantLoginPage />} />
         <Route path="/portal/sign-lease" element={<LeaseSigningPage />} />
+        <Route path="/portal/complete-profile" element={<CompleteProfilePage />} />
         <Route path="/sign-lease" element={<LegacySignLeaseRedirect />} />
         <Route path="/portal/*" element={<App variant="portal" />} />
         <Route path="/portal" element={<App variant="portal" />} />

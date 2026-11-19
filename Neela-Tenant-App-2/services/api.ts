@@ -1498,6 +1498,54 @@ export const api = {
   },
 
   // Lease Generation API
+  addExistingTenant: async (
+    payload: any,
+    signedDocs: { file: File; type: string }[] = [],
+  ): Promise<any> => {
+    const form = new FormData();
+    form.append('data', JSON.stringify(payload));
+    signedDocs.forEach(d => form.append('signed_docs', d.file));
+    form.append('doc_types', JSON.stringify(signedDocs.map(d => d.type)));
+    const response = await fetchWithAuth(`${API_URL}/tenants/add-existing/`, {
+      method: 'POST',
+      headers: getHeaders(false, true),
+      body: form,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || data.detail || 'Failed to add tenant');
+    return data;
+  },
+
+  sendTenantProfileLink: async (tenantId: string): Promise<any> => {
+    const response = await fetchWithAuth(`${API_URL}/tenants/${tenantId}/send-profile-link/`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || data.detail || 'Failed to send link');
+    return data;
+  },
+
+  getTenantProfileByToken: async (token: string): Promise<any> => {
+    const response = await fetch(`${API_URL}/tenant-profile/?token=${encodeURIComponent(token)}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'This link is invalid or has expired.');
+    return data;
+  },
+
+  submitTenantProfileByToken: async (token: string, payload: any, photoIdFiles: File[] = []): Promise<any> => {
+    const form = new FormData();
+    form.append('data', JSON.stringify(payload));
+    photoIdFiles.forEach(f => form.append('photo_id_files', f));
+    const response = await fetch(`${API_URL}/tenant-profile/?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      body: form,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Failed to save your details');
+    return data;
+  },
+
   generateLease: async (tenantId: string, templateId?: string, customContent?: string, fillValues?: string[]): Promise<any> => {
     const body: any = {
       tenant_id: tenantId,

@@ -1,5 +1,5 @@
 from rest_framework import viewsets, parsers, status
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, parser_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import *
@@ -475,6 +475,179 @@ class TenantViewSet(viewsets.ModelViewSet):
             except Exception as e:
                 logger.warning(f"Celery connection failed, using threading fallback for declined email: {e}")
                 send_application_declined_email_to_user(tenant.id)
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='add-existing')
+    def add_existing(self, request):
+        """
+        Admin/PM adds a tenant who already lives in a unit: full details,
+        month-by-month payment history, and already-signed documents.
+        multipart: data=<json>, signed_docs=<files>, doc_types=<json list>
+        """
+        import json
+        from datetime import date as _date
+        from django.db import transaction
+
+        user = request.user
+        if not is_staff_portal_user(user):
+            raise PermissionDenied('Only admin or property manager can add tenants.')
+        try:
+            data = json.loads(request.data.get('data') or '{}')
+        except (TypeError, ValueError):
+            return Response({'error': 'Invalid data.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        t = data.get('tenant') or {}
+        name = (t.get('name') or '').strip()
+        email = (t.get('email') or '').strip()
+        if not name or not email:
+            return Response({'error': 'Name and email are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if Tenant.objects.filter(email__iexact=email, status__in=['Active', 'Eviction Pending']).exists():
+            return Response(
+                {'error': 'This email already belongs to an active tenant.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        app = dict(t.get('applicationData') or {})
+        prop_id = app.get('propertyId')
+        if prop_id and not is_admin_user(user):
+            if not filter_properties_for_user(Property.objects.filter(id=prop_id), user).exists():
+                raise PermissionDenied('You can only add tenants to your own properties.')
+        app['addedByStaff'] = True
+        app.setdefault('submissionDate', timezone.now().isoformat())
+
+        def _dec(v):
+            try:
+                return Decimal(str(v or 0))
+            except Exception:
+                return Decimal('0')
+
+        def _day(v):
+            try:
+                return _date.fromisoformat(str(v)[:10]) if v else None
+            except ValueError:
+                return None
+
+        files = request.FILES.getlist('signed_docs')
+        try:
+            doc_types = json.loads(request.data.get('doc_types') or '[]')
+        except (TypeError, ValueError):
+            doc_types = []
+
+        with transaction.atomic():
+            tenant = Tenant.objects.create(
+                name=name,
+                email=email,
+                phone=(t.get('phone') or '').strip(),
+                status='Active',
+                property_unit=(t.get('propertyUnit') or '').strip() or 'Unit',
+                lease_start=_day(t.get('leaseStart')),
+                lease_end=_day(t.get('leaseEnd')),
+                rent_amount=_dec(t.get('rentAmount')),
+                deposit=_dec(t.get('deposit')),
+                application_data=app,
+                lease_status='Signed' if files else None,
+            )
+            try:
+                from .property_units_service import normalize_tenant_property_unit
+                if normalize_tenant_property_unit(tenant):
+                    tenant.save(update_fields=['property_unit'])
+            except Exception as e:
+                logger.warning(f"Could not normalize property_unit for tenant {tenant.id}: {e}")
+
+            for p in data.get('payments') or []:
+                amount = _dec(p.get('amount'))
+                if amount <= 0:
+                    continue
+                paid = bool(p.get('paid'))
+                ptype = 'Deposit' if p.get('type') == 'Deposit' else 'Rent'
+                Payment.objects.create(
+                    tenant=tenant,
+                    amount=amount,
+                    date=_day(p.get('date')) or _day(p.get('month')) or timezone.now().date(),
+                    status='Paid' if paid else 'Pending',
+                    type=ptype,
+                    method=(p.get('method') or 'Cash') if paid else 'Pending',
+                    reference=(p.get('label') or '')[:100] or None,
+                )
+
+        failed_docs = []
+        for i, f in enumerate(files):
+            doc_type = doc_types[i] if i < len(doc_types) and doc_types[i] else 'Signed Document'
+            stamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+            base = re.sub(r'[^A-Za-z0-9._-]+', '_', f.name.rsplit('.', 1)[0])[:60] or 'document'
+            try:
+                raw = f.read()
+                if not raw.startswith(b'%PDF'):
+                    import fitz
+                    img = fitz.open(stream=raw, filetype=(f.name.rsplit('.', 1)[-1] or 'png').lower())
+                    raw = img.convert_to_pdf()
+                doc = LegalDocument(
+                    tenant=tenant,
+                    type=doc_type,
+                    generated_content=f'Uploaded signed document: {f.name}',
+                    status='Signed',
+                    signed_at=timezone.now(),
+                    delivery_method='Uploaded',
+                )
+                doc.pdf_file.save(f"tenant_{tenant.id}_{stamp}_{i}_{base}.pdf", ContentFile(raw), save=False)
+                doc.save()
+            except Exception as e:
+                logger.warning(f"Could not store uploaded document {f.name} for tenant {tenant.id}: {e}")
+                failed_docs.append(f.name)
+
+        tenant.update_balance()
+        _mark_tenant_property_occupied(tenant)
+
+        link_sent = False
+        if data.get('sendProfileLink'):
+            link_sent = self._send_profile_link(tenant)
+
+        out = dict(self.get_serializer(tenant).data)
+        out['profile_link_sent'] = link_sent
+        out['failed_docs'] = failed_docs
+        return Response(out, status=status.HTTP_201_CREATED)
+
+    def _send_profile_link(self, tenant):
+        from django.core import signing
+        token = signing.dumps({'t': tenant.id}, salt='tenant-profile')
+        url = f"{get_frontend_url()}/complete-profile?token={token}"
+        first = (tenant.name or '').split(' ')[0] or 'there'
+        message = (
+            f"Hi {first},\n\n"
+            f"Neela Capital Investments has set up your resident profile for {tenant.property_unit}.\n"
+            f"Please take a few minutes to review and complete your details here:\n\n{url}\n\n"
+            "This link is valid for 30 days.\n\nThank you,\nNeela Capital Investments"
+        )
+        html = (
+            f"<p>Hi {first},</p>"
+            f"<p>Neela Capital Investments has set up your resident profile for <b>{tenant.property_unit}</b>.</p>"
+            f"<p>Please take a few minutes to review and complete your details:</p>"
+            f"<p><a href=\"{url}\" style=\"background:#4f46e5;color:#fff;padding:10px 18px;border-radius:8px;"
+            f"text-decoration:none;font-weight:bold\">Complete my details</a></p>"
+            "<p style=\"color:#64748b;font-size:12px\">This link is valid for 30 days.</p>"
+            "<p>Thank you,<br/>Neela Capital Investments</p>"
+        )
+        try:
+            send_email_with_logging(
+                subject='Please complete your resident details - Neela Capital',
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[tenant.email],
+                html_message=html,
+                email_type=f"resident profile link (tenant {tenant.id})",
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send profile link to tenant {tenant.id}: {e}")
+            return False
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='send-profile-link')
+    def send_profile_link(self, request, pk=None):
+        if not is_staff_portal_user(request.user):
+            raise PermissionDenied('Only admin or property manager can send this link.')
+        tenant = self.get_object()
+        if not self._send_profile_link(tenant):
+            return Response({'error': 'Could not send the email.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({'message': f'Link sent to {tenant.email}.'})
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='send-message')
     def send_message(self, request, pk=None):
@@ -3322,6 +3495,78 @@ class EmailTestViewSet(viewsets.ViewSet):
 
 
 # ==================== Token-based in-house lease signing ====================
+
+TENANT_PROFILE_FIELDS = (
+    'dateOfBirth', 'currentAddress', 'currentEmployer', 'jobTitle', 'monthlyIncome',
+    'emergencyContactName', 'emergencyContactRelationship', 'emergencyContactPhone',
+    'otherOccupants', 'hasPets', 'petCount', 'petsWhich', 'vehicles', 'additionalNotes',
+)
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+@parser_classes([parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser])
+def tenant_profile_by_token(request):
+    """
+    GET  /api/tenant-profile/?token=  — resident details staff already entered
+    POST /api/tenant-profile/?token=  — resident completes/updates their details
+    """
+    import json
+    from django.core import signing
+
+    raw = request.query_params.get('token') or ''
+    try:
+        payload = signing.loads(raw, salt='tenant-profile', max_age=60 * 60 * 24 * 30)
+        tenant = Tenant.objects.get(id=payload.get('t'))
+    except (signing.BadSignature, signing.SignatureExpired, Tenant.DoesNotExist, TypeError, AttributeError):
+        return Response({'error': 'This link is invalid or has expired.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    app = dict(tenant.application_data or {})
+    if request.method == 'GET':
+        return Response({
+            'name': tenant.name,
+            'email': tenant.email,
+            'phone': tenant.phone,
+            'property_unit': tenant.property_unit,
+            'lease_start': tenant.lease_start,
+            'lease_end': tenant.lease_end,
+            'details': {k: app.get(k) for k in TENANT_PROFILE_FIELDS},
+            'completed_at': app.get('profileCompletedAt'),
+        })
+
+    try:
+        body = json.loads(request.data.get('data')) if 'data' in request.data else request.data
+    except (TypeError, ValueError):
+        body = {}
+    details = body.get('details') or {}
+    for k in TENANT_PROFILE_FIELDS:
+        if k in details:
+            app[k] = details[k]
+    if app.get('emergencyContactName') or app.get('emergencyContactPhone'):
+        app['emergencyContact'] = ', '.join(
+            x for x in (app.get('emergencyContactName'), app.get('emergencyContactRelationship'),
+                        app.get('emergencyContactPhone')) if x
+        )
+    app['profileCompletedAt'] = timezone.now().isoformat()
+    tenant.application_data = app
+    update = ['application_data']
+    phone = (body.get('phone') or '').strip()
+    if phone:
+        tenant.phone = phone
+        update.append('phone')
+
+    id_files = request.FILES.getlist('photo_id_files') if hasattr(request, 'FILES') else []
+    if id_files:
+        saved = list(tenant.photo_id_files or [])
+        for f in id_files[:5]:
+            stamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+            path = default_storage.save(f"tenants/tenant_{tenant.id}/photo_id_{stamp}_{f.name}", ContentFile(f.read()))
+            saved.append({'filename': f.name, 'path': path, 'size': f.size, 'uploaded_at': timezone.now().isoformat()})
+        tenant.photo_id_files = saved
+        update.append('photo_id_files')
+    tenant.save(update_fields=update)
+    return Response({'message': 'Thank you! Your details have been saved.'})
+
 
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
