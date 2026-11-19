@@ -700,6 +700,7 @@ def fill_lease_template(template_content: str, tenant: Tenant) -> str:
     for placeholder, value in replacements.items():
         filled_content = filled_content.replace(placeholder, str(value))
 
+    filled_content = re.sub(r'\$\s*\$', '$', filled_content)
     # Cap any leftover long blank runs from the template itself
     return _cap_underscore_runs(filled_content)
 
