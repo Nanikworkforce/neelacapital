@@ -267,7 +267,7 @@ import {
 import { DollarSign, AlertCircle, CheckCircle2, Users, FileText, Building2, Home, Settings, TrendingUp, ChevronRight, ArrowUpRight, ArrowDownRight, Clock, Zap, X, MapPin, Bed, Bath, Maximize, BarChart3, Receipt } from 'lucide-react';
 import { Tenant, Payment, MaintenanceRequest, TenantStatus, Property, IncomeStatementSummary, OperatingExpense } from '../types';
 import Modal from './Modal';
-import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
+import { useOnLiveChange } from '../utils/useLiveChanges';
 import ViewportPortal from './ViewportPortal';
 import { api } from '../services/api';
 import { formatDateMMDDYYYY, formatRelativeTimeAgo } from '../utils/date';
@@ -362,15 +362,12 @@ const DashboardView: React.FC<DashboardProps> = ({ tenants, payments, maintenanc
     return () => { cancelled = true; };
   }, []);
 
-  usePollWhileVisible(async () => {
-    const year = new Date().getFullYear();
-    const [pnl, expenses] = await Promise.all([
-      api.getIncomeStatement(undefined, { summary: true }),
-      api.getOperatingExpenses({ year, limit: 8 }),
-    ]);
-    setPnlSummary(pnl);
-    setManagerExpenses(expenses);
-  }, 30_000);
+  useOnLiveChange(['payments', 'expenses', 'properties'], () => {
+    api.getIncomeStatement(undefined, { summary: true }).then(setPnlSummary).catch(() => {});
+  });
+  useOnLiveChange(['expenses'], () => {
+    api.getOperatingExpenses({ year: new Date().getFullYear(), limit: 8 }).then(setManagerExpenses).catch(() => {});
+  });
   // Responsive state for chart labels and sizing
   const [screenSize, setScreenSize] = useState({
     isXLarge: typeof window !== 'undefined' && window.innerWidth >= 1280,

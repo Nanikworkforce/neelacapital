@@ -6,7 +6,7 @@ import {
   DollarSign, ToggleLeft, ToggleRight, ChevronLeft, ChevronRight, Eye, Download,
   Ban, RefreshCw, X, Filter, Home, Trash2
 } from 'lucide-react';
-import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
+import { useOnLiveChange } from '../utils/useLiveChanges';
 import {
   getPropertyGroupKeyFromProperty,
   propertiesForPortfolioDisplay,
@@ -172,7 +172,9 @@ const ShortStaysView: React.FC = () => {
     setProperties(propertyData);
   }, []);
 
-  usePollWhileVisible(silentRefresh, 30_000, !loading);
+  useOnLiveChange(['short_stays', 'properties'], () => {
+    if (!loading) silentRefresh().catch(() => {});
+  });
 
   const loadCalendar = useCallback(async () => {
     if (!calendarPropertyId) return;

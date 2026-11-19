@@ -833,3 +833,14 @@ class SavedSignature(models.Model):
 
     def __str__(self):
         return f'Saved signature ({self.role})'
+
+
+class ChangeStamp(models.Model):
+    """Version counter per data area; the portal polls these to refresh only what changed."""
+
+    area = models.CharField(max_length=40, unique=True)
+    version = models.PositiveBigIntegerField(default=0)
+    changed_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.area} v{self.version}'

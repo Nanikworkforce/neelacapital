@@ -27,6 +27,7 @@ import {
 } from '../utils/propertyGrouping';
 import { SEO_PAGES, usePageMeta } from '../utils/seo';
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible';
+import { useLiveChanges } from '../utils/useLiveChanges';
 import { formatDateMMDDYYYY } from '../utils/date';
 import { formatTenantPropertyLabel } from '../utils/propertyLabel';
 
@@ -555,7 +556,15 @@ const PropertyManagerView: React.FC = () => {
     setMaintenance(m);
   }, [user?.email, user?.first_name, user?.last_name]);
 
-  usePollWhileVisible(silentRefresh, 60_000, !loading && accountStatus === 'approved', { runOnFocus: false });
+  // Account status / property assignments: rare, so a slow check is enough.
+  usePollWhileVisible(silentRefresh, 300_000, !loading && accountStatus === 'approved', { runOnFocus: false });
+  useLiveChanges(!loading && accountStatus === 'approved', (areas) => {
+    if (areas.includes('tenants')) refreshTenants();
+    if (areas.includes('payments')) refreshPayments();
+    if (areas.includes('maintenance')) refreshMaintenance();
+    if (areas.includes('expenses')) refreshExpenses();
+    if (areas.includes('properties')) api.getProperties().then(setProperties).catch(() => {});
+  });
 
   const handleLogout = () => {
     logout('manager');

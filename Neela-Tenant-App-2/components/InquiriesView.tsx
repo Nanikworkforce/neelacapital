@@ -3,6 +3,7 @@ import { Inquiry } from '../types';
 import { api } from '../services/api';
 import { MessageSquare, Search, Mail, Loader2, Archive, Eye, Inbox } from 'lucide-react';
 import { formatDateMMDDYYYY, formatDateTime } from '../utils/date';
+import { useOnLiveChange } from '../utils/useLiveChanges';
 
 const statusStyles: Record<string, string> = {
   new: 'bg-amber-100 text-amber-800',
@@ -42,6 +43,10 @@ const InquiriesView: React.FC = () => {
   useEffect(() => {
     load();
   }, []);
+
+  useOnLiveChange(['inquiries'], () => {
+    api.getInquiries().then(setInquiries).catch(() => {});
+  });
 
   const filtered = inquiries.filter((item) => {
     const haystack = `${item.firstName} ${item.lastName} ${item.email} ${item.message} ${item.propertyAddress}`.toLowerCase();

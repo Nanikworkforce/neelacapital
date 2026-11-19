@@ -7,7 +7,7 @@ import { api } from './services/api';
 import { isAuthenticated, getCurrentUser, logout } from './services/auth';
 import { adminTabMeta, SEO_PAGES, usePageMeta } from './utils/seo';
 import { Tenant, Payment, MaintenanceRequest, Property } from './types';
-import { usePollWhileVisible } from './hooks/usePollWhileVisible';
+import { useLiveChanges } from './utils/useLiveChanges';
 import { stripBase } from './utils/basePath';
 
 const PublicPortal = lazy(() => import('./components/PublicPortal'));
@@ -126,17 +126,16 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
     });
   }, [activeTab, isAuthChecking, loading, tenants.length, loadAdminData, isStaffAdmin]);
 
-  // Refresh admin lists when user returns to the tab (avoids stale dashboard data)
-  useEffect(() => {
-    if (variant !== 'admin') return;
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (!isAuthenticated('admin') || !isStaffAdmin()) return;
-      loadAdminData({ blockUI: false }).catch(() => {});
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [variant, loadAdminData, isStaffAdmin]);
+  // Quietly refetch only the lists that changed on the server (no page reload).
+  const liveEnabled =
+    variant === 'admin' && !isAuthChecking && !loading && activeTab !== 'public-portal'
+    && isAuthenticated('admin') && isStaffAdmin();
+  useLiveChanges(liveEnabled, (areas) => {
+    if (areas.includes('tenants')) api.getTenants().then(setTenants).catch(() => {});
+    if (areas.includes('payments')) api.getPayments().then(setPayments).catch(() => {});
+    if (areas.includes('maintenance')) api.getMaintenanceRequests().then(setMaintenance).catch(() => {});
+    if (areas.includes('properties')) api.getProperties().then(setProperties).catch(() => {});
+  });
 
   // When returning from /admin login, switch to admin dashboard and load data
   useEffect(() => {
@@ -314,18 +313,6 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
     }
   };
 
-  // Keep admin lists fresh while the staff portal is open (no full-page reload).
-  usePollWhileVisible(async () => {
-    const [tenantsData, paymentsData, maintenanceData] = await Promise.all([
-      api.getTenants(),
-      api.getPayments(),
-      api.getMaintenanceRequests(),
-    ]);
-    setTenants(tenantsData);
-    setPayments(paymentsData);
-    setMaintenance(maintenanceData);
-  }, 45_000, !isAuthChecking && !loading && activeTab !== 'public-portal' && isStaffAdmin());
-
   const renderAdminContent = () => {
     // Check authentication for admin views
     if (activeTab !== 'public-portal' && !isAuthenticated('admin')) {
@@ -385,7 +372,6 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
       case 'tenants':
         return (
           <TenantsView 
-            key={`tenants-${tenants.length}-${tenants.map(t => `${t.id}-${t.balance}`).join('-')}`}
             tenants={tenants} 
             initialTab={tenantsInitialTab} 
             onTenantsChange={refreshTenants} 
@@ -406,7 +392,6 @@ const App: React.FC<AppProps> = ({ variant = 'portal' }) => {
       case 'payments':
         return (
           <PaymentsView 
-            key={`payments-${tenants.length}-${payments.length}`}
             tenants={tenants} 
             payments={payments} 
             invoices={[]} 

@@ -756,6 +756,15 @@ export const api = {
   },
 
   /** After lease is fully signed: email payment details to tenant + remind landlord/PM. */
+  getLiveChanges: async (): Promise<Record<string, number>> => {
+    const response = await fetchWithAuth(`${API_URL}/live-changes/`, {
+      headers: getHeaders(true, true),
+    });
+    if (!response.ok) throw new Error('Failed to check for changes');
+    const data = await response.json();
+    return data.versions || {};
+  },
+
   getPaymentDetailsDraft: async (
     tenantId: string,
   ): Promise<{ sent_to: string; details: PaymentDetailsDraft }> => {

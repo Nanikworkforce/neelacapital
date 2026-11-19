@@ -3558,6 +3558,17 @@ def _clean_signature_image(data_url: str) -> str:
     return 'data:image/png;base64,' + base64.b64encode(out.getvalue()).decode('ascii')
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def live_changes(request):
+    """Tiny version map the portal polls so it only refetches areas that changed."""
+    from .live_changes import current_versions
+
+    if not is_staff_portal_user(request.user):
+        raise PermissionDenied('Staff access required.')
+    return Response({'versions': current_versions()})
+
+
 @api_view(['GET', 'POST', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def landlord_signature(request):
